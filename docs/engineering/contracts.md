@@ -1,6 +1,6 @@
 # 数据契约（建议重构时优先稳定的部分）
 
-本文件描述“外部可见/需要长期稳定”的数据结构：预案 JSON、Provider 配置、本地存储键，以及导出对图片的约束。
+本文件描述“外部可见/需要长期稳定”的数据结构：预案 JSON、Provider 配置、本地存储键、生成/版本/产物（artifacts），以及导出对图片的约束。
 
 ## 1) 单预案（Single Plan）
 
@@ -80,7 +80,90 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
 
 ## 5) 图片与导出约束
 
-- Sidecar 返回 `{ imageBase64, mimeType }`，前端组装成 `data:<mimeType>;base64,<...>`。
-- PPT 导出仅支持嵌入 `data:image/...` 的 dataURL（否则会展示占位提示）。
-- 项目模式的图片索引目前使用 `sceneKey = lookIndex * 100 + sceneIndex`（隐含假设：每套场景数量很小且稳定）。
+- 图片生成的长期契约（建议）：
+  - Sidecar 返回 **可持久化产物**（`GenerationArtifact`），包含 `filePath/mimeType/effectivePrompt/...`，前端以 `/uploads/*` 形式渲染。
+  - 如需导出（PPT/其它格式），导出器可在导出时将本地文件转换为 dataURL/二进制再嵌入。
+- 兼容期说明：
+  - 当前实现仍可能返回 `{ imageBase64, mimeType }`；但这不应成为长期依赖（会导致内存占用高、难以版本化与清理）。
+- 现存实现约束（待重构清理）：
+  - 项目模式的图片索引目前使用 `sceneKey = lookIndex * 100 + sceneIndex`（隐含假设：每套场景数量很小且稳定）。
 
+## 6) 生成与版本（GenerationRun / GenerationArtifact）
+
+> 目标：支撑“流程内 Image Studio Lite + 方案预览图 + 版本管理与清理”，并为 Phase B 的 Agent/skills 复用同一套能力层契约。
+
+### 6.1 GenerationRun（一次生成动作）
+
+`GenerationRun` 表示一次“生成类动作”的执行记录（可能由 UI 触发，也可能由 worker/Agent 触发）。
+
+最小结构（建议）：
+
+```json
+{
+  "id": "gr_...",
+  "kind": "plan-generation | image-generation | image-edit | asset-caption",
+  "trigger": "ui | worker | agent",
+  "status": "queued | running | succeeded | failed | canceled",
+  "relatedType": "project | asset",
+  "relatedId": "p_... | a_...",
+  "effectivePrompt": "string (image-only)",
+  "promptContext": {},
+  "parentRunId": "gr_... (optional)",
+  "createdAt": 1700000000000,
+  "error": { "message": "..." }
+}
+```
+
+说明：
+
+- `effectivePrompt` 仅对图片类 run 有意义（文本生成可以为空）。
+- `promptContext` 为结构化上下文，MVP 可先做到“可回显、可追溯”，不要求 UI 可结构化编辑。
+
+### 6.2 GenerationArtifact（一次生成产生的产物）
+
+`GenerationArtifact` 表示 run 的产物（通常是图片文件，也可能是 JSON/文本）。
+
+最小结构（建议）：
+
+```json
+{
+  "id": "ga_...",
+  "runId": "gr_...",
+  "type": "image | json | text",
+  "mimeType": "image/png",
+  "filePath": "uploads/xxx.png",
+  "width": 1024,
+  "height": 1024,
+  "sizeBytes": 123456,
+  "owner": { "type": "asset | projectPlanVersion | planScene", "id": "...", "slot": "cover | scene:0" },
+  "effectivePrompt": "string",
+  "promptContext": {},
+  "referenceImages": [{ "artifactId": "ga_...", "filePath": "uploads/..." }],
+  "editInstruction": "string (optional)",
+  "parentArtifactId": "ga_... (optional)",
+  "createdAt": 1700000000000,
+  "deletedAt": null
+}
+```
+
+说明：
+
+- `filePath` 建议为相对路径（由 Sidecar 静态路由映射到 `/uploads/*`），避免把绝对系统路径泄露到前端与导出。
+- `owner.type/id/slot` 用于把 artifact 归属到“某个资产/某个方案版本/某个场景卡片”的某个图片位（slot）。
+- `parentArtifactId` 用于表达“基于上一张图重新编辑/重新生成”的版本链路。
+
+### 6.3 effective prompt 一致性原则（硬性）
+
+只要 UI 里涉及“文生图 / 文+图生图”，必须满足：
+
+- UI 允许用户编辑“本次生成要用的提示词”（draft）。
+- 服务端最终用于出图的 **`effectivePrompt` 必须回显**（并建议同时回显 `promptContext`）。
+- 前端展示的 “最终提示词（effective prompt）”以服务端回显为准（覆盖本地推导/拼接），确保可复用与可追溯。
+
+### 6.4 版本指针（Active Pointer）
+
+同一个 `owner.type + owner.id + owner.slot` 下可能有多个 artifact 版本，但必须存在“当前版本指针”：
+
+- 例如：`asset.coverArtifactId`、`planScene.previewArtifactId`
+- 删除当前版本必须有明确规则：
+  - 本产品默认：允许删除任何版本；删除当前版本后自动回退到“最近版本”（按 `createdAt` 取最新）；若无版本则进入空状态（见 ADR 0004）
