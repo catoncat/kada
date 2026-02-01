@@ -188,11 +188,31 @@ export function useImageGeneration() {
       prompt,
       relatedId,
       relatedMeta,
+      referenceImages,
+      owner,
+      parentArtifactId,
+      editInstruction,
     }: {
       prompt: string;
       relatedId?: string;
       relatedMeta?: string;
-    }) => createImageTask(prompt, { relatedId, relatedMeta }),
+      referenceImages?: string[];
+      owner?: {
+        type: 'asset' | 'projectPlanVersion' | 'planScene';
+        id: string;
+        slot?: string;
+      };
+      parentArtifactId?: string;
+      editInstruction?: string;
+    }) =>
+      createImageTask(prompt, {
+        relatedId,
+        relatedMeta,
+        referenceImages,
+        owner,
+        parentArtifactId,
+        editInstruction,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all });
     },
