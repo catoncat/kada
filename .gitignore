@@ -1,0 +1,20 @@
+node_modules
+dist
+.DS_Store
+*.local
+*.log
+
+# Tauri
+src-tauri/target
+src-tauri/binaries/*.exe
+src-tauri/binaries/sidecar-*
+
+# Sidecar
+sidecar/node_modules
+sidecar/dist
+sidecar/data
+sidecar/sidecar
+sidecar/sidecar.exe
+
+# Generated files
+src/routeTree.gen.ts
