@@ -21,6 +21,7 @@ import TopicChips, { saveRecentTopic } from '@/components/TopicChips';
 import PlanToc from '@/components/PlanToc';
 import OutfitPlannerForm from '@/components/OutfitPlannerForm';
 import GlobalStyleSelector from '@/components/GlobalStyleSelector';
+import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { createFileRoute } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/')({
@@ -93,6 +94,84 @@ function Index() {
       return () => clearTimeout(timer);
     }
   }, [batchQueue]);
+
+  // 防抖保存 visualPrompt（项目模式）
+  const saveProjectPrompt = useCallback((lookIdx: number, sceneIdx: number, newPrompt: string) => {
+    // 1) 更新当前 projectPlan
+    setProjectPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        plans: prev.plans.map((pp, li) => {
+          if (li !== lookIdx) return pp;
+          return {
+            ...pp,
+            scenes: (pp.scenes || []).map((ss, ssi) => (ssi === sceneIdx ? { ...ss, visualPrompt: newPrompt } : ss)),
+          };
+        }),
+      };
+    });
+
+    // 2) 写回 history + localStorage
+    setHistory((prevHistory) => {
+      const nextHistory = prevHistory.map((r) => {
+        if (r.kind === 'project' && r.data.id === projectPlan?.id) {
+          return {
+            ...r,
+            data: {
+              ...r.data,
+              plans: r.data.plans.map((pp, li) => {
+                if (li !== lookIdx) return pp;
+                return {
+                  ...pp,
+                  scenes: (pp.scenes || []).map((ss, ssi) =>
+                    ssi === sceneIdx ? { ...ss, visualPrompt: newPrompt } : ss
+                  ),
+                };
+              }),
+            },
+          };
+        }
+        return r;
+      });
+      localStorage.setItem('shooting_history', serializeHistory(nextHistory as PlanRecord[]));
+      return nextHistory as PlanRecord[];
+    });
+  }, [projectPlan?.id]);
+
+  const debouncedSaveProjectPrompt = useDebouncedCallback(saveProjectPrompt, 800);
+
+  // 防抖保存 visualPrompt（单预案模式）
+  const saveSinglePrompt = useCallback((sceneIdx: number, newPrompt: string) => {
+    // 1) 更新当前展示
+    setPlan((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scenes: prev.scenes.map((s, idx) => (idx === sceneIdx ? { ...s, visualPrompt: newPrompt } : s)),
+      };
+    });
+
+    // 2) 写回 history + localStorage
+    setHistory((prevHistory) => {
+      const nextHistory = prevHistory.map((r) => {
+        if (r.kind === 'single' && r.data.id === plan?.id) {
+          return {
+            kind: 'single',
+            data: {
+              ...r.data,
+              scenes: r.data.scenes.map((s, idx) => (idx === sceneIdx ? { ...s, visualPrompt: newPrompt } : s)),
+            },
+          } as PlanRecord;
+        }
+        return r;
+      });
+      localStorage.setItem('shooting_history', serializeHistory(nextHistory));
+      return nextHistory;
+    });
+  }, [plan?.id]);
+
+  const debouncedSaveSinglePrompt = useDebouncedCallback(saveSinglePrompt, 800);
 
   // 开启新预案
   const handleNewChat = () => {
@@ -614,10 +693,15 @@ function Index() {
 
                                 {s.visualPrompt && (
                                   <div className="rounded-xl border border-[var(--line)] bg-white p-4">
-                                    <div className="text-[10px] font-semibold text-[var(--ink-3)] tracking-widest mb-2">生图提示词（英文，可编辑）</div>
+                                    <div className="text-[10px] font-semibold text-[var(--ink-3)] tracking-widest mb-2">生图提示词（英文，自动保存）</div>
                                     <textarea
                                       value={promptDrafts[sceneKey] ?? s.visualPrompt}
-                                      onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [sceneKey]: e.target.value }))}
+                                      onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setPromptDrafts((prev) => ({ ...prev, [sceneKey]: newValue }));
+                                        // 防抖自动保存
+                                        debouncedSaveProjectPrompt(idx, si, newValue.trim());
+                                      }}
                                       rows={4}
                                       className="w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-mono text-[var(--ink)] leading-relaxed"
                                     />
@@ -628,52 +712,16 @@ function Index() {
                                           const nextPrompt = (promptDrafts[sceneKey] ?? s.visualPrompt).trim();
                                           if (!nextPrompt) return alert('提示词为空');
 
-                                          // 1) 更新当前 projectPlan
-                                          setProjectPlan((prev) => {
-                                            if (!prev) return prev;
-                                            return {
-                                              ...prev,
-                                              plans: prev.plans.map((pp, li) => {
-                                                if (li !== idx) return pp;
-                                                return {
-                                                  ...pp,
-                                                  scenes: (pp.scenes || []).map((ss, ssi) => (ssi === si ? { ...ss, visualPrompt: nextPrompt } : ss)),
-                                                };
-                                              }),
-                                            };
-                                          });
+                                          // 立即保存（不等防抖）
+                                          saveProjectPrompt(idx, si, nextPrompt);
 
-                                          // 2) 写回 history + localStorage
-                                          const nextHistory = history.map((r) => {
-                                            if (r.kind === 'project' && r.data.id === projectPlan?.id) {
-                                              return {
-                                                ...r,
-                                                data: {
-                                                  ...r.data,
-                                                  plans: r.data.plans.map((pp, li) => {
-                                                    if (li !== idx) return pp;
-                                                    return {
-                                                      ...pp,
-                                                      scenes: (pp.scenes || []).map((ss, ssi) =>
-                                                        ssi === si ? { ...ss, visualPrompt: nextPrompt } : ss
-                                                      ),
-                                                    };
-                                                  }),
-                                                },
-                                              };
-                                            }
-                                            return r;
-                                          });
-                                          setHistory(nextHistory as any);
-                                          localStorage.setItem('shooting_history', serializeHistory(nextHistory as any));
-
-                                          // 3) 生成
+                                          // 生成图片
                                           generateImage(nextPrompt, sceneKey);
                                         }}
                                         className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--ink)] hover:bg-gray-50"
                                       >
                                         <Wand2 className="w-4 h-4" />
-                                        重新生成
+                                        生成
                                       </button>
                                     </div>
                                   </div>
@@ -868,54 +916,36 @@ function Index() {
 
                             <div className="rounded-xl border border-[var(--line)] bg-white p-4">
                               <div className="text-[10px] font-semibold text-[var(--ink-3)] tracking-widest mb-2">
-                                生图提示词（英文）
+                                生图提示词（英文，自动保存）
                               </div>
                               <textarea
                                 value={promptDrafts[i] ?? scene.visualPrompt}
-                                onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
+                                onChange={(e) => {
+                                  const newValue = e.target.value;
+                                  setPromptDrafts((prev) => ({ ...prev, [i]: newValue }));
+                                  // 防抖自动保存
+                                  debouncedSaveSinglePrompt(i, newValue.trim());
+                                }}
                                 rows={4}
                                 className="w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-mono text-[var(--ink)] leading-relaxed"
                               />
-                              <div className="mt-2 flex items-center justify-between">
-                                <div className="text-[10px] text-[var(--ink-3)]">可编辑；修改后点右侧重新生成。</div>
+                              <div className="mt-2 flex items-center justify-end">
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const nextPrompt = (promptDrafts[i] ?? scene.visualPrompt).trim();
                                     if (!nextPrompt) return alert('提示词为空');
 
-                                    // 1) 更新当前展示
-                                    setPlan((prev) => {
-                                      if (!prev) return prev;
-                                      return {
-                                        ...prev,
-                                        scenes: prev.scenes.map((s, idx) => (idx === i ? { ...s, visualPrompt: nextPrompt } : s)),
-                                      };
-                                    });
+                                    // 立即保存（不等防抖）
+                                    saveSinglePrompt(i, nextPrompt);
 
-                                    // 2) 写回 history + localStorage
-                                    const nextHistory = history.map((r) => {
-                                      if (r.kind === 'single' && r.data.id === plan?.id) {
-                                        return {
-                                          kind: 'single',
-                                          data: {
-                                            ...r.data,
-                                            scenes: r.data.scenes.map((s, idx) => (idx === i ? { ...s, visualPrompt: nextPrompt } : s)),
-                                          },
-                                        } as any;
-                                      }
-                                      return r;
-                                    });
-                                    setHistory(nextHistory as any);
-                                    localStorage.setItem('shooting_history', serializeHistory(nextHistory as any));
-
-                                    // 3) 生成
+                                    // 生成图片
                                     generateImage(nextPrompt, i);
                                   }}
                                   className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--ink)] hover:bg-gray-50"
                                 >
                                   <Wand2 className="w-4 h-4" />
-                                  重新生成
+                                  生成
                                 </button>
                               </div>
                             </div>
