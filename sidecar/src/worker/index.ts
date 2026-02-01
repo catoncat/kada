@@ -5,7 +5,7 @@
 
 import { getDb } from '../db';
 import { tasks } from '../db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { imageGenerationHandler } from './handlers/image-generation';
 import { planGenerationHandler } from './handlers/plan-generation';
 
@@ -24,15 +24,37 @@ let pollInterval: ReturnType<typeof setInterval> | null = null;
 /**
  * 启动 Worker
  */
-export function startWorker(intervalMs = 1000) {
+export async function startWorker(intervalMs = 1000) {
   if (isRunning) return;
   isRunning = true;
+
+  // 清理服务器重启前遗留的 stale 任务
+  await cleanupStaleTasks();
 
   console.log('🔄 Task worker started');
 
   pollInterval = setInterval(async () => {
     await processNextTask();
   }, intervalMs);
+}
+
+/**
+ * 清理 stale 任务（服务器重启时遗留的 running 状态任务）
+ */
+async function cleanupStaleTasks() {
+  const db = getDb();
+
+  // 将所有 running 状态的任务标记为失败（服务器重启导致中断）
+  const result = await db
+    .update(tasks)
+    .set({
+      status: 'failed',
+      error: '服务器重启导致任务中断，请重试',
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.status, 'running'));
+
+  console.log('🧹 Cleaned up stale running tasks');
 }
 
 /**

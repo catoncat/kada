@@ -185,6 +185,28 @@ export async function fetchActiveTasks(): Promise<Task[]> {
   return fetchTasks({ status: ['pending', 'running'] });
 }
 
+/**
+ * 获取所有任务（包括历史）
+ */
+export async function fetchAllTasks(limit = 50): Promise<Task[]> {
+  return fetchTasks({ limit });
+}
+
+/**
+ * 重试失败的任务
+ */
+export async function retryTask(id: string): Promise<Task> {
+  const response = await fetch(apiUrl(`/api/tasks/${id}/retry`), {
+    method: 'POST',
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || '重试任务失败');
+  }
+  return data.task;
+}
+
 /** 任务类型显示名称 */
 export const TASK_TYPE_LABELS: Record<string, string> = {
   'plan-generation': '预案生成',

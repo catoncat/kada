@@ -1,11 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { fetchActiveTasks, fetchTask, Task, TaskStatus } from '@/lib/tasks-api';
+import { fetchAllTasks, fetchTask, Task, TaskStatus } from '@/lib/tasks-api';
 
 interface TaskQueueContextValue {
-  /** 当前活跃任务列表 */
-  activeTasks: Task[];
+  /** 所有任务列表（包括历史） */
+  allTasks: Task[];
+  /** 活跃任务数量 */
+  activeCount: number;
   /** 是否正在加载 */
   isLoading: boolean;
   /** 手动刷新任务列表 */
@@ -41,7 +43,7 @@ interface TaskQueueProviderProps {
 }
 
 export function TaskQueueProvider({ children, pollInterval = 2000 }: TaskQueueProviderProps) {
-  const [activeTasks, setActiveTasks] = useState<Task[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -51,29 +53,28 @@ export function TaskQueueProvider({ children, pollInterval = 2000 }: TaskQueuePr
   // 上一次的任务状态（用于检测状态变化）
   const prevTasksRef = useRef<Map<string, TaskStatus>>(new Map());
 
+  // 计算活跃任务数量
+  const activeCount = allTasks.filter(t => t.status === 'pending' || t.status === 'running').length;
+
   const refresh = useCallback(async () => {
     try {
-      const tasks = await fetchActiveTasks();
+      const tasks = await fetchAllTasks(50);
 
-      // 检查是否有任务完成
-      const currentTaskIds = new Set(tasks.map(t => t.id));
+      // 检查是否有任务状态变化
       const prevTasks = prevTasksRef.current;
 
-      // 找出之前存在但现在不在活跃列表中的任务（可能已完成或失败）
-      for (const [taskId, prevStatus] of prevTasks) {
-        if (!currentTaskIds.has(taskId) && (prevStatus === 'pending' || prevStatus === 'running')) {
-          // 任务可能已完成，获取最新状态
-          try {
-            const task = await fetchTask(taskId);
-            if (task.status === 'completed' || task.status === 'failed') {
-              // 触发回调
-              const callbacks = callbacksRef.current.get(taskId);
-              if (callbacks) {
-                callbacks.forEach(cb => cb(task));
-              }
-            }
-          } catch {
-            // 任务可能已被删除
+      for (const task of tasks) {
+        const prevStatus = prevTasks.get(task.id);
+        // 任务从 pending/running 变为 completed/failed
+        if (
+          prevStatus &&
+          (prevStatus === 'pending' || prevStatus === 'running') &&
+          (task.status === 'completed' || task.status === 'failed')
+        ) {
+          // 触发回调
+          const callbacks = callbacksRef.current.get(task.id);
+          if (callbacks) {
+            callbacks.forEach(cb => cb(task));
           }
         }
       }
@@ -81,9 +82,9 @@ export function TaskQueueProvider({ children, pollInterval = 2000 }: TaskQueuePr
       // 更新上一次状态
       prevTasksRef.current = new Map(tasks.map(t => [t.id, t.status]));
 
-      setActiveTasks(tasks);
+      setAllTasks(tasks);
     } catch (error) {
-      console.error('Failed to fetch active tasks:', error);
+      console.error('Failed to fetch tasks:', error);
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +128,7 @@ export function TaskQueueProvider({ children, pollInterval = 2000 }: TaskQueuePr
 
   // 轮询
   useEffect(() => {
-    if (activeTasks.length === 0 && !isLoading) {
+    if (activeCount === 0 && !isLoading) {
       // 没有活跃任务时，降低轮询频率
       const interval = setInterval(refresh, pollInterval * 5);
       return () => clearInterval(interval);
@@ -135,10 +136,11 @@ export function TaskQueueProvider({ children, pollInterval = 2000 }: TaskQueuePr
 
     const interval = setInterval(refresh, pollInterval);
     return () => clearInterval(interval);
-  }, [activeTasks.length, isLoading, pollInterval, refresh]);
+  }, [activeCount, isLoading, pollInterval, refresh]);
 
   const value: TaskQueueContextValue = {
-    activeTasks,
+    allTasks,
+    activeCount,
     isLoading,
     refresh,
     checkTask,

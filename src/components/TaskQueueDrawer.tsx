@@ -1,14 +1,15 @@
 'use client';
 
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, Task, deleteTask } from '@/lib/tasks-api';
-import { X, Loader2, CheckCircle, XCircle, Clock, Trash2 } from 'lucide-react';
+import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, Task, deleteTask, retryTask } from '@/lib/tasks-api';
+import { X, Loader2, CheckCircle, XCircle, Clock, Trash2, RefreshCw, ListTodo } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { useState } from 'react';
 
 export function TaskQueueDrawer() {
-  const { activeTasks, isDrawerOpen, closeDrawer, refresh } = useTaskQueue();
+  const { allTasks, isDrawerOpen, closeDrawer, refresh } = useTaskQueue();
   const queryClient = useQueryClient();
 
   const handleDelete = async (task: Task) => {
@@ -24,6 +25,15 @@ export function TaskQueueDrawer() {
     }
   };
 
+  const handleRetry = async (task: Task) => {
+    try {
+      await retryTask(task.id);
+      refresh();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '重试失败');
+    }
+  };
+
   const handleTaskClick = (task: Task) => {
     // 如果任务已完成且有关联 ID，刷新相关数据
     if (task.status === 'completed' && task.relatedId) {
@@ -32,6 +42,10 @@ export function TaskQueueDrawer() {
   };
 
   if (!isDrawerOpen) return null;
+
+  // 按状态分组：活跃任务在前，历史任务在后
+  const activeTasks = allTasks.filter(t => t.status === 'pending' || t.status === 'running');
+  const historyTasks = allTasks.filter(t => t.status === 'completed' || t.status === 'failed');
 
   return (
     <>
@@ -57,21 +71,52 @@ export function TaskQueueDrawer() {
 
         {/* 任务列表 */}
         <div className="flex-1 overflow-y-auto">
-          {activeTasks.length === 0 ? (
+          {allTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <Clock className="w-12 h-12 text-[var(--ink-3)] mb-3" />
-              <p className="text-[var(--ink-2)]">暂无进行中的任务</p>
+              <ListTodo className="w-12 h-12 text-[var(--ink-3)] mb-3" />
+              <p className="text-[var(--ink-2)]">暂无任务记录</p>
             </div>
           ) : (
-            <div className="divide-y divide-[var(--line)]">
-              {activeTasks.map((task) => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  onDelete={() => handleDelete(task)}
-                  onClick={() => handleTaskClick(task)}
-                />
-              ))}
+            <div>
+              {/* 活跃任务 */}
+              {activeTasks.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 bg-blue-50 text-xs font-medium text-blue-600">
+                    进行中 ({activeTasks.length})
+                  </div>
+                  <div className="divide-y divide-[var(--line)]">
+                    {activeTasks.map((task) => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onDelete={() => handleDelete(task)}
+                        onRetry={() => handleRetry(task)}
+                        onClick={() => handleTaskClick(task)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 历史任务 */}
+              {historyTasks.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 bg-[var(--paper-2)] text-xs font-medium text-[var(--ink-2)]">
+                    历史记录 ({historyTasks.length})
+                  </div>
+                  <div className="divide-y divide-[var(--line)]">
+                    {historyTasks.map((task) => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onDelete={() => handleDelete(task)}
+                        onRetry={() => handleRetry(task)}
+                        onClick={() => handleTaskClick(task)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -83,10 +128,12 @@ export function TaskQueueDrawer() {
 interface TaskItemProps {
   task: Task;
   onDelete: () => void;
+  onRetry: () => void;
   onClick: () => void;
 }
 
-function TaskItem({ task, onDelete, onClick }: TaskItemProps) {
+function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
+  const [isRetrying, setIsRetrying] = useState(false);
   const typeLabel = TASK_TYPE_LABELS[task.type] || task.type;
   const statusLabel = TASK_STATUS_LABELS[task.status];
 
@@ -103,6 +150,16 @@ function TaskItem({ task, onDelete, onClick }: TaskItemProps) {
     completed: 'text-green-500',
     failed: 'text-red-500',
   }[task.status];
+
+  const handleRetryClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   return (
     <div className="px-4 py-3 hover:bg-[var(--paper-2)] transition">
@@ -149,44 +206,72 @@ function TaskItem({ task, onDelete, onClick }: TaskItemProps) {
           </p>
         </div>
 
-        {/* 删除按钮 */}
-        {task.status !== 'running' && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="p-1 rounded hover:bg-red-50 text-[var(--ink-3)] hover:text-red-500 transition"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        )}
+        {/* 操作按钮 */}
+        <div className="flex items-center gap-1">
+          {/* 重试按钮（仅失败任务） */}
+          {task.status === 'failed' && (
+            <button
+              type="button"
+              onClick={handleRetryClick}
+              disabled={isRetrying}
+              className="p-1 rounded hover:bg-blue-50 text-[var(--ink-3)] hover:text-blue-500 transition disabled:opacity-50"
+              title="重试"
+            >
+              <RefreshCw className={cn('w-4 h-4', isRetrying && 'animate-spin')} />
+            </button>
+          )}
+
+          {/* 删除按钮 */}
+          {task.status !== 'running' && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="p-1 rounded hover:bg-red-50 text-[var(--ink-3)] hover:text-red-500 transition"
+              title="删除"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/** 任务队列指示器（显示在导航栏） */
+/** 任务队列指示器（始终显示在导航栏） */
 export function TaskQueueIndicator() {
-  const { activeTasks, toggleDrawer } = useTaskQueue();
+  const { activeCount, allTasks, toggleDrawer } = useTaskQueue();
 
-  const pendingCount = activeTasks.filter(t => t.status === 'pending').length;
-  const runningCount = activeTasks.filter(t => t.status === 'running').length;
-  const totalActive = pendingCount + runningCount;
-
-  if (totalActive === 0) {
-    return null;
-  }
+  const hasActiveTasks = activeCount > 0;
 
   return (
     <button
       type="button"
       onClick={toggleDrawer}
-      className="relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition text-sm font-medium"
+      className={cn(
+        'relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition text-sm font-medium',
+        hasActiveTasks
+          ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+          : 'bg-[var(--paper-2)] text-[var(--ink-2)] hover:bg-[var(--paper)]'
+      )}
     >
-      <Loader2 className="w-4 h-4 animate-spin" />
-      <span>{totalActive} 个任务</span>
+      {hasActiveTasks ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>{activeCount} 个任务</span>
+        </>
+      ) : (
+        <>
+          <ListTodo className="w-4 h-4" />
+          <span>任务</span>
+          {allTasks.length > 0 && (
+            <span className="text-xs text-[var(--ink-3)]">({allTasks.length})</span>
+          )}
+        </>
+      )}
     </button>
   );
 }

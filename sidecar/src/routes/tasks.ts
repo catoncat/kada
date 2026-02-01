@@ -111,6 +111,45 @@ taskRoutes.delete('/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// 重试失败的任务
+taskRoutes.post('/:id/retry', async (c) => {
+  const id = c.req.param('id');
+  const db = getDb();
+
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
+  // 只能重试 failed 状态的任务
+  if (task.status !== 'failed') {
+    return c.json({ error: 'Only failed tasks can be retried' }, 400);
+  }
+
+  // 重置为 pending 状态
+  const now = new Date();
+  await db
+    .update(tasks)
+    .set({
+      status: 'pending',
+      error: null,
+      output: null,
+      updatedAt: now,
+    })
+    .where(eq(tasks.id, id));
+
+  const [updated] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+
+  return c.json({
+    task: {
+      ...updated,
+      input: JSON.parse(updated!.input),
+      output: null,
+    },
+  });
+});
+
 // 批量查询任务状态（用于前端轮询）
 taskRoutes.post('/batch-status', async (c) => {
   const body = await c.req.json();
