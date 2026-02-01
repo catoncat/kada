@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
-import { projects, tasks, sceneAssets } from '../db/schema';
+import { projects, tasks, sceneAssets, settings } from '../db/schema';
+import { buildGeneratePlanPrompt, type PromptContext } from '../worker/handlers/plan-generation';
 
 export const projectRoutes = new Hono();
 
@@ -18,6 +19,7 @@ projectRoutes.get('/', async (c) => {
       selectedOutfits: p.selectedOutfits ? JSON.parse(p.selectedOutfits) : [],
       selectedProps: p.selectedProps ? JSON.parse(p.selectedProps) : [],
       params: p.params ? JSON.parse(p.params) : null,
+      customer: p.customer ? JSON.parse(p.customer) : null,
       generatedPlan: p.generatedPlan ? JSON.parse(p.generatedPlan) : null,
     }));
 
@@ -47,6 +49,7 @@ projectRoutes.get('/:id', async (c) => {
       selectedOutfits: project.selectedOutfits ? JSON.parse(project.selectedOutfits) : [],
       selectedProps: project.selectedProps ? JSON.parse(project.selectedProps) : [],
       params: project.params ? JSON.parse(project.params) : null,
+      customer: project.customer ? JSON.parse(project.customer) : null,
       generatedPlan: project.generatedPlan ? JSON.parse(project.generatedPlan) : null,
     };
 
@@ -79,6 +82,7 @@ projectRoutes.post('/', async (c) => {
       selectedOutfits: null,
       selectedProps: null,
       params: null,
+      customer: null,
       generatedPlan: null,
       createdAt: now,
       updatedAt: now,
@@ -91,6 +95,7 @@ projectRoutes.post('/', async (c) => {
       selectedOutfits: [],
       selectedProps: [],
       params: null,
+      customer: null,
       generatedPlan: null,
     }, 201);
   } catch (error: unknown) {
@@ -134,6 +139,9 @@ projectRoutes.put('/:id', async (c) => {
     if (body.params !== undefined) {
       updates.params = body.params ? JSON.stringify(body.params) : null;
     }
+    if (body.customer !== undefined) {
+      updates.customer = body.customer ? JSON.stringify(body.customer) : null;
+    }
     if (body.generatedPlan !== undefined) {
       updates.generatedPlan = body.generatedPlan ? JSON.stringify(body.generatedPlan) : null;
     }
@@ -148,6 +156,7 @@ projectRoutes.put('/:id', async (c) => {
       selectedOutfits: updated.selectedOutfits ? JSON.parse(updated.selectedOutfits) : [],
       selectedProps: updated.selectedProps ? JSON.parse(updated.selectedProps) : [],
       params: updated.params ? JSON.parse(updated.params) : null,
+      customer: updated.customer ? JSON.parse(updated.customer) : null,
       generatedPlan: updated.generatedPlan ? JSON.parse(updated.generatedPlan) : null,
     });
   } catch (error: unknown) {
@@ -179,10 +188,16 @@ projectRoutes.delete('/:id', async (c) => {
   }
 });
 
-// 生成预案（创建任务）
+// 生成预案（支持 preview mode 和 customPrompt）
 projectRoutes.post('/:id/generate', async (c) => {
   try {
     const projectId = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const { mode = 'execute', customPrompt } = body as {
+      mode?: 'preview' | 'execute';
+      customPrompt?: string;
+    };
+
     const db = getDb();
 
     // 获取项目
@@ -195,12 +210,47 @@ projectRoutes.post('/:id/generate', async (c) => {
       return c.json({ error: '请先选择场景' }, 400);
     }
 
-    // 检查场景是否存在
+    // 获取场景资产
     const [scene] = await db.select().from(sceneAssets).where(eq(sceneAssets.id, project.selectedScene));
     if (!scene) {
       return c.json({ error: '所选场景不存在' }, 400);
     }
 
+    // 获取工作室配置
+    const [studioSetting] = await db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, 'studio_profile'));
+    const studioProfile = studioSetting?.value
+      ? JSON.parse(studioSetting.value)
+      : undefined;
+
+    // 构建 prompt context
+    const sceneInfo = {
+      name: scene.name,
+      description: scene.description || '',
+      lighting: scene.defaultLighting || '',
+      isOutdoor: scene.isOutdoor,
+      style: scene.style ? JSON.parse(scene.style) : null,
+      tags: scene.tags ? JSON.parse(scene.tags) : [],
+    };
+
+    const customer = project.customer ? JSON.parse(project.customer) : undefined;
+
+    const promptContext: PromptContext = {
+      projectTitle: project.title,
+      scene: sceneInfo,
+      customer,
+      studioProfile,
+    };
+
+    // Preview mode: 只返回 prompt，不创建任务
+    if (mode === 'preview') {
+      const prompt = buildGeneratePlanPrompt(promptContext);
+      return c.json({ prompt });
+    }
+
+    // Execute mode: 创建任务
     // 检查是否已有进行中的生成任务
     const existingTasks = await db
       .select()
@@ -214,7 +264,6 @@ projectRoutes.post('/:id/generate', async (c) => {
       );
 
     if (existingTasks.length > 0) {
-      // 返回已有任务
       return c.json({
         taskId: existingTasks[0].id,
         status: existingTasks[0].status,
@@ -222,7 +271,7 @@ projectRoutes.post('/:id/generate', async (c) => {
       });
     }
 
-    // 创建新任务
+    // 创建新任务（传入 customPrompt 如果有的话）
     const taskId = randomUUID();
     const now = new Date();
 
@@ -230,7 +279,7 @@ projectRoutes.post('/:id/generate', async (c) => {
       id: taskId,
       type: 'plan-generation',
       status: 'pending',
-      input: JSON.stringify({ projectId }),
+      input: JSON.stringify({ projectId, customPrompt }),
       relatedId: projectId,
       relatedMeta: project.title,
       createdAt: now,

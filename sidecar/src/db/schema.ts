@@ -24,6 +24,7 @@ export const projects = sqliteTable('projects', {
   selectedOutfits: text('selected_outfits'), // JSON 数组
   selectedProps: text('selected_props'), // JSON 数组
   params: text('params'), // JSON（拍摄参数）
+  customer: text('customer'), // JSON（客户信息：type, ageRange, count, relation, notes）
   generatedPlan: text('generated_plan'), // JSON（AI 生成的预案结果）
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),

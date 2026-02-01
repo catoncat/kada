@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ArrowLeft, ImageIcon, Shirt, Package, Settings2, Sparkles, Loader2 } from 'lucide-react';
-import { getProject, generatePlan } from '@/lib/projects-api';
+import { getProject, generatePlan, updateProject } from '@/lib/projects-api';
 import { getSceneAsset, getImageUrl } from '@/lib/scene-assets-api';
 import { fetchTasks, Task } from '@/lib/tasks-api';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { cn } from '@/lib/utils';
+import { CustomerInfoForm } from '@/components/CustomerInfoForm';
+import { GenerateButton } from '@/components/GenerateButton';
+import type { CustomerInfo } from '@/types/project';
 
 export const Route = createFileRoute('/project/$id/')({
   component: ProjectDetailPage,
@@ -32,6 +34,14 @@ function ProjectDetailPage() {
     queryKey: ['sceneAsset', project?.selectedScene],
     queryFn: () => getSceneAsset(project!.selectedScene!),
     enabled: !!project?.selectedScene,
+  });
+
+  // 更新项目的 mutation
+  const updateProjectMutation = useMutation({
+    mutationFn: (data: { customer?: CustomerInfo }) => updateProject(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
   });
 
   // 检查是否有进行中的生成任务
@@ -72,14 +82,18 @@ function ProjectDetailPage() {
     return unsubscribe;
   }, [activeTaskId, id, onTaskComplete, queryClient]);
 
-  const handleGenerate = async () => {
+  // 生成预案（支持 customPrompt）
+  const handleGenerate = async (customPrompt?: string) => {
     if (!project?.selectedScene) {
       alert('请先选择场景');
       return;
     }
     setIsGenerating(true);
     try {
-      const result = await generatePlan(id);
+      const result = await generatePlan(id, {
+        mode: 'execute',
+        customPrompt,
+      });
       setActiveTaskId(result.taskId);
       // 刷新任务队列
       refreshTasks();
@@ -89,6 +103,11 @@ function ProjectDetailPage() {
       setIsGenerating(false);
       alert(err instanceof Error ? err.message : '创建任务失败');
     }
+  };
+
+  // 客户信息变更
+  const handleCustomerChange = (customer: CustomerInfo | undefined) => {
+    updateProjectMutation.mutate({ customer });
   };
 
   if (isLoading) {
@@ -109,8 +128,6 @@ function ProjectDetailPage() {
     );
   }
 
-  const canGenerate = !!project.selectedScene && !isGenerating;
-
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* 顶部导航 */}
@@ -125,24 +142,12 @@ function ProjectDetailPage() {
           </Link>
           <h1 className="text-2xl font-semibold text-[var(--ink)]">{project.title}</h1>
         </div>
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={!canGenerate}
-          className={cn(
-            'inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition',
-            canGenerate
-              ? 'bg-[var(--primary)] text-white hover:opacity-90'
-              : 'bg-[var(--paper-2)] text-[var(--ink-3)] cursor-not-allowed'
-          )}
-        >
-          {isGenerating ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Sparkles className="w-4 h-4" />
-          )}
-          {isGenerating ? '生成中...' : '生成预案'}
-        </button>
+        <GenerateButton
+          projectId={id}
+          disabled={!project.selectedScene}
+          isGenerating={isGenerating}
+          onGenerate={handleGenerate}
+        />
       </div>
 
       {/* 配置区块 */}
@@ -196,6 +201,12 @@ function ProjectDetailPage() {
             </Link>
           </div>
         </div>
+
+        {/* 客户信息配置区块 */}
+        <CustomerInfoForm
+          value={project.customer}
+          onChange={handleCustomerChange}
+        />
 
         {/* 服装配置区块 */}
         <div className="rounded-2xl border border-[var(--line)] bg-white p-6 opacity-60">
