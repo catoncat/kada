@@ -6,6 +6,13 @@
 - 路由：`src/routes/`（TanStack Router 文件路由）
 - 自动生成：`src/routeTree.gen.ts`（不要手改）
 
+## 状态管理
+
+- 服务端状态：TanStack Query（`@tanstack/react-query`）
+- Provider 挂载于 `src/main.tsx`
+- API hooks 位于 `src/hooks/`（`useProviders.ts`, `usePlans.ts`, `useHistory.ts`, `useAI.ts`）
+- API 客户端位于 `src/lib/`（`provider-api.ts`, `plans-api.ts`, `ai-client.ts`）
+
 ## 组件分层
 
 - `src/components/ui/`：可复用 UI 原子组件（偏基础能力，文件多用 `kebab-case.tsx`）

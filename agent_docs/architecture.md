@@ -6,11 +6,12 @@
 
 ## 技术栈（摘要）
 
-- 前端：React 19 + TypeScript + Vite + TanStack Router + Tailwind CSS 4
+- 前端：React 19 + TypeScript + Vite + TanStack Router + TanStack Query + Tailwind CSS 4
 - UI/交互：@base-ui/react、class-variance-authority、lucide-react、framer-motion
 - Sidecar：Hono + Drizzle ORM + SQLite（better-sqlite3）
 - 桌面：Tauri 2（Rust）
 - 导出：pptxgenjs
+- 工程化：Biome (lint/format) + Vitest (测试)
 
 ## 三层结构
 
@@ -40,3 +41,14 @@
 - Sidecar 默认端口为 `3001`。
 - CSP/网络访问需与实际调用的 Provider 域名匹配；当前配置允许连接 `googleapis.com`、`openai.com`、`openrouter.ai`。
 - 新增外部依赖域名/Provider 时，记得同步更新 Tauri 配置并在 PR 中说明。
+
+## 数据持久化
+
+所有数据统一存储在 Sidecar 的 SQLite 数据库中：
+
+- **providers**：API 提供商配置（API key、endpoint、模型等）
+- **plans**：预案历史记录（单预案和项目预案）
+- **settings**：应用设置
+
+前端通过 TanStack Query + API 客户端与 Sidecar 交互，不再使用 localStorage。
+首次启动时会自动迁移旧 localStorage 数据到 SQLite（`src/lib/data-migration.ts`）。
