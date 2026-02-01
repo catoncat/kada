@@ -152,11 +152,13 @@ export function ImageUploader({
   // 无图片时的上传区域
   return (
     <div className={cn('relative', className)}>
-      <div
+      <button
+        type="button"
         onClick={handleClick}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        disabled={disabled || uploading}
         className={cn(
           'rounded-xl border-2 border-dashed p-8 transition-colors cursor-pointer',
           'flex flex-col items-center justify-center text-center',
@@ -183,7 +185,7 @@ export function ImageUploader({
             </p>
           </>
         )}
-      </div>
+      </button>
 
       {error && (
         <p className="mt-2 text-sm text-destructive">{error}</p>

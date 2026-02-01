@@ -6,7 +6,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ArrowLeft, ImageIcon, Shirt, Package, Settings2, Sparkles, Loader2 } from 'lucide-react';
 import { getProject, generatePlan, updateProject } from '@/lib/projects-api';
 import { getSceneAsset, getImageUrl } from '@/lib/scene-assets-api';
-import { fetchTasks, Task } from '@/lib/tasks-api';
+import { fetchTasks, type Task } from '@/lib/tasks-api';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { GenerateButton } from '@/components/GenerateButton';
 import { CustomerInfoForm } from '@/components/CustomerInfoForm';

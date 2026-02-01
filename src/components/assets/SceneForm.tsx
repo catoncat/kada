@@ -103,9 +103,7 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
       {/* 主图上传 */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
-          场景主图
-        </label>
+        <div className="block text-sm font-medium text-foreground mb-2">场景主图</div>
         <ImageUploader
           value={primaryImage}
           onChange={(path) => setPrimaryImage(path || '')}
@@ -116,10 +114,11 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
       {/* 基本信息 */}
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-name">
             场景名称 <span className="text-destructive">*</span>
           </label>
           <input
+            id="scene-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -130,10 +129,11 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-default-lighting">
             默认灯光
           </label>
           <input
+            id="scene-default-lighting"
             type="text"
             value={defaultLighting}
             onChange={(e) => setDefaultLighting(e.target.value)}
@@ -145,10 +145,11 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
       {/* 描述 */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-description">
           场景描述
         </label>
         <textarea
+          id="scene-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="描述这个场景的特点、适合的拍摄风格等"
@@ -159,10 +160,11 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
       {/* 标签 */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-tags">
           标签
         </label>
         <input
+          id="scene-tags"
           type="text"
           value={tagsInput}
           onChange={(e) => setTagsInput(e.target.value)}
@@ -191,7 +193,7 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
         <div className="grid gap-4 md:grid-cols-3">
           {/* 色调 */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-2">色调</label>
+            <div className="block text-xs text-muted-foreground mb-2">色调</div>
             <div className="flex flex-wrap gap-2">
               {COLOR_TONE_OPTIONS.map((opt) => (
                 <button
@@ -213,7 +215,7 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
           {/* 光线氛围 */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-2">光线氛围</label>
+            <div className="block text-xs text-muted-foreground mb-2">光线氛围</div>
             <div className="flex flex-wrap gap-2">
               {LIGHTING_MOOD_OPTIONS.map((opt) => (
                 <button
@@ -235,7 +237,7 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
           {/* 年代感 */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-2">年代感</label>
+            <div className="block text-xs text-muted-foreground mb-2">年代感</div>
             <div className="flex flex-wrap gap-2">
               {ERA_OPTIONS.map((opt) => (
                 <button

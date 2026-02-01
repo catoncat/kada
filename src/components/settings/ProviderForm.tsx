@@ -117,10 +117,14 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* 名称 */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label
+          className="block text-sm font-medium text-foreground mb-2"
+          htmlFor="provider-name"
+        >
           名称
         </label>
         <input
+          id="provider-name"
           type="text"
           value={name}
           onChange={e => setName(e.target.value)}
@@ -131,9 +135,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* API 格式 */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
-          API 格式
-        </label>
+        <div className="block text-sm font-medium text-foreground mb-2">API 格式</div>
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -164,11 +166,15 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* API Key */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2 flex items-center">
+        <label
+          className="block text-sm font-medium text-foreground mb-2 flex items-center"
+          htmlFor="provider-api-key"
+        >
           <Key className="w-4 h-4 mr-2 text-muted-foreground" /> API Key
         </label>
         <div className="relative">
           <input
+            id="provider-api-key"
             type={showKey ? 'text' : 'password'}
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
@@ -192,10 +198,14 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* Base URL */}
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
+        <label
+          className="block text-sm font-medium text-foreground mb-2"
+          htmlFor="provider-base-url"
+        >
           Base URL
         </label>
         <input
+          id="provider-base-url"
           type="text"
           value={baseUrl}
           onChange={e => setBaseUrl(e.target.value)}
@@ -243,9 +253,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
         {/* 文生文模型 */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            文生文模型
-          </label>
+          <div className="block text-sm font-medium text-foreground mb-2">文生文模型</div>
           <ModelCombobox
             value={textModel}
             onChange={setTextModel}
@@ -257,9 +265,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
         {/* 文生图模型 */}
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            文生图模型
-          </label>
+          <div className="block text-sm font-medium text-foreground mb-2">文生图模型</div>
           <ModelCombobox
             value={imageModel}
             onChange={setImageModel}

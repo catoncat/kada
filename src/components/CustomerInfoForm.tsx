@@ -261,16 +261,16 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
 
                 {/* 年龄输入 */}
                 <div className="flex items-center gap-1">
-                  <Input
-                    type="number"
-                    value={person.age ?? ''}
-                    onChange={(e) => updatePerson(person.id, {
-                      age: e.target.value ? parseInt(e.target.value) : undefined
+                    <Input
+                      type="number"
+                      value={person.age ?? ''}
+                      onChange={(e) => updatePerson(person.id, {
+                      age: e.target.value ? parseInt(e.target.value, 10) : undefined
                     })}
-                    className="w-16 text-center"
-                    placeholder="年龄"
-                    min={0}
-                    max={120}
+                      className="w-16 text-center"
+                      placeholder="年龄"
+                      min={0}
+                      max={120}
                   />
                   <span className="text-sm text-muted-foreground">岁</span>
                 </div>

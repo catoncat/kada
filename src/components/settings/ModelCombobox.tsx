@@ -123,9 +123,11 @@ export function ModelCombobox({
       {isOpen && filteredByCapability.length > 0 && (
         <>
           {/* 背景遮罩 */}
-          <div
+          <button
+            aria-label="关闭"
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
+            type="button"
           />
 
           {/* 列表 */}

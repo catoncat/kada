@@ -144,10 +144,14 @@ function ProjectListPage() {
             <h2 className="text-lg font-semibold text-foreground mb-4">新建项目</h2>
 
             <div className="mb-6">
-              <label className="block text-sm font-medium text-foreground mb-2">
+              <label
+                className="block text-sm font-medium text-foreground mb-2"
+                htmlFor="project-title"
+              >
                 项目名称
               </label>
               <Input
+                id="project-title"
                 type="text"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}

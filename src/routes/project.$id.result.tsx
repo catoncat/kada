@@ -186,7 +186,7 @@ function ProjectResultPage() {
         <h2 className="text-lg font-semibold text-foreground">分镜场景 ({plan.scenes.length})</h2>
 
         {plan.scenes.map((scene, index) => (
-          <div key={index} className="rounded-2xl border border-border bg-card overflow-hidden">
+          <div key={scene.location} className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="flex flex-col md:flex-row">
               {/* 场景参考图 */}
               <div className="w-full md:w-1/3 aspect-video md:aspect-square bg-muted flex-shrink-0">
