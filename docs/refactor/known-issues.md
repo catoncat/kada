@@ -1,6 +1,6 @@
 # 已知问题与技术债（来自代码审阅）
 
-本清单用于重构排期与风险评估，优先记录“会影响正确性/可维护性/打包可用性”的问题。
+本清单用于重构排期与风险评估，优先记录"会影响正确性/可维护性/打包可用性"的问题。
 
 ## 运行与打包一致性
 
@@ -17,29 +17,33 @@
 
 ## 数据与模块重复
 
-4. **Provider/Plans 存储存在“双轨”**
+4. **Provider/Plans 存储存在"双轨"**
    - 前端：Provider 与历史用 localStorage。
    - Sidecar：也实现了 providers/plans/settings 表与 CRUD，但前端目前未接入。
 
-5. **重复的 prompt/标题实现**
-   - 代码中存在多份 buildProjectPrompt/buildProjectTitle 等逻辑的重复版本，容易漂移。
+5. ~~**重复的 prompt/标题实现**~~ ✅ 已修复
+   - ~~代码中存在多份 buildProjectPrompt/buildProjectTitle 等逻辑的重复版本，容易漂移。~~
+   - 已删除未使用的 `src/lib/prompts.ts`，保留唯一实现 `src/lib/project-prompt.ts` + `src/lib/plan-title.ts`。
 
-6. **疑似未使用的旧 API client**
-   - `src/lib/api.ts` 以 `/api/providers` 为核心，但当前 UI 的 Provider 管理走 `provider-storage`。
+6. ~~**疑似未使用的旧 API client**~~ ✅ 已修复
+   - ~~`src/lib/api.ts` 以 `/api/providers` 为核心，但当前 UI 的 Provider 管理走 `provider-storage`。~~
+   - 已删除未使用的 `src/lib/api.ts`。
 
 ## 体验与一致性
 
-7. **项目模式的 globalStyle 可能未被持久化到最终数据结构**
-   - UI 传入了 `globalStyle`，但当前 normalize 逻辑未显式保留（需要确认是否要进入 ProjectPlan 存储/导出）。
+7. ~~**项目模式的 globalStyle 可能未被持久化到最终数据结构**~~ ✅ 已确认正常
+   - `globalStyle` 在 `normalizeProjectPlan` 后被正确添加并持久化到 localStorage。
 
 8. **编辑 visualPrompt 的持久化时机不直观**
-   - 编辑 textarea 不会立刻写回历史；点击“重新生成”才会写回并生成图片。
+   - 编辑 textarea 不会立刻写回历史；点击"重新生成"才会写回并生成图片。
 
-9. **批量出图缺少取消/队列管理**
-   - 目前用 `setTimeout` 逐个触发，用户无法中途停止，失败重试策略也不统一。
+9. ~~**批量出图缺少取消/队列管理**~~ ✅ 已修复
+   - ~~目前用 `setTimeout` 逐个触发，用户无法中途停止，失败重试策略也不统一。~~
+   - 已添加批量生成队列状态管理，支持取消按钮中止所有待执行任务。
 
 ## 工程化
 
-10. **缺少测试/统一 lint/format**
-   - 当前没有 `pnpm test`，也未配置 ESLint/Prettier；重构期容易引入回归。
-
+10. ~~**缺少测试/统一 lint/format**~~ ✅ 已修复
+    - ~~当前没有 `pnpm test`，也未配置 ESLint/Prettier；重构期容易引入回归。~~
+    - 已添加 Biome (lint + format) 和 Vitest (测试框架)。
+    - 新增脚本: `pnpm lint`, `pnpm format`, `pnpm test`, `pnpm typecheck`, `pnpm validate`
