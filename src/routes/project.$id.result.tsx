@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, FileDown, Loader2, Wand2, Camera, Lightbulb, MapPin, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, FileDown, Loader2, Wand2, Camera, Lightbulb, MapPin, Image as ImageIcon, Sparkles, Images } from 'lucide-react';
 import { getProject, generatePlan } from '@/lib/projects-api';
 import { getImageUrl } from '@/lib/scene-assets-api';
+import { createImageTask } from '@/lib/tasks-api';
+import { useTasksPolling } from '@/hooks/useTasks';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -22,6 +24,7 @@ interface GeneratedScene {
   sceneAssetId?: string;
   sceneAssetImage?: string;
   generatedImage?: string; // base64 图片
+  previewArtifactPath?: string; // 落盘后的图片路径
 }
 
 interface GeneratedPlan {
@@ -36,6 +39,8 @@ function ProjectResultPage() {
   const { id } = Route.useParams();
   const queryClient = useQueryClient();
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(new Set());
+  const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
 
   // 获取项目数据
   const { data: project, isLoading, error } = useQuery({
@@ -51,6 +56,16 @@ function ProjectResultPage() {
     },
   });
 
+  // 批量任务轮询
+  useTasksPolling(batchTaskIds, {
+    enabled: batchTaskIds.length > 0,
+    onAllComplete: () => {
+      setBatchTaskIds([]);
+      setGeneratingScenes(new Set());
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+  });
+
   const handleRegenerate = async () => {
     setIsRegenerating(true);
     try {
@@ -61,6 +76,63 @@ function ProjectResultPage() {
       setIsRegenerating(false);
     }
   };
+
+  // 生成单个场景预览图
+  const handleGenerateScenePreview = useCallback(async (sceneIndex: number, visualPrompt: string) => {
+    setGeneratingScenes(prev => new Set(prev).add(sceneIndex));
+    try {
+      const task = await createImageTask(visualPrompt, {
+        relatedId: id,
+        relatedMeta: JSON.stringify({ sceneIndex }),
+        owner: {
+          type: 'planScene',
+          id: id,
+          slot: `scene:${sceneIndex}`,
+        },
+      });
+      setBatchTaskIds(prev => [...prev, task.id]);
+    } catch (err) {
+      console.error('Failed to create image task:', err);
+      setGeneratingScenes(prev => {
+        const next = new Set(prev);
+        next.delete(sceneIndex);
+        return next;
+      });
+    }
+  }, [id]);
+
+  // 批量生成所有场景预览图
+  const handleBatchGeneratePreview = useCallback(async (scenes: GeneratedScene[]) => {
+    const indices = scenes
+      .map((scene, index) => ({ scene, index }))
+      .filter(({ scene }) => !scene.sceneAssetImage && !scene.previewArtifactPath && scene.visualPrompt);
+
+    if (indices.length === 0) return;
+
+    const newGenerating = new Set<number>();
+    const taskIds: string[] = [];
+
+    for (const { scene, index } of indices) {
+      newGenerating.add(index);
+      try {
+        const task = await createImageTask(scene.visualPrompt, {
+          relatedId: id,
+          relatedMeta: JSON.stringify({ sceneIndex: index }),
+          owner: {
+            type: 'planScene',
+            id: id,
+            slot: `scene:${index}`,
+          },
+        });
+        taskIds.push(task.id);
+      } catch (err) {
+        console.error(`Failed to create task for scene ${index}:`, err);
+      }
+    }
+
+    setGeneratingScenes(newGenerating);
+    setBatchTaskIds(taskIds);
+  }, [id]);
 
   const handleExportPPT = () => {
     // TODO: Phase 4 实现 PPT 导出
@@ -148,6 +220,18 @@ function ProjectResultPage() {
           <h1 className="text-2xl font-semibold text-foreground">{plan.title}</h1>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            onClick={() => handleBatchGeneratePreview(plan.scenes)}
+            disabled={batchTaskIds.length > 0}
+            variant="outline"
+          >
+            {batchTaskIds.length > 0 ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Images className="w-4 h-4" />
+            )}
+            批量生成预览
+          </Button>
           <Button onClick={handleRegenerate} disabled={isRegenerating} variant="outline">
             {isRegenerating ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -189,10 +273,16 @@ function ProjectResultPage() {
           <div key={scene.location} className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="flex flex-col md:flex-row">
               {/* 场景参考图 */}
-              <div className="w-full md:w-1/3 aspect-video md:aspect-square bg-muted flex-shrink-0">
+              <div className="relative w-full md:w-1/3 aspect-video md:aspect-square bg-muted flex-shrink-0 group">
                 {scene.sceneAssetImage ? (
                   <img
                     src={getImageUrl(scene.sceneAssetImage)}
+                    alt={scene.location}
+                    className="w-full h-full object-cover"
+                  />
+                ) : scene.previewArtifactPath ? (
+                  <img
+                    src={getImageUrl(scene.previewArtifactPath)}
                     alt={scene.location}
                     className="w-full h-full object-cover"
                   />
@@ -203,8 +293,42 @@ function ProjectResultPage() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <ImageIcon className="w-12 h-12 text-muted-foreground" />
+                    {scene.visualPrompt && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleGenerateScenePreview(index, scene.visualPrompt)}
+                        disabled={generatingScenes.has(index)}
+                      >
+                        {generatingScenes.has(index) ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4" />
+                        )}
+                        生成预览
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {/* 已有图片时的重新生成按钮 */}
+                {(scene.sceneAssetImage || scene.previewArtifactPath || scene.generatedImage) && scene.visualPrompt && (
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleGenerateScenePreview(index, scene.visualPrompt)}
+                      disabled={generatingScenes.has(index)}
+                    >
+                      {generatingScenes.has(index) ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      重新生成
+                    </Button>
                   </div>
                 )}
               </div>
