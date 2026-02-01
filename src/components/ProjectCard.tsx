@@ -37,7 +37,7 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
 
   return (
     <Link
-      to="/projects/$id"
+      to="/project/$id"
       params={{ id: project.id }}
       className="block rounded-2xl border border-[var(--line)] bg-white p-5 hover:shadow-md hover:border-[var(--ink-3)] transition-all group"
     >

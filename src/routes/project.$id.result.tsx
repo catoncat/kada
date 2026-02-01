@@ -93,7 +93,7 @@ function ProjectResultPage() {
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <Link
-              to="/projects/$id"
+              to="/project/$id"
               params={{ id }}
               className="inline-flex items-center gap-2 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] transition"
             >
@@ -115,7 +115,7 @@ function ProjectResultPage() {
               请先完成项目配置，然后点击「生成预案」按钮
             </p>
             <Link
-              to="/projects/$id"
+              to="/project/$id"
               params={{ id }}
               className="mt-6 inline-flex items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm font-medium text-[var(--ink)] hover:bg-[var(--paper-2)] transition"
             >
@@ -133,7 +133,7 @@ function ProjectResultPage() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Link
-            to="/projects/$id"
+            to="/project/$id"
             params={{ id }}
             className="inline-flex items-center gap-2 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] transition"
           >

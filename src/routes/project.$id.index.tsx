@@ -10,7 +10,7 @@ import { fetchTasks, Task } from '@/lib/tasks-api';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { cn } from '@/lib/utils';
 
-export const Route = createFileRoute('/projects/$id')({
+export const Route = createFileRoute('/project/$id/')({
   component: ProjectDetailPage,
 });
 
