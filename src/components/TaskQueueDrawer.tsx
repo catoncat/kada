@@ -1,7 +1,7 @@
 'use client';
 
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, Task, deleteTask, retryTask } from '@/lib/tasks-api';
+import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, type Task, deleteTask, retryTask } from '@/lib/tasks-api';
 import { X, Loader2, CheckCircle, XCircle, Clock, Trash2, RefreshCw, ListTodo } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
@@ -50,22 +50,24 @@ export function TaskQueueDrawer() {
   return (
     <>
       {/* 遮罩 */}
-      <div
-        className="fixed inset-0 bg-black/20 z-40"
+      <button
+        type="button"
+        aria-label="Close task drawer"
+        className="fixed inset-0 z-40 bg-black/20"
         onClick={closeDrawer}
       />
 
       {/* 抽屉 */}
-      <div className="fixed right-0 top-0 bottom-0 w-96 bg-white shadow-xl z-50 flex flex-col">
+      <div className="fixed right-0 top-0 bottom-0 z-50 flex w-96 flex-col border-l bg-popover text-popover-foreground shadow-lg/10">
         {/* 头部 */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)]">
-          <h2 className="text-lg font-semibold text-[var(--ink)]">任务队列</h2>
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h2 className="text-base font-semibold">任务队列</h2>
           <button
             type="button"
             onClick={closeDrawer}
-            className="p-1.5 rounded-lg hover:bg-[var(--paper-2)] transition"
+            className="rounded-lg p-1.5 transition hover:bg-accent/60"
           >
-            <X className="w-5 h-5 text-[var(--ink-2)]" />
+            <X className="h-5 w-5 text-muted-foreground" />
           </button>
         </div>
 
@@ -73,18 +75,18 @@ export function TaskQueueDrawer() {
         <div className="flex-1 overflow-y-auto">
           {allTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <ListTodo className="w-12 h-12 text-[var(--ink-3)] mb-3" />
-              <p className="text-[var(--ink-2)]">暂无任务记录</p>
+              <ListTodo className="mb-3 h-12 w-12 text-muted-foreground/70" />
+              <p className="text-muted-foreground">暂无任务记录</p>
             </div>
           ) : (
             <div>
               {/* 活跃任务 */}
               {activeTasks.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 bg-blue-50 text-xs font-medium text-blue-600">
+                  <div className="bg-blue-500/10 px-4 py-2 text-xs font-medium text-blue-700 dark:text-blue-300">
                     进行中 ({activeTasks.length})
                   </div>
-                  <div className="divide-y divide-[var(--line)]">
+                  <div className="divide-y divide-border">
                     {activeTasks.map((task) => (
                       <TaskItem
                         key={task.id}
@@ -101,10 +103,10 @@ export function TaskQueueDrawer() {
               {/* 历史任务 */}
               {historyTasks.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 bg-[var(--paper-2)] text-xs font-medium text-[var(--ink-2)]">
+                  <div className="bg-muted/60 px-4 py-2 text-xs font-medium text-muted-foreground">
                     历史记录 ({historyTasks.length})
                   </div>
-                  <div className="divide-y divide-[var(--line)]">
+                  <div className="divide-y divide-border">
                     {historyTasks.map((task) => (
                       <TaskItem
                         key={task.id}
@@ -162,7 +164,7 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
   };
 
   return (
-    <div className="px-4 py-3 hover:bg-[var(--paper-2)] transition">
+    <div className="px-4 py-3 transition hover:bg-accent/60">
       <div className="flex items-start gap-3">
         {/* 状态图标 */}
         <div className={cn('mt-0.5', statusColor)}>
@@ -172,12 +174,12 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
         {/* 内容 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[var(--ink)]">{typeLabel}</span>
+            <span className="text-sm font-medium">{typeLabel}</span>
             <span className={cn('text-xs', statusColor)}>{statusLabel}</span>
           </div>
 
           {task.relatedMeta && (
-            <p className="mt-0.5 text-xs text-[var(--ink-2)] truncate">
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {task.relatedMeta}
             </p>
           )}
@@ -194,14 +196,14 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
               to="/project/$id/result"
               params={{ id: task.relatedId }}
               onClick={onClick}
-              className="mt-1 inline-block text-xs text-[var(--primary)] hover:underline"
+              className="mt-1 inline-block text-xs text-primary hover:underline"
             >
               查看结果 →
             </Link>
           )}
 
           {/* 时间 */}
-          <p className="mt-1 text-xs text-[var(--ink-3)]">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             {new Date(task.createdAt || '').toLocaleTimeString()}
           </p>
         </div>
@@ -214,7 +216,7 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
               type="button"
               onClick={handleRetryClick}
               disabled={isRetrying}
-              className="p-1 rounded hover:bg-blue-50 text-[var(--ink-3)] hover:text-blue-500 transition disabled:opacity-50"
+              className="rounded p-1 text-muted-foreground transition hover:bg-blue-500/10 hover:text-blue-600 disabled:opacity-50 dark:hover:text-blue-300"
               title="重试"
             >
               <RefreshCw className={cn('w-4 h-4', isRetrying && 'animate-spin')} />
@@ -229,7 +231,7 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
                 e.stopPropagation();
                 onDelete();
               }}
-              className="p-1 rounded hover:bg-red-50 text-[var(--ink-3)] hover:text-red-500 transition"
+              className="rounded p-1 text-muted-foreground transition hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
               title="删除"
             >
               <Trash2 className="w-4 h-4" />
@@ -254,8 +256,8 @@ export function TaskQueueIndicator() {
       className={cn(
         'relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition text-sm font-medium',
         hasActiveTasks
-          ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-          : 'bg-[var(--paper-2)] text-[var(--ink-2)] hover:bg-[var(--paper)]'
+          ? 'bg-blue-500/10 text-blue-700 hover:bg-blue-500/15 dark:text-blue-300'
+          : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
       )}
     >
       {hasActiveTasks ? (

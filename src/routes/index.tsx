@@ -10,6 +10,9 @@ import {
   Dialog,
   DialogPopup,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export const Route = createFileRoute('/')(
   {
@@ -71,54 +74,49 @@ function ProjectListPage() {
       {/* 页面标题 */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">项目列表</h1>
-          <p className="mt-1 text-sm text-[var(--ink-2)]">
+          <h1 className="text-2xl font-semibold text-foreground">项目列表</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             管理你的拍摄项目，配置资产并生成预案
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleCreate}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition"
-        >
+        <Button onClick={handleCreate}>
           <Plus className="w-4 h-4" />
           新建项目
-        </button>
+        </Button>
       </div>
 
       {/* 加载状态 */}
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-[var(--primary)] animate-spin" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       )}
 
       {/* 错误状态 */}
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-          加载失败：{error instanceof Error ? error.message : '未知错误'}
-        </div>
+        <Alert variant="error">
+          <AlertTitle>加载失败</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : '未知错误'}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* 空状态 */}
       {!isLoading && !error && projects.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white p-16">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-16">
           <div className="flex flex-col items-center justify-center text-center">
-            <div className="w-20 h-20 rounded-full bg-[var(--paper-2)] flex items-center justify-center mb-5">
-              <FolderKanban className="w-10 h-10 text-[var(--ink-3)]" />
+            <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-5">
+              <FolderKanban className="w-10 h-10 text-muted-foreground" />
             </div>
-            <h3 className="text-xl font-medium text-[var(--ink)]">还没有项目</h3>
-            <p className="mt-2 text-sm text-[var(--ink-2)] max-w-md">
+            <h3 className="text-xl font-medium text-foreground">还没有项目</h3>
+            <p className="mt-2 text-sm text-muted-foreground max-w-md">
               创建你的第一个拍摄项目，选择场景、服装和道具资产，然后生成专业的拍摄预案
             </p>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="mt-8 inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 transition"
-            >
+            <Button className="mt-8" onClick={handleCreate}>
               <Plus className="w-4 h-4" />
               新建项目
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -143,38 +141,35 @@ function ProjectListPage() {
           showCloseButton={false}
         >
           <form onSubmit={handleSubmitCreate}>
-            <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">新建项目</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-4">新建项目</h2>
 
             <div className="mb-6">
-              <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 项目名称
               </label>
-              <input
+              <Input
                 type="text"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="例如：婚纱客户A、电商产品拍摄"
-                className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                 autoFocus
               />
             </div>
 
             <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
+              <Button
                 onClick={() => setIsCreateOpen(false)}
                 disabled={createMutation.isPending}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ink-2)] hover:bg-[var(--paper-2)] transition"
+                variant="outline"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 disabled={createMutation.isPending || !newTitle.trim()}
-                className="px-5 py-2 rounded-lg text-sm font-medium bg-[var(--primary)] text-white hover:opacity-90 transition disabled:opacity-50"
               >
                 {createMutation.isPending ? '创建中...' : '创建'}
-              </button>
+              </Button>
             </div>
           </form>
         </DialogPopup>

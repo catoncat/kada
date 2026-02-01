@@ -20,7 +20,7 @@ const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Server }[] =
 
 export function SettingsNav({ activeSection, onSectionChange }: SettingsNavProps) {
   return (
-    <nav className="w-[200px] flex-shrink-0 border-r border-[var(--line)] p-4">
+    <nav className="w-[200px] flex-shrink-0 border-r border-border p-4 bg-muted/20">
       <ul className="space-y-1">
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
@@ -34,13 +34,13 @@ export function SettingsNav({ activeSection, onSectionChange }: SettingsNavProps
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition',
                   isActive
-                    ? 'bg-primary/10 text-[var(--ink)]'
-                    : 'text-[var(--ink-2)] hover:bg-gray-100'
+                    ? 'bg-primary/10 text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >
                 <Icon className={cn(
                   'w-4 h-4',
-                  isActive ? 'text-primary' : 'text-[var(--ink-3)]'
+                  isActive ? 'text-primary' : 'text-muted-foreground'
                 )} />
                 <span>{item.label}</span>
                 {isActive && (

@@ -7,6 +7,7 @@ import { getProject, updateProject } from '@/lib/projects-api';
 import { getSceneAssets, getImageUrl } from '@/lib/scene-assets-api';
 import { SceneCard } from '@/components/assets/SceneCard';
 import type { SceneAsset } from '@/types/scene-asset';
+import { Button } from '@/components/ui/button';
 
 export const Route = createFileRoute('/project/$id/scenes')({
   component: ProjectScenesPage,
@@ -58,7 +59,7 @@ function ProjectScenesPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-[var(--primary)] animate-spin" />
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
@@ -71,44 +72,41 @@ function ProjectScenesPage() {
           <Link
             to="/project/$id"
             params={{ id }}
-            className="inline-flex items-center gap-2 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] transition"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
           >
             <ArrowLeft className="w-4 h-4" />
             返回项目
           </Link>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">场景配置</h1>
+          <h1 className="text-2xl font-semibold text-foreground">场景配置</h1>
         </div>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition"
-        >
+        <Button onClick={handleConfirm}>
           <Check className="w-4 h-4" />
           确定
-        </button>
+        </Button>
       </div>
 
-      <p className="text-sm text-[var(--ink-2)] mb-6">
+      <p className="text-sm text-muted-foreground mb-6">
         选择一个场景用于此项目的拍摄（单选）
       </p>
 
       {/* 场景选择网格 - 空状态 */}
       {scenes.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white p-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-12">
           <div className="flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-[var(--paper-2)] flex items-center justify-center mb-4">
-              <ImageIcon className="w-8 h-8 text-[var(--ink-3)]" />
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <ImageIcon className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-[var(--ink)]">没有可用的场景</h3>
-            <p className="mt-1 text-sm text-[var(--ink-2)] max-w-sm">
+            <h3 className="text-lg font-medium text-foreground">没有可用的场景</h3>
+            <p className="mt-1 text-sm text-muted-foreground max-w-sm">
               请先在「资产管理」中创建场景资产
             </p>
-            <Link
-              to="/assets/scenes"
-              className="mt-6 inline-flex items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm font-medium text-[var(--ink)] hover:bg-[var(--paper-2)] transition"
+            <Button
+              className="mt-6"
+              render={<Link to="/assets/scenes" />}
+              variant="outline"
             >
               前往资产管理
-            </Link>
+            </Button>
           </div>
         </div>
       )}
@@ -130,12 +128,12 @@ function ProjectScenesPage() {
 
       {/* 已选场景预览区域 */}
       <div className="mt-8">
-        <h3 className="text-sm font-medium text-[var(--ink-2)] mb-4">已选场景预览</h3>
+        <h3 className="text-sm font-medium text-muted-foreground mb-4">已选场景预览</h3>
         {selectedScene ? (
-          <div className="rounded-2xl border border-[var(--line)] bg-white overflow-hidden">
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="flex flex-col md:flex-row">
               {/* 大图预览 */}
-              <div className="md:w-1/2 aspect-[4/3] bg-[var(--paper-2)]">
+              <div className="md:w-1/2 aspect-[4/3] bg-muted">
                 {selectedScene.primaryImage ? (
                   <img
                     src={getImageUrl(selectedScene.primaryImage)}
@@ -144,17 +142,17 @@ function ProjectScenesPage() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon className="w-16 h-16 text-[var(--ink-3)] opacity-50" />
+                    <ImageIcon className="w-16 h-16 text-muted-foreground opacity-50" />
                   </div>
                 )}
               </div>
 
               {/* 详情信息 */}
               <div className="md:w-1/2 p-6">
-                <h4 className="text-xl font-semibold text-[var(--ink)]">{selectedScene.name}</h4>
+                <h4 className="text-xl font-semibold text-foreground">{selectedScene.name}</h4>
 
                 {selectedScene.description && (
-                  <p className="mt-3 text-sm text-[var(--ink-2)] leading-relaxed">
+                  <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
                     {selectedScene.description}
                   </p>
                 )}
@@ -165,7 +163,7 @@ function ProjectScenesPage() {
                     {selectedScene.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="px-2.5 py-1 rounded-full bg-[var(--paper-2)] text-xs text-[var(--ink-2)]"
+                        className="px-2.5 py-1 rounded-full bg-muted text-xs text-muted-foreground"
                       >
                         {tag}
                       </span>
@@ -177,14 +175,14 @@ function ProjectScenesPage() {
                 <div className="mt-6 grid gap-3">
                   {selectedScene.defaultLighting && (
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-[var(--ink-3)]">默认灯光：</span>
-                      <span className="text-[var(--ink)]">{selectedScene.defaultLighting}</span>
+                      <span className="text-muted-foreground">默认灯光：</span>
+                      <span className="text-foreground">{selectedScene.defaultLighting}</span>
                     </div>
                   )}
                   {selectedScene.style && (
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-[var(--ink-3)]">风格：</span>
-                      <span className="text-[var(--ink)]">
+                      <span className="text-muted-foreground">风格：</span>
+                      <span className="text-foreground">
                         {[
                           selectedScene.style.colorTone === 'warm' ? '暖色调' :
                             selectedScene.style.colorTone === 'cool' ? '冷色调' : '中性',
@@ -198,8 +196,8 @@ function ProjectScenesPage() {
                   )}
                   {selectedScene.isOutdoor && (
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-[var(--ink-3)]">类型：</span>
-                      <span className="text-green-600">户外场景</span>
+                      <span className="text-muted-foreground">类型：</span>
+                      <span className="text-success-foreground">户外场景</span>
                     </div>
                   )}
                 </div>
@@ -207,7 +205,7 @@ function ProjectScenesPage() {
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper-2)] p-8 text-center text-[var(--ink-3)] text-sm">
+          <div className="rounded-2xl border border-border bg-muted/60 p-8 text-center text-muted-foreground text-sm">
             点击上方场景卡片进行选择
           </div>
         )}

@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>拍摄预案助手</title>
+    <script>
+      (() => {
+        try {
+          const key = "spv2_theme_preference";
+          const preference = localStorage.getItem(key) || "system";
+          const prefersDark =
+            preference === "dark" ||
+            (preference === "system" &&
+              window.matchMedia?.("(prefers-color-scheme: dark)")?.matches);
+          document.documentElement.classList.toggle("dark", prefersDark);
+          document.documentElement.dataset.theme = preference;
+          document.documentElement.style.colorScheme = prefersDark ? "dark" : "light";
+        } catch {
+          // ignore
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

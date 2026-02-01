@@ -29,8 +29,8 @@ export function ProviderCard({
       className={cn(
         'group relative rounded-xl border p-4 transition',
         isDefault
-          ? 'border-primary bg-primary/5'
-          : 'border-[var(--line)] bg-white hover:border-gray-300'
+          ? 'border-primary/40 bg-primary/5'
+          : 'border-border bg-card hover:border-ring/24 hover:bg-accent/30'
       )}
     >
       {/* 默认标记 */}
@@ -44,21 +44,21 @@ export function ProviderCard({
         {/* 图标 */}
         <div className={cn(
           'flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center',
-          isDefault ? 'bg-primary/20' : 'bg-gray-100'
+          isDefault ? 'bg-primary/15' : 'bg-muted'
         )}>
           <Server className={cn(
             'w-5 h-5',
-            isDefault ? 'text-primary' : 'text-[var(--ink-2)]'
+            isDefault ? 'text-primary' : 'text-muted-foreground'
           )} />
         </div>
 
         {/* 信息 */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-[var(--ink)] truncate">
+          <h3 className="text-sm font-medium text-foreground truncate">
             {provider.name}
           </h3>
-          <div className="mt-1 flex items-center gap-2 text-xs text-[var(--ink-3)]">
-            <span className="px-1.5 py-0.5 rounded bg-gray-100 font-mono">
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="px-1.5 py-0.5 rounded bg-muted font-mono">
               {formatLabel}
             </span>
             {provider.textModel && (
@@ -75,7 +75,7 @@ export function ProviderCard({
             <button
               type="button"
               onClick={onSetDefault}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-[var(--ink-3)] hover:text-primary transition"
+              className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-primary transition"
               title="设为默认"
             >
               <Check className="w-4 h-4" />
@@ -84,7 +84,7 @@ export function ProviderCard({
           <button
             type="button"
             onClick={onEdit}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-[var(--ink-3)] hover:text-[var(--ink)] transition"
+            className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition"
             title="编辑"
           >
             <Pencil className="w-4 h-4" />
@@ -92,7 +92,7 @@ export function ProviderCard({
           <button
             type="button"
             onClick={onDelete}
-            className="p-1.5 rounded-lg hover:bg-red-50 text-[var(--ink-3)] hover:text-red-600 transition"
+            className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition"
             title="删除"
           >
             <Trash2 className="w-4 h-4" />

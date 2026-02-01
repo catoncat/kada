@@ -88,10 +88,10 @@ export function GenerateButton({
           onClick={() => onGenerate()}
           disabled={!canGenerate}
           className={cn(
-            'inline-flex items-center gap-2 rounded-l-lg px-5 py-2.5 text-sm font-medium transition border-r border-white/20',
+            'inline-flex items-center gap-2 rounded-l-lg px-5 py-2.5 text-sm font-medium transition border-r border-white/20 dark:border-black/10',
             canGenerate
-              ? 'bg-[var(--primary)] text-white hover:opacity-90'
-              : 'bg-[var(--paper-2)] text-[var(--ink-3)] cursor-not-allowed'
+              ? 'bg-primary text-primary-foreground hover:opacity-90'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
           )}
         >
           {isGenerating ? (
@@ -109,8 +109,8 @@ export function GenerateButton({
             className={cn(
               'inline-flex items-center justify-center rounded-r-lg px-2 py-2.5 text-sm font-medium transition',
               canGenerate
-                ? 'bg-[var(--primary)] text-white hover:opacity-90'
-                : 'bg-[var(--paper-2)] text-[var(--ink-3)] cursor-not-allowed'
+                ? 'bg-primary text-primary-foreground hover:opacity-90'
+                : 'bg-muted text-muted-foreground cursor-not-allowed'
             )}
           >
             <ChevronDown className="w-4 h-4" />
@@ -138,7 +138,7 @@ export function GenerateButton({
           <DialogPanel>
             {isLoadingPrompt ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-[var(--ink-3)]" />
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
             ) : (
               <Textarea

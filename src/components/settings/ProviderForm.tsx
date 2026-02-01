@@ -16,6 +16,8 @@ import type { ProviderConfig, ApiFormat } from '@/types/provider';
 import { useModelFetcher } from './hooks/use-model-fetcher';
 import { ModelCombobox } from './ModelCombobox';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface ProviderFormProps {
   initialData?: ProviderConfig;
@@ -103,19 +105,19 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
       <button
         type="button"
         onClick={onCancel}
-        className="flex items-center gap-2 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] transition"
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
       >
         <ArrowLeft className="w-4 h-4" />
         {isEditing ? '返回列表' : '取消添加'}
       </button>
 
-      <h3 className="text-lg font-semibold text-[var(--ink)]">
+      <h3 className="text-lg font-semibold text-foreground">
         {isEditing ? '编辑服务商' : '添加服务商'}
       </h3>
 
       {/* 名称 */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           名称
         </label>
         <input
@@ -123,13 +125,13 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
           value={name}
           onChange={e => setName(e.target.value)}
           placeholder="例如：我的 API"
-          className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="w-full rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
       </div>
 
       {/* API 格式 */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           API 格式
         </label>
         <div className="grid grid-cols-2 gap-3">
@@ -139,8 +141,8 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
             className={cn(
               'rounded-xl border px-4 py-2 text-sm font-medium transition',
               format === 'gemini'
-                ? 'border-primary bg-primary/5 text-[var(--ink)]'
-                : 'border-[var(--line)] bg-white text-[var(--ink-2)] hover:bg-gray-50'
+                ? 'border-primary/40 bg-primary/5 text-foreground'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             Gemini 原生
@@ -151,8 +153,8 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
             className={cn(
               'rounded-xl border px-4 py-2 text-sm font-medium transition',
               format === 'openai'
-                ? 'border-primary bg-primary/5 text-[var(--ink)]'
-                : 'border-[var(--line)] bg-white text-[var(--ink-2)] hover:bg-gray-50'
+                ? 'border-primary/40 bg-primary/5 text-foreground'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             OpenAI 兼容
@@ -162,8 +164,8 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* API Key */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2 flex items-center">
-          <Key className="w-4 h-4 mr-2 text-[var(--ink-2)]" /> API Key
+        <label className="block text-sm font-medium text-foreground mb-2 flex items-center">
+          <Key className="w-4 h-4 mr-2 text-muted-foreground" /> API Key
         </label>
         <div className="relative">
           <input
@@ -171,18 +173,18 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder="在此粘贴你的 API Key"
-            className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 pr-12 text-sm font-mono text-[var(--ink)] placeholder-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="w-full rounded-xl border border-input bg-background px-4 py-3 pr-12 text-sm font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           />
           <button
             type="button"
             onClick={() => setShowKey(v => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2 hover:bg-gray-100 transition"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2 hover:bg-accent transition"
             title={showKey ? '隐藏' : '显示'}
           >
             {showKey ? (
-              <EyeOff className="w-5 h-5 text-[var(--ink-2)]" />
+              <EyeOff className="w-5 h-5 text-muted-foreground" />
             ) : (
-              <Eye className="w-5 h-5 text-[var(--ink-2)]" />
+              <Eye className="w-5 h-5 text-muted-foreground" />
             )}
           </button>
         </div>
@@ -190,7 +192,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
       {/* Base URL */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           Base URL
         </label>
         <input
@@ -201,7 +203,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
             ? 'https://generativelanguage.googleapis.com/v1beta'
             : 'https://api.openai.com/v1'
           }
-          className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-mono text-[var(--ink)] placeholder-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="w-full rounded-xl border border-input bg-background px-4 py-3 text-sm font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
       </div>
 
@@ -216,14 +218,14 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
             className={cn(
               'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition',
               isLoading || !apiKey
-                ? 'border-[var(--line)] bg-gray-50 text-[var(--ink-3)] cursor-not-allowed'
-                : 'border-primary bg-primary/5 text-primary hover:bg-primary/10'
+                ? 'border-border bg-muted text-muted-foreground cursor-not-allowed'
+                : 'border-primary/40 bg-primary/5 text-primary hover:bg-primary/10'
             )}
           >
             <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
             {isLoading ? '获取中...' : '获取模型列表'}
           </button>
-          <span className="text-xs text-[var(--ink-3)]">
+          <span className="text-xs text-muted-foreground">
             {models.length > 0
               ? `已获取 ${models.length} 个模型`
               : '可直接输入模型名称，或获取列表选择'}
@@ -231,15 +233,17 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
         </div>
 
         {error && (
-          <p className="text-xs text-red-600 bg-red-50 p-3 rounded-xl border border-red-200 flex items-start">
+          <Alert className="text-xs" variant="error">
             <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" />
-            {error}
-          </p>
+            <AlertDescription className="text-destructive-foreground">
+              {error}
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* 文生文模型 */}
         <div>
-          <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2">
             文生文模型
           </label>
           <ModelCombobox
@@ -253,7 +257,7 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
 
         {/* 文生图模型 */}
         <div>
-          <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2">
             文生图模型
           </label>
           <ModelCombobox
@@ -267,29 +271,25 @@ export function ProviderForm({ initialData, onSubmit, onCancel }: ProviderFormPr
       </div>
 
       {/* 设为默认 */}
-      <label className="flex items-center gap-3 p-3 rounded-xl border border-[var(--line)] hover:bg-gray-50 transition cursor-pointer">
+      <label className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:bg-accent/50 transition cursor-pointer">
         <input
           type="checkbox"
           checked={isDefault}
           onChange={e => setIsDefault(e.target.checked)}
-          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+          className="w-4 h-4 rounded border-input text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
-        <span className="text-sm text-[var(--ink)]">设为默认服务商</span>
+        <span className="text-sm text-foreground">设为默认服务商</span>
       </label>
 
       {/* 提交按钮 */}
-      <button
-        type="submit"
+      <Button
+        className="w-full rounded-xl"
         disabled={!apiKey}
-        className={cn(
-          'w-full rounded-xl py-3 font-semibold shadow-sm transition',
-          apiKey
-            ? 'bg-primary text-primary-foreground hover:opacity-95'
-            : 'bg-gray-100 text-[var(--ink-3)] cursor-not-allowed'
-        )}
+        size="lg"
+        type="submit"
       >
         {isEditing ? '保存修改' : '添加服务商'}
-      </button>
+      </Button>
     </form>
   );
 }

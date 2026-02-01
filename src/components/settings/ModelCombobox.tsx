@@ -83,7 +83,7 @@ export function ModelCombobox({
           disabled={disabled}
           placeholder={placeholder}
           className={cn(
-            'w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-mono text-[var(--ink)] placeholder-[var(--ink-3)] focus:outline-none focus:ring-2 focus:ring-black/10 transition',
+            'w-full rounded-xl border border-input bg-background px-4 py-3 text-sm font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background transition',
             disabled && 'opacity-50 cursor-not-allowed',
             filteredByCapability.length > 0 && 'pr-10'
           )}
@@ -95,10 +95,10 @@ export function ModelCombobox({
             type="button"
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-gray-100 transition"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-accent transition"
           >
             <ChevronDown className={cn(
-              'w-4 h-4 text-[var(--ink-3)] transition',
+              'w-4 h-4 text-muted-foreground transition',
               isOpen && 'rotate-180'
             )} />
           </button>
@@ -129,9 +129,9 @@ export function ModelCombobox({
           />
 
           {/* 列表 */}
-          <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-xl border border-[var(--line)] bg-white shadow-lg">
+          <div className="absolute z-50 mt-1 w-full max-h-64 overflow-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-lg/5">
             {filteredModels.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-[var(--ink-3)]">
+              <div className="px-4 py-3 text-sm text-muted-foreground">
                 没有匹配的模型，可直接使用输入的名称
               </div>
             ) : (
@@ -141,13 +141,13 @@ export function ModelCombobox({
                   type="button"
                   onClick={() => handleSelect(model.id)}
                   className={cn(
-                    'w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition',
-                    model.id === value && 'bg-gray-50'
+                    'w-full flex items-start gap-3 px-4 py-2.5 text-left hover:bg-accent transition',
+                    model.id === value && 'bg-accent/50'
                   )}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm text-[var(--ink)] truncate">
+                      <span className="font-mono text-sm text-foreground truncate">
                         {model.name || model.id}
                       </span>
                       {model.id === value && (
@@ -155,7 +155,7 @@ export function ModelCombobox({
                       )}
                     </div>
                     {model.description && (
-                      <p className="text-xs text-[var(--ink-3)] truncate mt-0.5">
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
                         {model.description}
                       </p>
                     )}

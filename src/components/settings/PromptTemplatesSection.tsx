@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, Check, Edit3, Loader2 } from 'lucide-react';
 import { getSetting, setSetting } from '@/lib/settings-api';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -156,7 +157,7 @@ export function PromptTemplatesSection() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-[var(--ink-3)]" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -164,8 +165,8 @@ export function PromptTemplatesSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-[var(--ink)] mb-1">系统提示词</h2>
-        <p className="text-sm text-[var(--ink-2)]">
+        <h2 className="text-lg font-semibold text-foreground mb-1">系统提示词</h2>
+        <p className="text-sm text-muted-foreground">
           管理系统提示词模板，生成预案时会使用改内容作为前置提示词
         </p>
       </div>
@@ -178,8 +179,8 @@ export function PromptTemplatesSection() {
             className={cn(
               'rounded-xl border p-4 transition',
               template.isDefault
-                ? 'border-primary/50 bg-primary/5'
-                : 'border-[var(--line)] bg-white'
+                ? 'border-primary/40 bg-primary/5'
+                : 'border-border bg-card'
             )}
           >
             {editingId === template.id ? (
@@ -214,14 +215,14 @@ export function PromptTemplatesSection() {
               </div>
             ) : (
               // 展示模式
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-[var(--ink)]">{template.name}</span>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground">{template.name}</span>
                     {template.isDefault && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary text-white">
+                      <Badge className="rounded-full px-2" size="sm">
                         默认
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
@@ -250,12 +251,12 @@ export function PromptTemplatesSection() {
                         onClick={() => handleDelete(template.id)}
                         title="删除"
                       >
-                        <Trash2 className="w-4 h-4 text-red-500" />
+                        <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     )}
                   </div>
                 </div>
-                <p className="text-sm text-[var(--ink-2)] line-clamp-3 whitespace-pre-wrap">
+                <p className="text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">
                   {template.content || '（空内容）'}
                 </p>
               </div>
@@ -265,14 +266,15 @@ export function PromptTemplatesSection() {
       </div>
 
       {/* 新建按钮 */}
-      <button
-        type="button"
+      <Button
+        className="w-full justify-center gap-2 rounded-xl border-dashed"
         onClick={handleCreate}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-[var(--line)] text-sm font-medium text-[var(--ink-2)] hover:border-gray-400 hover:text-[var(--ink)] transition"
+        size="lg"
+        variant="outline"
       >
         <Plus className="w-4 h-4" />
         新建模板
-      </button>
+      </Button>
     </div>
   );
 }

@@ -43,7 +43,7 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
   // 嵌入模式：直接渲染左右布局
   if (embedded) {
     return (
-      <div className="rounded-2xl border border-[var(--line)] bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border bg-card">
         <div className="flex min-h-[500px]">
           {/* 左侧导航 */}
           <SettingsNav
@@ -65,10 +65,10 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {/* 触发按钮 */}
       <DialogTrigger
-        className="fixed bottom-6 right-6 z-50 rounded-full border border-[var(--line)] bg-white p-3 shadow-sm hover:bg-gray-50 transition"
+        className="fixed bottom-6 right-6 z-50 rounded-full border bg-card p-3 shadow-sm/5 transition hover:bg-accent/60"
         aria-label="打开设置"
       >
-        <Settings className="w-6 h-6 text-[var(--ink-2)]" />
+        <Settings className="h-6 w-6 text-muted-foreground" />
       </DialogTrigger>
 
       {/* 对话框内容 */}
@@ -78,10 +78,8 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
         bottomStickOnMobile={false}
       >
         {/* 标题栏 */}
-        <div className="flex items-center border-b border-[var(--line)] px-6 py-4 bg-white">
-          <DialogTitle className="text-base font-semibold text-[var(--ink)]">
-            设置
-          </DialogTitle>
+        <div className="flex items-center border-b bg-popover px-6 py-4">
+          <DialogTitle className="text-base font-semibold">设置</DialogTitle>
         </div>
 
         {/* 主体：左右布局 */}

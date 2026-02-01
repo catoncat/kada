@@ -17,6 +17,8 @@ import {
   Dialog,
   DialogPopup,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export const Route = createFileRoute('/assets/scenes')({
   component: ScenesAssetPage,
@@ -97,52 +99,47 @@ function ScenesAssetPage() {
     <div className="space-y-6">
       {/* 操作栏 */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[var(--ink-2)]">
+        <p className="text-sm text-muted-foreground">
           管理你的拍摄场景，上传场景照片并添加描述
         </p>
-        <button
-          type="button"
-          onClick={handleCreate}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition"
-        >
+        <Button onClick={handleCreate}>
           <Plus className="w-4 h-4" />
           新建场景
-        </button>
+        </Button>
       </div>
 
       {/* 加载状态 */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[var(--primary)] animate-spin" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       )}
 
       {/* 错误状态 */}
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-          加载失败：{error instanceof Error ? error.message : '未知错误'}
-        </div>
+        <Alert variant="error">
+          <AlertTitle>加载失败</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : '未知错误'}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* 空状态 */}
       {!isLoading && !error && scenes.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white p-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-12">
           <div className="flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-[var(--paper-2)] flex items-center justify-center mb-4">
-              <ImageIcon className="w-8 h-8 text-[var(--ink-3)]" />
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <ImageIcon className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-[var(--ink)]">还没有场景</h3>
-            <p className="mt-1 text-sm text-[var(--ink-2)] max-w-sm">
+            <h3 className="text-lg font-medium text-foreground">还没有场景</h3>
+            <p className="mt-1 text-sm text-muted-foreground max-w-sm">
               创建你的第一个场景资产，上传场景照片并添加描述，用于生成更精确的拍摄参考图
             </p>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition"
-            >
+            <Button className="mt-6" onClick={handleCreate}>
               <Plus className="w-4 h-4" />
               新建场景
-            </button>
+            </Button>
           </div>
         </div>
       )}

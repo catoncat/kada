@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "concurrently \"pnpm dev:sidecar\" \"tauri dev\"",
     "tauri:build": "cd sidecar && pnpm build && cd .. && tauri build",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",

@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { Plus, Zap, ShieldCheck } from 'lucide-react';
 import type { ProviderConfig } from '@/types/provider';
 import { PRESET_TEMPLATES } from '@/types/provider';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ProviderCard } from './ProviderCard';
 import { ProviderForm } from './ProviderForm';
 import { useProviders } from './hooks/use-providers';
@@ -88,20 +90,21 @@ export function ProvidersSection() {
     <div className="space-y-6">
       {/* 快速添加区 */}
       <div>
-        <h3 className="text-sm font-medium text-[var(--ink)] mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
           快速添加
         </h3>
         <div className="flex gap-2 flex-wrap">
           {PRESET_TEMPLATES.map(preset => (
-            <button
+            <Button
               key={preset.name}
-              type="button"
               onClick={() => handlePresetAdd(preset)}
-              className="text-sm px-4 py-2 rounded-xl border border-[var(--line)] bg-white hover:bg-gray-50 hover:border-gray-300 transition font-medium text-[var(--ink-2)]"
+              className="rounded-xl"
+              size="sm"
+              variant="outline"
             >
               {preset.name}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -109,7 +112,7 @@ export function ProvidersSection() {
       {/* 已配置的服务商 */}
       {providers.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-[var(--ink)] mb-3">
+          <h3 className="text-sm font-medium text-foreground mb-3">
             已配置的服务商
           </h3>
           <div className="space-y-3">
@@ -130,33 +133,34 @@ export function ProvidersSection() {
       {/* 空状态 */}
       {providers.length === 0 && (
         <div className="text-center py-8">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center">
-            <ShieldCheck className="w-8 h-8 text-[var(--ink-3)]" />
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted flex items-center justify-center">
+            <ShieldCheck className="w-8 h-8 text-muted-foreground" />
           </div>
-          <p className="text-sm text-[var(--ink-2)] mb-1">还没有配置任何服务商</p>
-          <p className="text-xs text-[var(--ink-3)]">
+          <p className="text-sm text-muted-foreground mb-1">还没有配置任何服务商</p>
+          <p className="text-xs text-muted-foreground">
             点击上方的快速添加按钮开始配置
           </p>
         </div>
       )}
 
       {/* 添加自定义服务商按钮 */}
-      <button
-        type="button"
+      <Button
+        className="w-full justify-center gap-2 rounded-xl border-dashed"
         onClick={handleCustomAdd}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-[var(--line)] text-sm font-medium text-[var(--ink-2)] hover:border-gray-400 hover:text-[var(--ink)] transition"
+        size="lg"
+        variant="outline"
       >
         <Plus className="w-4 h-4" />
         添加自定义服务商
-      </button>
+      </Button>
 
       {/* 隐私提示 */}
-      <p className="text-xs text-[var(--ink-2)] bg-gray-50 p-3 rounded-xl flex items-start border border-[var(--line)]">
-        <ShieldCheck className="w-4 h-4 mr-2 flex-shrink-0 text-[var(--ink-2)]" />
-        <span>
+      <Alert className="text-xs" variant="info">
+        <ShieldCheck className="w-4 h-4 mr-2 flex-shrink-0" />
+        <AlertDescription>
           <b>隐私提示：</b>配置仅保存在你的浏览器本地，不会上传到任何服务器。
-        </span>
-      </p>
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
 import type { SceneAsset, CreateSceneAssetInput, SceneStyle } from '@/types/scene-asset';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface SceneFormProps {
   /** 编辑时的初始数据 */
@@ -86,22 +88,22 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* 标题栏 */}
-      <div className="flex items-center justify-between pb-4 border-b border-[var(--line)]">
-        <h2 className="text-lg font-semibold text-[var(--ink)]">
+      <div className="flex items-center justify-between pb-4 border-b border-border">
+        <h2 className="text-lg font-semibold text-foreground">
           {isEditing ? '编辑场景' : '新建场景'}
         </h2>
         <button
           type="button"
           onClick={onCancel}
-          className="p-2 rounded-lg hover:bg-[var(--paper-2)] transition"
+          className="p-2 rounded-lg hover:bg-accent transition"
         >
-          <X className="w-5 h-5 text-[var(--ink-2)]" />
+          <X className="w-5 h-5 text-muted-foreground" />
         </button>
       </div>
 
       {/* 主图上传 */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           场景主图
         </label>
         <ImageUploader
@@ -114,21 +116,21 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
       {/* 基本信息 */}
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-[var(--ink)] mb-2">
-            场景名称 <span className="text-red-500">*</span>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            场景名称 <span className="text-destructive">*</span>
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="例如：白墙区、窗光区、户外草坪"
-            className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+            className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+          <label className="block text-sm font-medium text-foreground mb-2">
             默认灯光
           </label>
           <input
@@ -136,14 +138,14 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
             value={defaultLighting}
             onChange={(e) => setDefaultLighting(e.target.value)}
             placeholder="例如：蝴蝶光、环形灯、自然光"
-            className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+            className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           />
         </div>
       </div>
 
       {/* 描述 */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           场景描述
         </label>
         <textarea
@@ -151,13 +153,13 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
           onChange={(e) => setDescription(e.target.value)}
           placeholder="描述这个场景的特点、适合的拍摄风格等"
           rows={3}
-          className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+          className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background resize-none"
         />
       </div>
 
       {/* 标签 */}
       <div>
-        <label className="block text-sm font-medium text-[var(--ink)] mb-2">
+        <label className="block text-sm font-medium text-foreground mb-2">
           标签
         </label>
         <input
@@ -165,7 +167,7 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
           value={tagsInput}
           onChange={(e) => setTagsInput(e.target.value)}
           placeholder="用逗号分隔，例如：极简, 高调, 现代"
-          className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-2.5 text-sm text-[var(--ink)] placeholder-[var(--ink-3)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+          className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
       </div>
 
@@ -176,31 +178,32 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
           id="isOutdoor"
           checked={isOutdoor}
           onChange={(e) => setIsOutdoor(e.target.checked)}
-          className="w-4 h-4 rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+          className="w-4 h-4 rounded border-input text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
-        <label htmlFor="isOutdoor" className="text-sm text-[var(--ink)]">
+        <label htmlFor="isOutdoor" className="text-sm text-foreground">
           这是户外场景
         </label>
       </div>
 
       {/* 风格属性 */}
-      <div className="rounded-xl border border-[var(--line)] bg-[var(--paper-2)] p-4">
-        <h3 className="text-sm font-medium text-[var(--ink)] mb-4">风格属性</h3>
+      <div className="rounded-xl border border-border bg-muted/60 p-4">
+        <h3 className="text-sm font-medium text-foreground mb-4">风格属性</h3>
         <div className="grid gap-4 md:grid-cols-3">
           {/* 色调 */}
           <div>
-            <label className="block text-xs text-[var(--ink-2)] mb-2">色调</label>
+            <label className="block text-xs text-muted-foreground mb-2">色调</label>
             <div className="flex flex-wrap gap-2">
               {COLOR_TONE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => setColorTone(opt.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
                     colorTone === opt.value
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)]'
-                  }`}
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
+                  )}
                 >
                   {opt.label}
                 </button>
@@ -210,18 +213,19 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
           {/* 光线氛围 */}
           <div>
-            <label className="block text-xs text-[var(--ink-2)] mb-2">光线氛围</label>
+            <label className="block text-xs text-muted-foreground mb-2">光线氛围</label>
             <div className="flex flex-wrap gap-2">
               {LIGHTING_MOOD_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => setLightingMood(opt.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
                     lightingMood === opt.value
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)]'
-                  }`}
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
+                  )}
                 >
                   {opt.label}
                 </button>
@@ -231,18 +235,19 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
 
           {/* 年代感 */}
           <div>
-            <label className="block text-xs text-[var(--ink-2)] mb-2">年代感</label>
+            <label className="block text-xs text-muted-foreground mb-2">年代感</label>
             <div className="flex flex-wrap gap-2">
               {ERA_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => setEra(opt.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
                     era === opt.value
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)]'
-                  }`}
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
+                  )}
                 >
                   {opt.label}
                 </button>
@@ -253,22 +258,16 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
       </div>
 
       {/* 提交按钮 */}
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--line)]">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={loading}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ink-2)] hover:bg-[var(--paper-2)] transition"
-        >
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
+        <Button onClick={onCancel} disabled={loading} variant="outline">
           取消
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
           disabled={loading || !name.trim()}
-          className="px-6 py-2 rounded-lg text-sm font-medium bg-[var(--primary)] text-white hover:opacity-90 transition disabled:opacity-50"
         >
           {loading ? '保存中...' : isEditing ? '保存修改' : '创建场景'}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -154,14 +154,14 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
   };
 
   return (
-    <div className="rounded-2xl border border-[var(--line)] bg-white p-6">
+    <div className="rounded-2xl border border-border bg-card p-6">
       {/* 标题栏 + 添加按钮 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-[var(--ink-3)]" />
-          <h3 className="text-lg font-medium text-[var(--ink)]">拍摄人物</h3>
+          <Users className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-lg font-medium text-foreground">拍摄人物</h3>
           {people.length > 0 && (
-            <span className="text-sm text-[var(--ink-3)]">({people.length}人)</span>
+            <span className="text-sm text-muted-foreground">({people.length}人)</span>
           )}
         </div>
 
@@ -177,7 +177,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
           <DropdownMenuContent align="end" className="w-48">
             {/* 家庭组合 */}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-[var(--ink-3)]">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
                 家庭组合
               </DropdownMenuLabel>
               {FAMILY_PRESETS.map((preset) => (
@@ -186,7 +186,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
                   onClick={() => addFamilyPreset(preset)}
                 >
                   {preset.label}
-                  <span className="ml-auto text-xs text-[var(--ink-3)]">
+                  <span className="ml-auto text-xs text-muted-foreground">
                     {preset.people.length}人
                   </span>
                 </DropdownMenuItem>
@@ -197,7 +197,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
 
             {/* 单个角色 */}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-[var(--ink-3)]">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
                 单个角色
               </DropdownMenuLabel>
               {PRESET_ROLES.slice(0, 5).map((preset) => (
@@ -231,7 +231,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
             {people.map((person) => (
               <div
                 key={person.id}
-                className="flex items-center gap-2 p-3 rounded-xl bg-[var(--paper)] border border-[var(--line)]"
+                className="flex items-center gap-2 p-3 rounded-xl bg-muted/40 border border-border"
               >
                 {/* 角色名 */}
                 <Input
@@ -242,7 +242,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
                 />
 
                 {/* 性别切换按钮 */}
-                <div className="flex rounded-lg border border-[var(--line)] overflow-hidden">
+                <div className="flex rounded-lg border border-border overflow-hidden bg-background">
                   {GENDER_OPTIONS.map((g) => (
                     <button
                       key={g.value}
@@ -250,8 +250,8 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
                       onClick={() => updatePerson(person.id, { gender: g.value })}
                       className={`px-3 py-1.5 text-sm transition ${
                         person.gender === g.value
-                          ? 'bg-primary text-white'
-                          : 'bg-white text-[var(--ink-2)] hover:bg-gray-50'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
                       }`}
                     >
                       {g.label}
@@ -272,7 +272,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
                     min={0}
                     max={120}
                   />
-                  <span className="text-sm text-[var(--ink-3)]">岁</span>
+                  <span className="text-sm text-muted-foreground">岁</span>
                 </div>
 
                 {/* 删除按钮 */}
@@ -280,7 +280,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
                   variant="ghost"
                   size="icon-xs"
                   onClick={() => removePerson(person.id)}
-                  className="ml-auto flex-shrink-0 text-[var(--ink-3)] hover:text-red-500"
+                  className="ml-auto flex-shrink-0 text-muted-foreground hover:text-destructive"
                 >
                   <X className="w-4 h-4" />
                 </Button>
@@ -288,7 +288,7 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-sm text-[var(--ink-3)]">
+          <div className="text-center py-8 text-sm text-muted-foreground">
             点击右上角「添加」按钮添加拍摄人物
           </div>
         )}
@@ -313,8 +313,8 @@ export function CustomerInfoForm({ value, onChange }: CustomerInfoFormProps) {
 
         {/* 备注 */}
         {people.length > 0 && (
-          <div className="grid gap-2 pt-2 border-t border-[var(--line)]">
-            <Label className="text-sm text-[var(--ink-2)]">备注（可选）</Label>
+          <div className="grid gap-2 pt-2 border-t border-border">
+            <Label className="text-sm text-muted-foreground">备注（可选）</Label>
             <Input
               value={value?.notes || ''}
               onChange={(e) => updateNotes(e.target.value)}

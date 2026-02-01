@@ -106,7 +106,7 @@ export function ImageUploader({
   if (value) {
     return (
       <div className={cn('relative group', className)}>
-        <div className="relative rounded-xl overflow-hidden border border-[var(--line)] bg-[var(--paper-2)]">
+        <div className="relative rounded-xl overflow-hidden border border-border bg-muted">
           <img
             src={getImageUrl(value)}
             alt="已上传图片"
@@ -118,23 +118,23 @@ export function ImageUploader({
               type="button"
               onClick={handleClick}
               disabled={disabled || uploading}
-              className="p-2 rounded-full bg-white/90 hover:bg-white transition"
+              className="p-2 rounded-full bg-popover/90 hover:bg-popover transition"
               title="更换图片"
             >
               {uploading ? (
-                <Loader2 className="w-5 h-5 animate-spin text-[var(--ink-2)]" />
+                <Loader2 className="w-5 h-5 animate-spin text-foreground" />
               ) : (
-                <Upload className="w-5 h-5 text-[var(--ink)]" />
+                <Upload className="w-5 h-5 text-foreground" />
               )}
             </button>
             <button
               type="button"
               onClick={handleRemove}
               disabled={disabled}
-              className="p-2 rounded-full bg-white/90 hover:bg-white transition"
+              className="p-2 rounded-full bg-popover/90 hover:bg-popover transition"
               title="删除图片"
             >
-              <X className="w-5 h-5 text-red-500" />
+              <X className="w-5 h-5 text-destructive" />
             </button>
           </div>
         </div>
@@ -161,24 +161,24 @@ export function ImageUploader({
           'rounded-xl border-2 border-dashed p-8 transition-colors cursor-pointer',
           'flex flex-col items-center justify-center text-center',
           dragOver
-            ? 'border-[var(--primary)] bg-[var(--primary)]/5'
-            : 'border-[var(--line)] bg-white hover:border-[var(--ink-3)] hover:bg-[var(--paper-2)]',
+            ? 'border-primary bg-primary/5'
+            : 'border-border bg-card hover:border-ring/24 hover:bg-accent/30',
           disabled && 'opacity-50 cursor-not-allowed',
           uploading && 'pointer-events-none'
         )}
       >
         {uploading ? (
           <>
-            <Loader2 className="w-10 h-10 text-[var(--primary)] animate-spin mb-3" />
-            <p className="text-sm text-[var(--ink-2)]">上传中...</p>
+            <Loader2 className="w-10 h-10 text-primary animate-spin mb-3" />
+            <p className="text-sm text-muted-foreground">上传中...</p>
           </>
         ) : (
           <>
-            <div className="w-12 h-12 rounded-full bg-[var(--paper-2)] flex items-center justify-center mb-3">
-              <ImageIcon className="w-6 h-6 text-[var(--ink-3)]" />
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+              <ImageIcon className="w-6 h-6 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium text-[var(--ink)]">{placeholder}</p>
-            <p className="mt-1 text-xs text-[var(--ink-3)]">
+            <p className="text-sm font-medium text-foreground">{placeholder}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
               支持 JPG、PNG、WebP、GIF，最大 10MB
             </p>
           </>
@@ -186,7 +186,7 @@ export function ImageUploader({
       </div>
 
       {error && (
-        <p className="mt-2 text-sm text-red-500">{error}</p>
+        <p className="mt-2 text-sm text-destructive">{error}</p>
       )}
 
       <input

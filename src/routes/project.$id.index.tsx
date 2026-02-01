@@ -11,6 +11,7 @@ import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { GenerateButton } from '@/components/GenerateButton';
 import { CustomerInfoForm } from '@/components/CustomerInfoForm';
 import type { CustomerInfo } from '@/types/project';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export const Route = createFileRoute('/project/$id/')({
   component: ProjectDetailPage,
@@ -113,7 +114,7 @@ function ProjectDetailPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-[var(--primary)] animate-spin" />
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
@@ -121,9 +122,12 @@ function ProjectDetailPage() {
   if (error || !project) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-          {error instanceof Error ? error.message : '项目不存在'}
-        </div>
+        <Alert variant="error">
+          <AlertTitle>加载失败</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : '项目不存在'}
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -135,12 +139,12 @@ function ProjectDetailPage() {
         <div className="flex items-center gap-4">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] transition"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
           >
             <ArrowLeft className="w-4 h-4" />
             返回列表
           </Link>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">{project.title}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{project.title}</h1>
         </div>
         <GenerateButton
           projectId={id}
@@ -153,11 +157,11 @@ function ProjectDetailPage() {
       {/* 配置区块 */}
       <div className="grid gap-4">
         {/* 场景配置区块 */}
-        <div className="rounded-2xl border border-[var(--line)] bg-white p-6">
+        <div className="rounded-2xl border border-border bg-card p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4 flex-1 min-w-0">
               {/* 场景缩略图 */}
-              <div className="w-24 h-24 rounded-xl bg-[var(--paper-2)] flex-shrink-0 overflow-hidden">
+              <div className="w-24 h-24 rounded-xl bg-muted flex-shrink-0 overflow-hidden">
                 {selectedScene?.primaryImage ? (
                   <img
                     src={getImageUrl(selectedScene.primaryImage)}
@@ -166,27 +170,27 @@ function ProjectDetailPage() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon className="w-8 h-8 text-[var(--ink-3)]" />
+                    <ImageIcon className="w-8 h-8 text-muted-foreground" />
                   </div>
                 )}
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4 text-[var(--ink-3)]" />
-                  <h3 className="text-lg font-medium text-[var(--ink)]">场景</h3>
+                  <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="text-lg font-medium text-foreground">场景</h3>
                 </div>
                 {selectedScene ? (
                   <div className="mt-2">
-                    <p className="text-sm font-medium text-[var(--ink)]">{selectedScene.name}</p>
+                    <p className="text-sm font-medium text-foreground">{selectedScene.name}</p>
                     {selectedScene.description && (
-                      <p className="mt-1 text-sm text-[var(--ink-2)] line-clamp-2">
+                      <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
                         {selectedScene.description}
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-[var(--ink-3)]">尚未选择场景</p>
+                  <p className="mt-2 text-sm text-muted-foreground">尚未选择场景</p>
                 )}
               </div>
             </div>
@@ -194,7 +198,7 @@ function ProjectDetailPage() {
             <Link
               to="/project/$id/scenes"
               params={{ id }}
-              className="inline-flex items-center gap-1 text-sm text-[var(--primary)] hover:underline flex-shrink-0"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline flex-shrink-0"
             >
               配置
               <span>→</span>
@@ -209,60 +213,60 @@ function ProjectDetailPage() {
         />
 
         {/* 服装配置区块 */}
-        <div className="rounded-2xl border border-[var(--line)] bg-white p-6 opacity-60">
+        <div className="rounded-2xl border border-border bg-card p-6 opacity-60">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--paper-2)] flex items-center justify-center">
-                <Shirt className="w-6 h-6 text-[var(--ink-3)]" />
+              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                <Shirt className="w-6 h-6 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-medium text-[var(--ink)]">服装</h3>
-                <p className="mt-1 text-sm text-[var(--ink-3)]">
+                <h3 className="text-lg font-medium text-foreground">服装</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   {project.selectedOutfits?.length
                     ? `已选 ${project.selectedOutfits.length} 套`
                     : '待开发'}
                 </p>
               </div>
             </div>
-            <span className="text-sm text-[var(--ink-3)]">配置 →</span>
+            <span className="text-sm text-muted-foreground">配置 →</span>
           </div>
         </div>
 
         {/* 道具配置区块 */}
-        <div className="rounded-2xl border border-[var(--line)] bg-white p-6 opacity-60">
+        <div className="rounded-2xl border border-border bg-card p-6 opacity-60">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--paper-2)] flex items-center justify-center">
-                <Package className="w-6 h-6 text-[var(--ink-3)]" />
+              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                <Package className="w-6 h-6 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-medium text-[var(--ink)]">道具</h3>
-                <p className="mt-1 text-sm text-[var(--ink-3)]">
+                <h3 className="text-lg font-medium text-foreground">道具</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   {project.selectedProps?.length
                     ? `已选 ${project.selectedProps.length} 个`
                     : '待开发'}
                 </p>
               </div>
             </div>
-            <span className="text-sm text-[var(--ink-3)]">配置 →</span>
+            <span className="text-sm text-muted-foreground">配置 →</span>
           </div>
         </div>
 
         {/* 拍摄参数配置区块 */}
-        <div className="rounded-2xl border border-[var(--line)] bg-white p-6 opacity-60">
+        <div className="rounded-2xl border border-border bg-card p-6 opacity-60">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--paper-2)] flex items-center justify-center">
-                <Settings2 className="w-6 h-6 text-[var(--ink-3)]" />
+              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                <Settings2 className="w-6 h-6 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-medium text-[var(--ink)]">拍摄参数</h3>
-                <p className="mt-1 text-sm text-[var(--ink-3)]">
+                <h3 className="text-lg font-medium text-foreground">拍摄参数</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   {project.params ? '已配置' : '待开发'}
                 </p>
               </div>
             </div>
-            <span className="text-sm text-[var(--ink-3)]">配置 →</span>
+            <span className="text-sm text-muted-foreground">配置 →</span>
           </div>
         </div>
       </div>
@@ -273,14 +277,14 @@ function ProjectDetailPage() {
           <Link
             to="/project/$id/result"
             params={{ id }}
-            className="block rounded-2xl border border-green-200 bg-green-50 p-6 hover:bg-green-100 transition"
+            className="block rounded-2xl border border-success/32 bg-success/4 p-6 hover:bg-success/8 transition"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Sparkles className="w-5 h-5 text-green-600" />
-                <span className="text-sm font-medium text-green-700">已生成预案，点击查看</span>
+                <Sparkles className="w-5 h-5 text-success" />
+                <span className="text-sm font-medium text-success-foreground">已生成预案，点击查看</span>
               </div>
-              <span className="text-green-600">→</span>
+              <span className="text-success">→</span>
             </div>
           </Link>
         </div>
