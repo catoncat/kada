@@ -4,16 +4,17 @@
 
 ## 运行与打包一致性
 
-1. **前端 API 路径依赖 dev proxy**
-   - 前端请求写成相对路径 `/api/*`，在 Vite dev 通过 proxy 转发到 `:3001`。
-   - Tauri 打包后不再有 Vite proxy，需要明确如何访问 Sidecar（baseUrl/路由/拦截策略）。
+1. ~~**前端 API 路径依赖 dev proxy**~~ ✅ 已修复
+   - ~~前端请求写成相对路径 `/api/*`，在 Vite dev 通过 proxy 转发到 `:3001`。~~
+   - ~~Tauri 打包后不再有 Vite proxy，需要明确如何访问 Sidecar（baseUrl/路由/拦截策略）。~~
+   - 已添加 `src/lib/api-config.ts`，开发环境使用 Vite proxy，生产环境直接访问 `localhost:3001`。
 
-2. **Sidecar 二进制命名与 Tauri 配置可能不一致**
-   - Sidecar 构建脚本输出 `src-tauri/binaries/sidecar-<targetTriple>`。
-   - `src-tauri/tauri.conf.json` 目前配置的 externalBin 是 `binaries/sidecar`。
+2. ~~**Sidecar 二进制命名与 Tauri 配置可能不一致**~~ ✅ 已确认正常
+   - Sidecar 构建脚本输出 `sidecar-<targetTriple>`，Tauri 2 的 externalBin 会自动查找带 target triple 后缀的文件。
 
-3. **Tauri 侧未看到 Sidecar 启动逻辑**
-   - Rust `src-tauri/src/lib.rs` 目前仅初始化插件，未负责启动/监管 Sidecar。
+3. ~~**Tauri 侧未看到 Sidecar 启动逻辑**~~ ✅ 已修复
+   - ~~Rust `src-tauri/src/lib.rs` 目前仅初始化插件，未负责启动/监管 Sidecar。~~
+   - 已在 `lib.rs` 添加 Sidecar 启动逻辑（仅生产环境），并添加 `shell:allow-spawn` 权限。
 
 ## 数据与模块重复
 
