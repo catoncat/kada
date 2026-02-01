@@ -294,7 +294,7 @@ function Index() {
       });
 
       let response;
-      if (hasApiConfig()) {
+      if (await hasApiConfig()) {
         response = await generateText(prompt);
       } else {
         response = await generateWithNano(prompt);
@@ -365,7 +365,7 @@ function Index() {
       请直接返回 JSON 内容，不要包含 markdown 代码块标记。所有内容用中文回答，但 "visualPrompt" 必须使用英文。`;
 
       let response;
-      if (hasApiConfig()) {
+      if (await hasApiConfig()) {
         response = await generateText(prompt);
       } else {
         response = await generateWithNano(prompt);

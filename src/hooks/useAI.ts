@@ -4,7 +4,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchModelList, generateText, generateImage } from '@/lib/ai-client';
-import { getProviderConfig } from '@/lib/provider-storage';
+import { useDefaultProvider } from '@/hooks/useProviders';
 
 // Query Keys
 export const queryKeys = {
@@ -16,11 +16,11 @@ export const queryKeys = {
  * 获取模型列表
  */
 export function useModels() {
-  const provider = getProviderConfig();
+  const { data: provider } = useDefaultProvider();
 
   return useQuery({
     queryKey: queryKeys.models,
-    queryFn: fetchModelList,
+    queryFn: () => fetchModelList(provider ?? undefined),
     enabled: !!provider?.apiKey,
     staleTime: 1000 * 60 * 10, // 10 分钟
   });

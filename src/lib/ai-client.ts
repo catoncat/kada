@@ -3,37 +3,69 @@
  * 前端调用统一 AI API 的辅助函数
  */
 
-import type { ProviderConfig, ModelInfo } from '@/types/provider';
-import { getProviderConfig } from './provider-storage';
+import type { ModelInfo } from '@/types/provider';
+import type { Provider } from '@/lib/provider-api';
+import { fetchDefaultProvider } from '@/lib/provider-api';
 import { inferModelCapabilities } from './providers/model-classifier';
 import { apiUrl } from './api-config';
 
+// 缓存默认 Provider（避免每次调用都请求 API）
+let cachedProvider: Provider | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 5000; // 5 秒缓存
+
 /**
- * 获取当前 Provider 配置（如果有）
+ * 获取默认 Provider（带缓存）
  */
-export function getCurrentProvider(): ProviderConfig | null {
-  return getProviderConfig();
+async function getDefaultProviderCached(): Promise<Provider | null> {
+  const now = Date.now();
+  if (cachedProvider && now - cacheTimestamp < CACHE_TTL) {
+    return cachedProvider;
+  }
+
+  try {
+    cachedProvider = await fetchDefaultProvider();
+    cacheTimestamp = now;
+    return cachedProvider;
+  } catch {
+    return cachedProvider; // 返回旧缓存
+  }
+}
+
+/**
+ * 清除 Provider 缓存（在设置页面修改后调用）
+ */
+export function clearProviderCache(): void {
+  cachedProvider = null;
+  cacheTimestamp = 0;
 }
 
 /**
  * 检查是否配置了在线 API
  */
-export function hasApiConfig(): boolean {
-  const config = getProviderConfig();
-  return !!config?.apiKey;
+export async function hasApiConfig(): Promise<boolean> {
+  const provider = await getDefaultProviderCached();
+  return !!provider && provider.format !== 'local' && !!provider.apiKey;
+}
+
+/**
+ * 同步版本的 hasApiConfig（使用缓存，可能不准确）
+ */
+export function hasApiConfigSync(): boolean {
+  return !!cachedProvider && cachedProvider.format !== 'local' && !!cachedProvider.apiKey;
 }
 
 /**
  * 获取模型列表
  */
-export async function fetchModelList(): Promise<ModelInfo[]> {
-  const provider = getProviderConfig();
-  if (!provider) throw new Error('未配置 API 提供商');
+export async function fetchModelList(provider?: Provider): Promise<ModelInfo[]> {
+  const p = provider || (await getDefaultProviderCached());
+  if (!p) throw new Error('未配置 API 提供商');
 
   const response = await fetch(apiUrl('/api/ai/models'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider: p }),
   });
 
   const data = await response.json();
@@ -50,14 +82,14 @@ export async function fetchModelList(): Promise<ModelInfo[]> {
 /**
  * 文生文 API 调用
  */
-export async function generateText(prompt: string): Promise<string> {
-  const provider = getProviderConfig();
-  if (!provider) throw new Error('未配置 API 提供商');
+export async function generateText(prompt: string, provider?: Provider): Promise<string> {
+  const p = provider || (await getDefaultProviderCached());
+  if (!p) throw new Error('未配置 API 提供商');
 
   const response = await fetch(apiUrl('/api/ai/generate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, provider }),
+    body: JSON.stringify({ prompt, provider: p }),
   });
 
   const data = await response.json();
@@ -71,17 +103,17 @@ export async function generateText(prompt: string): Promise<string> {
 /**
  * 文生图 API 调用
  */
-export async function generateImage(prompt: string): Promise<{
+export async function generateImage(prompt: string, provider?: Provider): Promise<{
   imageBase64: string;
   mimeType: string;
 }> {
-  const provider = getProviderConfig();
-  if (!provider) throw new Error('未配置 API 提供商');
+  const p = provider || (await getDefaultProviderCached());
+  if (!p) throw new Error('未配置 API 提供商');
 
   const response = await fetch(apiUrl('/api/ai/generate-image'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, provider }),
+    body: JSON.stringify({ prompt, provider: p }),
   });
 
   const data = await response.json();
@@ -93,4 +125,11 @@ export async function generateImage(prompt: string): Promise<{
     imageBase64: data.imageBase64,
     mimeType: data.mimeType,
   };
+}
+
+/**
+ * 预加载 Provider 缓存
+ */
+export async function preloadProviderCache(): Promise<void> {
+  await getDefaultProviderCached();
 }
