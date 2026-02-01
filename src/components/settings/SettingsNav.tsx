@@ -3,10 +3,10 @@
  * 左侧导航菜单，支持切换不同设置区域
  */
 
-import { Server, Sparkles, Store } from 'lucide-react';
+import { Server, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type SettingsSection = 'providers' | 'topics' | 'studio';
+export type SettingsSection = 'providers' | 'templates';
 
 interface SettingsNavProps {
   activeSection: SettingsSection;
@@ -15,8 +15,7 @@ interface SettingsNavProps {
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Server }[] = [
   { id: 'providers', label: '服务商', icon: Server },
-  { id: 'topics', label: '主题提示词', icon: Sparkles },
-  { id: 'studio', label: '工作室配置', icon: Store },
+  { id: 'templates', label: '系统提示词', icon: FileText },
 ];
 
 export function SettingsNav({ activeSection, onSectionChange }: SettingsNavProps) {

@@ -8,8 +8,8 @@ import { getProject, generatePlan, updateProject } from '@/lib/projects-api';
 import { getSceneAsset, getImageUrl } from '@/lib/scene-assets-api';
 import { fetchTasks, Task } from '@/lib/tasks-api';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { CustomerInfoForm } from '@/components/CustomerInfoForm';
 import { GenerateButton } from '@/components/GenerateButton';
+import { CustomerInfoForm } from '@/components/CustomerInfoForm';
 import type { CustomerInfo } from '@/types/project';
 
 export const Route = createFileRoute('/project/$id/')({
@@ -23,6 +23,19 @@ function ProjectDetailPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
+  // 更新项目的 mutation
+  const updateProjectMutation = useMutation({
+    mutationFn: (data: { customer?: CustomerInfo }) => updateProject(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+  });
+
+  // 处理客户信息变更
+  const handleCustomerChange = (customer: CustomerInfo | undefined) => {
+    updateProjectMutation.mutate({ customer });
+  };
+
   // 获取项目数据
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
@@ -34,14 +47,6 @@ function ProjectDetailPage() {
     queryKey: ['sceneAsset', project?.selectedScene],
     queryFn: () => getSceneAsset(project!.selectedScene!),
     enabled: !!project?.selectedScene,
-  });
-
-  // 更新项目的 mutation
-  const updateProjectMutation = useMutation({
-    mutationFn: (data: { customer?: CustomerInfo }) => updateProject(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project', id] });
-    },
   });
 
   // 检查是否有进行中的生成任务
@@ -103,11 +108,6 @@ function ProjectDetailPage() {
       setIsGenerating(false);
       alert(err instanceof Error ? err.message : '创建任务失败');
     }
-  };
-
-  // 客户信息变更
-  const handleCustomerChange = (customer: CustomerInfo | undefined) => {
-    updateProjectMutation.mutate({ customer });
   };
 
   if (isLoading) {
@@ -202,7 +202,7 @@ function ProjectDetailPage() {
           </div>
         </div>
 
-        {/* 客户信息配置区块 */}
+        {/* 客户信息区块 */}
         <CustomerInfoForm
           value={project.customer}
           onChange={handleCustomerChange}

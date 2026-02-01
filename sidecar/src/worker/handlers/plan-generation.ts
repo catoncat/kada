@@ -1,54 +1,13 @@
 /**
  * 预案生成任务处理器
+ * 使用 Prompt 模板系统来定制 AI 生成行为
  */
 
 import { getDb } from '../../db';
 import { providers, projects, sceneAssets, settings } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
-// ========== 导出的类型 ==========
-
-export interface CustomerInfo {
-  /** 客户类型 */
-  type: 'child' | 'pregnant' | 'family' | 'parent_child' | 'couple' | 'individual';
-  /** 年龄范围 */
-  ageRange?: 'infant' | 'toddler' | 'preschool' | 'school_age' | 'teenager' | 'adult';
-  /** 人数 */
-  count?: number;
-  /** 关系描述 */
-  relation?: string;
-  /** 备注 */
-  notes?: string;
-}
-
-export interface StudioProfile {
-  /** 业务类型 */
-  businessType: 'consumer_studio' | 'commercial' | 'artistic';
-  /** 目标客户群 */
-  targetCustomers: string[];
-  /** 拍摄风格 */
-  shootingStyle?: string;
-  /** 自定义 prompt 前缀 */
-  promptPrefix?: string;
-}
-
-export interface SceneInfo {
-  name: string;
-  description: string;
-  lighting: string;
-  isOutdoor: boolean | null;
-  style: { colorTone?: string; lightingMood?: string; era?: string } | null;
-  tags: string[];
-}
-
-export interface PromptContext {
-  projectTitle: string;
-  scene: SceneInfo;
-  customer?: CustomerInfo;
-  studioProfile?: StudioProfile;
-}
-
-// ========== 内部类型 ==========
+// ========== 类型定义 ==========
 
 interface PlanGenerationInput {
   projectId: string;
@@ -78,30 +37,47 @@ interface PlanGenerationOutput {
   plan: GeneratedPlan;
 }
 
-// ========== 标签映射 ==========
+interface SceneInfo {
+  name: string;
+  description: string;
+  lighting: string;
+  isOutdoor: boolean | null;
+  style: { colorTone?: string; lightingMood?: string; era?: string } | null;
+  tags: string[];
+}
 
-const CUSTOMER_TYPE_LABELS: Record<string, string> = {
-  child: '儿童',
-  pregnant: '孕妇',
-  family: '家庭',
-  parent_child: '亲子',
-  couple: '情侣',
-  individual: '个人',
-};
+interface PromptTemplate {
+  id: string;
+  name: string;
+  content: string;
+  isDefault: boolean;
+}
 
-const AGE_RANGE_LABELS: Record<string, string> = {
-  infant: '婴儿(0-1岁)',
-  toddler: '幼儿(1-3岁)',
-  preschool: '学龄前(3-6岁)',
-  school_age: '学龄(6-12岁)',
-  teenager: '青少年(12-18岁)',
-  adult: '成人(18岁以上)',
-};
+interface PromptTemplatesData {
+  templates: PromptTemplate[];
+}
 
-const BUSINESS_TYPE_LABELS: Record<string, string> = {
-  consumer_studio: '消费级影楼',
-  commercial: '商业摄影',
-  artistic: '艺术摄影',
+/** 性别 */
+type Gender = 'male' | 'female';
+
+/** 拍摄人物 */
+interface Person {
+  id: string;
+  role: string;
+  gender?: Gender;
+  age?: number;
+}
+
+/** 客户信息 */
+interface CustomerInfo {
+  people: Person[];
+  notes?: string;
+}
+
+/** 性别标签 */
+const GENDER_LABELS: Record<string, string> = {
+  male: '男',
+  female: '女',
 };
 
 // ========== 主处理函数 ==========
@@ -163,17 +139,24 @@ export async function planGenerationHandler(
     throw new Error('未配置 AI 提供商');
   }
 
-  // 获取工作室配置
-  const [studioSetting] = await db
+  // 获取默认 Prompt 模板
+  const [templateSetting] = await db
     .select()
     .from(settings)
-    .where(eq(settings.key, 'studio_profile'))
+    .where(eq(settings.key, 'prompt_templates'))
     .limit(1);
-  const studioProfile: StudioProfile | undefined = studioSetting?.value
-    ? JSON.parse(studioSetting.value)
-    : undefined;
 
-  // 构建生成预案的 prompt
+  let defaultTemplate: PromptTemplate | undefined;
+  if (templateSetting?.value) {
+    try {
+      const data: PromptTemplatesData = JSON.parse(templateSetting.value);
+      defaultTemplate = data.templates?.find(t => t.isDefault);
+    } catch {
+      // 解析失败，使用默认
+    }
+  }
+
+  // 构建场景信息
   const sceneInfo: SceneInfo = {
     name: scene.name,
     description: scene.description || '',
@@ -183,6 +166,7 @@ export async function planGenerationHandler(
     tags: scene.tags ? JSON.parse(scene.tags) : [],
   };
 
+  // 解析客户信息
   const customer: CustomerInfo | undefined = project.customer
     ? JSON.parse(project.customer)
     : undefined;
@@ -192,7 +176,7 @@ export async function planGenerationHandler(
     projectTitle: project.title,
     scene: sceneInfo,
     customer,
-    studioProfile,
+    systemPrompt: defaultTemplate?.content,
   });
 
   // 调用 AI 生成文本
@@ -228,10 +212,17 @@ export async function planGenerationHandler(
   return { plan: generatedPlan };
 }
 
-// ========== Prompt 构建（核心改造） ==========
+// ========== Prompt 构建 ==========
+
+export interface PromptContext {
+  projectTitle: string;
+  scene: SceneInfo;
+  customer?: CustomerInfo;
+  systemPrompt?: string;
+}
 
 export function buildGeneratePlanPrompt(ctx: PromptContext): string {
-  const { projectTitle, scene, customer, studioProfile } = ctx;
+  const { projectTitle, scene, customer, systemPrompt } = ctx;
 
   // 场景风格描述
   const styleDesc = scene.style
@@ -240,66 +231,57 @@ export function buildGeneratePlanPrompt(ctx: PromptContext): string {
       `风格${scene.style.era === 'modern' ? '现代' : scene.style.era === 'vintage' ? '复古' : '经典'}`
     : '';
 
-  // 客户信息描述
-  let customerDesc = '未指定';
-  let customerTypeLabel = '人物';
-  if (customer) {
-    customerTypeLabel = CUSTOMER_TYPE_LABELS[customer.type] || customer.type;
-    const parts: string[] = [customerTypeLabel];
-    if (customer.ageRange) {
-      parts.push(AGE_RANGE_LABELS[customer.ageRange] || customer.ageRange);
-    }
-    if (customer.count && customer.count > 1) {
-      parts.push(`${customer.count}人`);
-    }
-    if (customer.relation) {
-      parts.push(`(${customer.relation})`);
-    }
-    customerDesc = parts.join('，');
-    if (customer.notes) {
-      customerDesc += `\n- 特殊备注：${customer.notes}`;
-    }
+  // 构建客户信息描述
+  let customerSection = '';
+  let peopleDesc = '人物';
+  if (customer && customer.people && customer.people.length > 0) {
+    // 构建人物列表描述
+    const peopleLines = customer.people.map((person) => {
+      const parts: string[] = [person.role];
+      if (person.gender) {
+        parts.push(GENDER_LABELS[person.gender] || person.gender);
+      }
+      if (person.age !== undefined) {
+        parts.push(`${person.age}岁`);
+      }
+      return `- ${parts.join('，')}`;
+    });
+
+    peopleDesc = customer.people.map(p => p.role).join('、');
+
+    customerSection = `
+## 拍摄主体（${customer.people.length}人）
+${peopleLines.join('\n')}
+${customer.notes ? `\n备注：${customer.notes}` : ''}
+
+**重要说明**：拍摄主体是客户（${peopleDesc}），场景只是背景环境。预案应围绕如何展现客户的状态、情感和互动来设计。
+`;
   }
 
-  // 工作室定位描述
-  let studioDesc = '消费级影楼（标准模式）';
-  if (studioProfile) {
-    const parts: string[] = [
-      BUSINESS_TYPE_LABELS[studioProfile.businessType] || studioProfile.businessType,
-    ];
-    if (studioProfile.targetCustomers?.length) {
-      parts.push(`服务对象：${studioProfile.targetCustomers.join('、')}`);
-    }
-    if (studioProfile.shootingStyle) {
-      parts.push(`风格：${studioProfile.shootingStyle}`);
-    }
-    studioDesc = parts.join('，');
-  }
+  // 系统提示词（使用用户配置的模板或默认内容）
+  const systemSection = systemPrompt || `你是一位专业的儿童摄影师和创意导演，服务于消费级影楼。
 
-  // 自定义前缀
-  const customPrefix = studioProfile?.promptPrefix
-    ? `\n## 工作室特殊要求\n${studioProfile.promptPrefix}\n`
-    : '';
-
-  // 根据客户类型生成动作建议
-  const poseGuidance = getPoseGuidance(customer?.type);
-
-  return `作为一个资深摄影师和创意导演，请为以下拍摄项目提供创意方案。
-${customPrefix}
 ## 工作室定位
-${studioDesc}
+- 业务类型：儿童摄影
+- 目标客户：0-12岁儿童及其家庭
+- 拍摄风格：自然、活泼、温馨，捕捉童真瞬间
+
+## 拍摄要点
+- 以儿童为主体，场景作为背景烘托氛围
+- 动作要自然，善于引导孩子的真实表情
+- 注意安全，避免危险动作
+- 利用游戏、玩具引导自然表情`;
+
+  return `${systemSection}
+
+---
+
+请根据以上定位，为以下拍摄项目提供专业的创意方案。
 
 ## 项目信息
 - 项目名称：${projectTitle}
-
-## 拍摄主体（客户信息）
-- 客户类型：${customerDesc}
-
-**重要说明**：拍摄主体是客户（${customerTypeLabel}），场景只是背景环境。预案应围绕如何展现客户的状态、情感和互动来设计，场景作为氛围和构图的辅助元素。
-
-${poseGuidance}
-
-## 拍摄场景（作为背景）
+${customerSection}
+## 拍摄场景
 - 场景名称：${scene.name}
 - 场景描述：${scene.description || '无'}
 - 场景类型：${scene.isOutdoor ? '户外' : '室内'}
@@ -311,77 +293,26 @@ ${poseGuidance}
 请以 JSON 格式返回，结构如下：
 {
   "title": "预案名称",
-  "theme": "核心主题描述（围绕拍摄主体的情感/状态）",
-  "creativeIdea": "具体的创意思路（如何展现客户特点、场景如何配合）",
+  "theme": "核心主题描述",
+  "creativeIdea": "具体的创意思路",
   "copywriting": "核心文案（1句话，体现主题）",
   "scenes": [
     {
       "location": "在场景中的具体位置/构图",
-      "description": "拍摄内容描述（重点描述客户的动作、表情、互动，以及如何与场景配合）",
+      "description": "拍摄内容描述（动作、表情、互动）",
       "shots": "拍摄手法建议（镜头焦段、角度、景别）",
       "lighting": "灯光布置建议",
-      "visualPrompt": "A highly detailed English stable diffusion prompt. IMPORTANT: The MAIN SUBJECT must be the customer (${customerTypeLabel}), NOT the scene/background. Include: detailed subject description matching customer type, their pose, expression, interaction, clothing style; the scene '${scene.name}' as BACKGROUND. Style: photorealistic, professional portrait photography."
+      "visualPrompt": "A highly detailed English stable diffusion prompt for this scene. The subject should be the main focus with '${scene.name}' as background. Style: photorealistic, professional photography."
     }
   ]
 }
 
 ## 注意事项
 1. 生成 3-4 个不同的分镜场景
-2. **核心要求**：每个场景的主角是客户（${customerTypeLabel}），不是场景本身
-3. 动作和表情设计要符合客户特点
-4. 每个 visualPrompt 必须使用英文，主体描述在前，场景背景在后
-5. 其他内容使用中文
-6. 请直接返回 JSON 内容，不要包含 markdown 代码块标记`;
-}
-
-// 根据客户类型生成动作指导
-function getPoseGuidance(customerType?: string): string {
-  switch (customerType) {
-    case 'child':
-      return `## 儿童拍摄要点
-- 动作要自然活泼，抓拍为主
-- 利用游戏、玩具引导自然表情
-- 与场景元素互动（触摸、探索、奔跑）
-- 注意安全，避免危险动作`;
-
-    case 'pregnant':
-      return `## 孕妇拍摄要点
-- 动作要优雅舒缓，展现母性光辉
-- 手部姿态常见：抚摸孕肚、托腹
-- 可与准爸爸互动（相拥、牵手、亲吻孕肚）
-- 注意舒适度，避免长时间同一姿势`;
-
-    case 'family':
-      return `## 家庭拍摄要点
-- 展现家人间的自然互动和情感联结
-- 安排有层次的站位/坐姿构图
-- 捕捉真实的笑容和眼神交流
-- 可设计有趣的互动环节（牵手、拥抱、嬉戏）`;
-
-    case 'parent_child':
-      return `## 亲子拍摄要点
-- 强调亲子间的亲密互动
-- 设计眼神交流、拥抱、玩耍场景
-- 高度差利用（抱起、背着、蹲下平视）
-- 抓拍自然温馨的瞬间`;
-
-    case 'couple':
-      return `## 情侣拍摄要点
-- 展现两人间的情感和默契
-- 自然的牵手、相拥、对视
-- 设计有故事感的互动场景
-- 注意两人的位置关系和肢体语言`;
-
-    case 'individual':
-      return `## 个人写真要点
-- 引导自然放松的表情和姿态
-- 多角度展现人物气质
-- 利用场景元素丰富构图
-- 注意手部和站姿的自然度`;
-
-    default:
-      return '';
-  }
+2. 每个场景的主角是拍摄主体，场景只是背景
+3. 每个 visualPrompt 必须使用英文
+4. 其他内容使用中文
+5. 请直接返回 JSON 内容，不要包含 markdown 代码块标记`;
 }
 
 // ========== AI 调用 ==========
@@ -394,20 +325,34 @@ interface ProviderConfig {
 }
 
 async function callAiGenerate(provider: ProviderConfig, prompt: string): Promise<string> {
+  console.log('[AI] Calling provider:', provider.format, 'model:', provider.textModel);
+  console.log('[AI] Prompt length:', prompt.length, 'chars');
+
   if (provider.format === 'gemini') {
-    const url = `${provider.baseUrl}/models/${provider.textModel}:generateContent?key=${provider.apiKey}`;
-    const res = await fetch(url, {
+    const url = `${provider.baseUrl}/models/${provider.textModel}:generateContent?key=${provider.apiKey.slice(0, 8)}...`;
+    console.log('[AI] Gemini URL:', url);
+
+    const res = await fetch(`${provider.baseUrl}/models/${provider.textModel}:generateContent?key=${provider.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
       }),
     });
-    if (!res.ok) throw new Error('Failed to generate text');
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[AI] Gemini error:', res.status, res.statusText, errorText);
+      throw new Error(`AI 请求失败 (${res.status}): ${errorText.slice(0, 200)}`);
+    }
+
     const data = await res.json();
+    console.log('[AI] Gemini response received, candidates:', data.candidates?.length);
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
   } else {
     const url = `${provider.baseUrl}/chat/completions`;
+    console.log('[AI] OpenAI-compatible URL:', url);
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -419,8 +364,15 @@ async function callAiGenerate(provider: ProviderConfig, prompt: string): Promise
         messages: [{ role: 'user', content: prompt }],
       }),
     });
-    if (!res.ok) throw new Error('Failed to generate text');
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('[AI] OpenAI error:', res.status, res.statusText, errorText);
+      throw new Error(`AI 请求失败 (${res.status}): ${errorText.slice(0, 200)}`);
+    }
+
     const data = await res.json();
+    console.log('[AI] OpenAI response received, choices:', data.choices?.length);
     return data.choices?.[0]?.message?.content || '';
   }
 }

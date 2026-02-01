@@ -216,14 +216,21 @@ projectRoutes.post('/:id/generate', async (c) => {
       return c.json({ error: '所选场景不存在' }, 400);
     }
 
-    // 获取工作室配置
-    const [studioSetting] = await db
+    // 获取默认 Prompt 模板
+    const [templateSetting] = await db
       .select()
       .from(settings)
-      .where(eq(settings.key, 'studio_profile'));
-    const studioProfile = studioSetting?.value
-      ? JSON.parse(studioSetting.value)
-      : undefined;
+      .where(eq(settings.key, 'prompt_templates'));
+    let systemPrompt: string | undefined;
+    if (templateSetting?.value) {
+      try {
+        const data = JSON.parse(templateSetting.value);
+        const defaultTemplate = data.templates?.find((t: { isDefault: boolean }) => t.isDefault);
+        systemPrompt = defaultTemplate?.content;
+      } catch {
+        // 解析失败，使用默认
+      }
+    }
 
     // 构建 prompt context
     const sceneInfo = {
@@ -241,7 +248,7 @@ projectRoutes.post('/:id/generate', async (c) => {
       projectTitle: project.title,
       scene: sceneInfo,
       customer,
-      studioProfile,
+      systemPrompt,
     };
 
     // Preview mode: 只返回 prompt，不创建任务

@@ -5,23 +5,25 @@
 /** 项目状态 */
 export type ProjectStatus = 'draft' | 'configured' | 'generated';
 
-/** 客户类型 */
-export type CustomerType = 'child' | 'pregnant' | 'family' | 'parent_child' | 'couple' | 'individual';
+/** 性别 */
+export type Gender = 'male' | 'female';
 
-/** 年龄范围 */
-export type AgeRange = 'infant' | 'toddler' | 'preschool' | 'school_age' | 'teenager' | 'adult';
+/** 拍摄人物 */
+export interface Person {
+  id: string;
+  /** 角色描述，如"宝宝"、"妈妈"、"爷爷" */
+  role: string;
+  /** 性别 */
+  gender?: Gender;
+  /** 年龄（具体数字） */
+  age?: number;
+}
 
 /** 客户信息 */
 export interface CustomerInfo {
-  /** 客户类型 */
-  type: CustomerType;
-  /** 年龄范围 */
-  ageRange?: AgeRange;
-  /** 人数 */
-  count?: number;
-  /** 关系描述（如"母女"、"一家四口"） */
-  relation?: string;
-  /** 特殊备注 */
+  /** 拍摄人物列表 */
+  people: Person[];
+  /** 备注（可补充关系、特殊需求等） */
   notes?: string;
 }
 

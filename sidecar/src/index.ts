@@ -43,8 +43,8 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 async function main() {
   await initDatabase();
 
-  // 启动任务 Worker
-  startWorker();
+  // 启动任务 Worker（包含 stale 任务清理）
+  await startWorker();
 
   serve({
     fetch: app.fetch,

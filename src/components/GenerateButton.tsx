@@ -7,7 +7,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Loader2, ChevronDown, Eye, Edit3 } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, Edit3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { previewPrompt } from '@/lib/projects-api';
 import {
@@ -35,7 +35,7 @@ interface GenerateButtonProps {
   onGenerate: (customPrompt?: string) => void;
 }
 
-type ModalMode = 'preview' | 'edit' | null;
+type ModalMode = 'edit' | null;
 
 export function GenerateButton({
   projectId,
@@ -117,13 +117,9 @@ export function GenerateButton({
           </MenuTrigger>
 
           <MenuPopup align="end">
-            <MenuItem onClick={() => openModal('preview')}>
-              <Eye className="w-4 h-4 mr-2" />
-              预览 Prompt
-            </MenuItem>
             <MenuItem onClick={() => openModal('edit')}>
               <Edit3 className="w-4 h-4 mr-2" />
-              编辑后生成
+              编辑 Prompt
             </MenuItem>
           </MenuPopup>
         </Menu>
@@ -133,13 +129,9 @@ export function GenerateButton({
       <Dialog open={modalMode !== null} onOpenChange={(open) => !open && closeModal()}>
         <DialogPopup className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>
-              {modalMode === 'preview' ? '预览 Prompt' : '编辑 Prompt'}
-            </DialogTitle>
+            <DialogTitle>编辑 Prompt</DialogTitle>
             <DialogDescription>
-              {modalMode === 'preview'
-                ? '以下是将发送给 AI 的完整提示词内容'
-                : '你可以编辑提示词内容后生成预案'}
+              编辑提示词内容后点击生成
             </DialogDescription>
           </DialogHeader>
 
@@ -148,10 +140,6 @@ export function GenerateButton({
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-[var(--ink-3)]" />
               </div>
-            ) : modalMode === 'preview' ? (
-              <pre className="whitespace-pre-wrap text-sm text-[var(--ink)] bg-[var(--paper-2)] p-4 rounded-lg max-h-96 overflow-y-auto">
-                {promptContent}
-              </pre>
             ) : (
               <Textarea
                 value={promptContent}
@@ -163,14 +151,12 @@ export function GenerateButton({
 
           <DialogFooter>
             <Button variant="outline" onClick={closeModal}>
-              关闭
+              取消
             </Button>
-            {modalMode === 'edit' && (
-              <Button onClick={handleEditGenerate}>
-                <Sparkles className="w-4 h-4 mr-2" />
-                使用此 Prompt 生成
-              </Button>
-            )}
+            <Button onClick={handleEditGenerate} disabled={isLoadingPrompt}>
+              <Sparkles className="w-4 h-4 mr-2" />
+              生成预案
+            </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>
