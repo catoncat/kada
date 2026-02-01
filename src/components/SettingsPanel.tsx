@@ -2,7 +2,9 @@
 
 /**
  * 设置面板主入口
- * 左右布局：左侧导航 + 右侧内容区
+ * 支持两种模式：
+ * 1. 对话框模式（默认）：点击触发按钮打开对话框
+ * 2. 嵌入模式：直接嵌入页面渲染
  */
 
 import { useState } from 'react';
@@ -17,7 +19,12 @@ import { SettingsNav, type SettingsSection } from './settings/SettingsNav';
 import { ProvidersSection } from './settings/ProvidersSection';
 import { TopicPromptsSection } from './settings/TopicPromptsSection';
 
-export default function SettingsPanel() {
+interface SettingsPanelProps {
+  /** 嵌入模式：直接渲染内容而非对话框 */
+  embedded?: boolean;
+}
+
+export default function SettingsPanel({ embedded = false }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>('providers');
 
@@ -33,6 +40,27 @@ export default function SettingsPanel() {
     }
   };
 
+  // 嵌入模式：直接渲染左右布局
+  if (embedded) {
+    return (
+      <div className="rounded-2xl border border-[var(--line)] bg-white overflow-hidden">
+        <div className="flex min-h-[500px]">
+          {/* 左侧导航 */}
+          <SettingsNav
+            activeSection={activeSection}
+            onSectionChange={setActiveSection}
+          />
+
+          {/* 右侧内容区 */}
+          <div className="flex-1 p-6 overflow-y-auto">
+            {renderContent()}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 对话框模式（默认）
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       {/* 触发按钮 */}

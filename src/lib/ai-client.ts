@@ -101,9 +101,27 @@ export async function generateText(prompt: string, provider?: Provider): Promise
 }
 
 /**
- * 文生图 API 调用
+ * 图片生成选项
  */
-export async function generateImage(prompt: string, provider?: Provider): Promise<{
+export interface ImageGenerationOptions {
+  /** 宽度 */
+  width?: number;
+  /** 高度 */
+  height?: number;
+  /** 宽高比（如 "16:9", "1:1"） */
+  aspectRatio?: string;
+  /** 参考图片（base64 或 URL） */
+  referenceImages?: string[];
+}
+
+/**
+ * 文生图 API 调用（支持图+文生图）
+ */
+export async function generateImage(
+  prompt: string,
+  options?: ImageGenerationOptions,
+  provider?: Provider
+): Promise<{
   imageBase64: string;
   mimeType: string;
 }> {
@@ -113,7 +131,16 @@ export async function generateImage(prompt: string, provider?: Provider): Promis
   const response = await fetch(apiUrl('/api/ai/generate-image'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, provider: p }),
+    body: JSON.stringify({
+      prompt,
+      provider: p,
+      referenceImages: options?.referenceImages,
+      options: {
+        width: options?.width,
+        height: options?.height,
+        aspectRatio: options?.aspectRatio,
+      },
+    }),
   });
 
   const data = await response.json();

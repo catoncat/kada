@@ -1,0 +1,126 @@
+/**
+ * 任务 Worker
+ * 后台轮询处理 pending 任务
+ */
+
+import { getDb } from '../db';
+import { tasks } from '../db/schema';
+import { eq, and } from 'drizzle-orm';
+import { imageGenerationHandler } from './handlers/image-generation';
+import { planGenerationHandler } from './handlers/plan-generation';
+
+// 任务处理器注册表
+type TaskHandler = (input: any) => Promise<any>;
+
+const handlers: Record<string, TaskHandler> = {
+  'image-generation': imageGenerationHandler,
+  'plan-generation': planGenerationHandler,
+};
+
+// Worker 状态
+let isRunning = false;
+let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 启动 Worker
+ */
+export function startWorker(intervalMs = 1000) {
+  if (isRunning) return;
+  isRunning = true;
+
+  console.log('🔄 Task worker started');
+
+  pollInterval = setInterval(async () => {
+    await processNextTask();
+  }, intervalMs);
+}
+
+/**
+ * 停止 Worker
+ */
+export function stopWorker() {
+  if (!isRunning) return;
+  isRunning = false;
+
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+
+  console.log('⏹️ Task worker stopped');
+}
+
+/**
+ * 处理下一个 pending 任务
+ */
+async function processNextTask() {
+  const db = getDb();
+
+  // 获取一个 pending 任务
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.status, 'pending'))
+    .limit(1);
+
+  if (!task) return;
+
+  const handler = handlers[task.type];
+  if (!handler) {
+    // 未知任务类型，标记为失败
+    await db
+      .update(tasks)
+      .set({
+        status: 'failed',
+        error: `Unknown task type: ${task.type}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+    return;
+  }
+
+  // 标记为 running
+  await db
+    .update(tasks)
+    .set({
+      status: 'running',
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, task.id));
+
+  try {
+    const input = JSON.parse(task.input);
+    const output = await handler(input);
+
+    // 标记为 completed
+    await db
+      .update(tasks)
+      .set({
+        status: 'completed',
+        output: JSON.stringify(output),
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+
+    console.log(`✅ Task ${task.id} (${task.type}) completed`);
+  } catch (error: any) {
+    // 标记为 failed
+    await db
+      .update(tasks)
+      .set({
+        status: 'failed',
+        error: error.message || 'Unknown error',
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+
+    console.error(`❌ Task ${task.id} (${task.type}) failed:`, error.message);
+  }
+}
+
+/**
+ * 注册自定义处理器
+ */
+export function registerHandler(type: string, handler: TaskHandler) {
+  handlers[type] = handler;
+}

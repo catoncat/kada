@@ -1,9 +1,8 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import path from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import path from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 
 // 数据库路径
 function getDbPath(): string {
@@ -34,14 +33,7 @@ export async function initDatabase() {
 
   db = drizzle(sqlite, { schema });
 
-  // 执行迁移
-  const migrationsPath = path.join(process.cwd(), 'drizzle');
-  if (existsSync(migrationsPath)) {
-    migrate(db, { migrationsFolder: migrationsPath });
-    console.log('✅ Database migrations applied');
-  }
-
-  // 确保表存在（开发模式）
+  // 确保表存在（开发模式使用手动创建，避免迁移冲突）
   ensureTables();
 
   console.log('✅ Database initialized');
@@ -66,11 +58,30 @@ function ensureTables() {
       updated_at INTEGER DEFAULT (unixepoch())
     );
 
-    CREATE TABLE IF NOT EXISTS plans (
+    CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'single',
-      data TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      selected_scene TEXT,
+      selected_outfits TEXT,
+      selected_props TEXT,
+      params TEXT,
+      generated_plan TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS scene_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      primary_image TEXT,
+      supplementary_images TEXT,
+      default_lighting TEXT,
+      recommended_props TEXT,
+      tags TEXT,
+      is_outdoor INTEGER DEFAULT 0,
+      style TEXT,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
     );
@@ -78,6 +89,19 @@ function ensureTables() {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      input TEXT NOT NULL,
+      output TEXT,
+      error TEXT,
+      related_id TEXT,
+      related_meta TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
     );
   `);
