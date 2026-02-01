@@ -117,3 +117,45 @@ export function getArtifactUrl(filePath: string | null): string | null {
   const normalizedPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
   return apiUrl(normalizedPath);
 }
+
+// ===== 存储管理 =====
+
+export interface StorageStats {
+  activeArtifacts: number;
+  deletedArtifacts: number;
+  totalFiles: number;
+  totalSizeBytes: number;
+  totalSizeMB: number;
+}
+
+export interface CleanupResult {
+  deletedCount: number;
+  freedBytes: number;
+  freedMB: number;
+}
+
+/**
+ * 获取存储统计
+ */
+export async function fetchStorageStats(): Promise<StorageStats> {
+  const response = await fetch(apiUrl('/api/artifacts/stats'));
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || '获取存储统计失败');
+  }
+  return data;
+}
+
+/**
+ * 清理已删除的 artifacts
+ */
+export async function cleanupArtifacts(): Promise<CleanupResult> {
+  const response = await fetch(apiUrl('/api/artifacts/cleanup'), {
+    method: 'POST',
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || '清理失败');
+  }
+  return data;
+}

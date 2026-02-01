@@ -9,9 +9,13 @@ import {
   fetchArtifact,
   setCurrentArtifact,
   deleteArtifact,
+  fetchStorageStats,
+  cleanupArtifacts,
   type FetchArtifactsOptions,
   type GenerationArtifact,
   type ArtifactsListResponse,
+  type StorageStats,
+  type CleanupResult,
 } from '@/lib/artifacts-api';
 
 export const artifactKeys = {
@@ -82,4 +86,35 @@ export function useDeleteArtifact() {
 }
 
 // 导出类型
-export type { GenerationArtifact, ArtifactsListResponse, FetchArtifactsOptions };
+export type { GenerationArtifact, ArtifactsListResponse, FetchArtifactsOptions, StorageStats, CleanupResult };
+
+// ===== 存储管理 hooks =====
+
+export const storageKeys = {
+  stats: ['storage', 'stats'] as const,
+};
+
+/**
+ * 获取存储统计
+ */
+export function useStorageStats() {
+  return useQuery<StorageStats>({
+    queryKey: storageKeys.stats,
+    queryFn: fetchStorageStats,
+  });
+}
+
+/**
+ * 清理已删除的 artifacts
+ */
+export function useCleanupArtifacts() {
+  const queryClient = useQueryClient();
+
+  return useMutation<CleanupResult>({
+    mutationFn: cleanupArtifacts,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: storageKeys.stats });
+      queryClient.invalidateQueries({ queryKey: artifactKeys.all });
+    },
+  });
+}

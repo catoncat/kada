@@ -6,8 +6,8 @@
 import { Hono } from 'hono';
 import { getDb } from '../db';
 import { generationArtifacts, sceneAssets } from '../db/schema';
-import { eq, and, isNull, desc } from 'drizzle-orm';
-import { existsSync, unlinkSync } from 'node:fs';
+import { eq, and, isNull, desc, sql, count } from 'drizzle-orm';
+import { existsSync, unlinkSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 export const artifactsRoutes = new Hono();
@@ -245,4 +245,98 @@ artifactsRoutes.delete('/:id', async (c) => {
   }
 
   return c.json({ success: true });
+});
+
+/**
+ * GET /api/artifacts/stats
+ * 获取存储统计信息
+ */
+artifactsRoutes.get('/stats', async (c) => {
+  const db = getDb();
+  const dataDir = getDataDir();
+  const uploadDir = path.join(dataDir, 'uploads');
+
+  // 统计 artifacts 数量
+  const [activeResult] = await db
+    .select({ count: count() })
+    .from(generationArtifacts)
+    .where(isNull(generationArtifacts.deletedAt));
+
+  const [deletedResult] = await db
+    .select({ count: count() })
+    .from(generationArtifacts)
+    .where(sql`${generationArtifacts.deletedAt} IS NOT NULL`);
+
+  // 统计文件大小
+  let totalSizeBytes = 0;
+  let fileCount = 0;
+
+  if (existsSync(uploadDir)) {
+    try {
+      const files = readdirSync(uploadDir);
+      for (const file of files) {
+        const filePath = path.join(uploadDir, file);
+        const stats = statSync(filePath);
+        if (stats.isFile()) {
+          totalSizeBytes += stats.size;
+          fileCount++;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to read uploads directory:', err);
+    }
+  }
+
+  return c.json({
+    activeArtifacts: activeResult?.count ?? 0,
+    deletedArtifacts: deletedResult?.count ?? 0,
+    totalFiles: fileCount,
+    totalSizeBytes,
+    totalSizeMB: Math.round((totalSizeBytes / (1024 * 1024)) * 100) / 100,
+  });
+});
+
+/**
+ * POST /api/artifacts/cleanup
+ * 清理已删除的 artifacts（物理删除文件）
+ */
+artifactsRoutes.post('/cleanup', async (c) => {
+  const db = getDb();
+  const dataDir = getDataDir();
+
+  // 获取所有已软删除的 artifacts
+  const deletedArtifacts = await db
+    .select()
+    .from(generationArtifacts)
+    .where(sql`${generationArtifacts.deletedAt} IS NOT NULL`);
+
+  let deletedCount = 0;
+  let freedBytes = 0;
+
+  for (const artifact of deletedArtifacts) {
+    if (artifact.filePath) {
+      const fullPath = path.join(dataDir, artifact.filePath);
+      if (existsSync(fullPath)) {
+        try {
+          const stats = statSync(fullPath);
+          unlinkSync(fullPath);
+          freedBytes += stats.size;
+          deletedCount++;
+        } catch (err) {
+          console.error('Failed to delete file:', fullPath, err);
+        }
+      }
+    }
+  }
+
+  // 从数据库中永久删除记录
+  await db
+    .delete(generationArtifacts)
+    .where(sql`${generationArtifacts.deletedAt} IS NOT NULL`);
+
+  return c.json({
+    deletedCount,
+    freedBytes,
+    freedMB: Math.round((freedBytes / (1024 * 1024)) * 100) / 100,
+  });
 });
