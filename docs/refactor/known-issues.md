@@ -34,8 +34,9 @@
 7. ~~**项目模式的 globalStyle 可能未被持久化到最终数据结构**~~ ✅ 已确认正常
    - `globalStyle` 在 `normalizeProjectPlan` 后被正确添加并持久化到 localStorage。
 
-8. **编辑 visualPrompt 的持久化时机不直观**
-   - 编辑 textarea 不会立刻写回历史；点击"重新生成"才会写回并生成图片。
+8. ~~**编辑 visualPrompt 的持久化时机不直观**~~ ✅ 已修复
+   - ~~编辑 textarea 不会立刻写回历史；点击"重新生成"才会写回并生成图片。~~
+   - 已添加防抖自动保存（800ms），编辑后自动持久化到 localStorage。
 
 9. ~~**批量出图缺少取消/队列管理**~~ ✅ 已修复
    - ~~目前用 `setTimeout` 逐个触发，用户无法中途停止，失败重试策略也不统一。~~
