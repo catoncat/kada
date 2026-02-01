@@ -18,6 +18,7 @@ import {
 import { SettingsNav, type SettingsSection } from './settings/SettingsNav';
 import { ProvidersSection } from './settings/ProvidersSection';
 import { TopicPromptsSection } from './settings/TopicPromptsSection';
+import { StudioProfileSection } from './settings/StudioProfileSection';
 
 interface SettingsPanelProps {
   /** 嵌入模式：直接渲染内容而非对话框 */
@@ -35,6 +36,8 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
         return <ProvidersSection />;
       case 'topics':
         return <TopicPromptsSection />;
+      case 'studio':
+        return <StudioProfileSection />;
       default:
         return null;
     }

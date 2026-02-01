@@ -77,15 +77,47 @@ export interface GeneratePlanResponse {
   message: string;
 }
 
+/** 预览 Prompt 响应 */
+export interface PreviewPromptResponse {
+  prompt: string;
+}
+
+/** 生成预案选项 */
+export interface GeneratePlanOptions {
+  /** 模式：preview 只返回 prompt，execute 创建任务 */
+  mode?: 'preview' | 'execute';
+  /** 自定义 prompt（覆盖默认生成的） */
+  customPrompt?: string;
+}
+
 /** 生成预案（创建异步任务） */
-export async function generatePlan(id: string): Promise<GeneratePlanResponse> {
+export async function generatePlan(
+  id: string,
+  options?: GeneratePlanOptions
+): Promise<GeneratePlanResponse> {
   const res = await fetch(`${API_BASE}/projects/${id}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || { mode: 'execute' }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: '网络错误' }));
     throw new Error(error.error || '创建生成任务失败');
   }
   return res.json();
+}
+
+/** 预览生成 Prompt */
+export async function previewPrompt(id: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/projects/${id}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'preview' }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: '网络错误' }));
+    throw new Error(error.error || '获取 Prompt 失败');
+  }
+  const data: PreviewPromptResponse = await res.json();
+  return data.prompt;
 }

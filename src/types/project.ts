@@ -5,6 +5,26 @@
 /** 项目状态 */
 export type ProjectStatus = 'draft' | 'configured' | 'generated';
 
+/** 客户类型 */
+export type CustomerType = 'child' | 'pregnant' | 'family' | 'parent_child' | 'couple' | 'individual';
+
+/** 年龄范围 */
+export type AgeRange = 'infant' | 'toddler' | 'preschool' | 'school_age' | 'teenager' | 'adult';
+
+/** 客户信息 */
+export interface CustomerInfo {
+  /** 客户类型 */
+  type: CustomerType;
+  /** 年龄范围 */
+  ageRange?: AgeRange;
+  /** 人数 */
+  count?: number;
+  /** 关系描述（如"母女"、"一家四口"） */
+  relation?: string;
+  /** 特殊备注 */
+  notes?: string;
+}
+
 /** 拍摄参数 */
 export interface ShootingParams {
   /** 焦段 */
@@ -30,6 +50,8 @@ export interface Project {
   selectedProps?: string[];
   /** 拍摄参数 */
   params?: ShootingParams;
+  /** 客户信息 */
+  customer?: CustomerInfo;
   /** AI 生成的预案结果 */
   generatedPlan?: Record<string, unknown> | null;
   createdAt?: Date;
@@ -49,6 +71,7 @@ export interface UpdateProjectInput {
   selectedOutfits?: string[];
   selectedProps?: string[];
   params?: ShootingParams;
+  customer?: CustomerInfo;
   generatedPlan?: unknown;
 }
 
