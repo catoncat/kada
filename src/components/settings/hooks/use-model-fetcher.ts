@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import type { ProviderConfig, ModelInfo } from '@/types/provider';
 import { inferModelCapabilities } from '@/lib/providers/model-classifier';
+import { apiUrl } from '@/lib/api-config';
 
 interface UseModelFetcherReturn {
   models: ModelInfo[];
@@ -32,7 +33,7 @@ export function useModelFetcher(): UseModelFetcherReturn {
     setError(null);
 
     try {
-      const response = await fetch('/api/ai/models', {
+      const response = await fetch(apiUrl('/api/ai/models'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider }),

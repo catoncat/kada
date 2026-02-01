@@ -7,6 +7,16 @@
     "core:default",
     "opener:default",
     {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "args": true,
+          "name": "binaries/sidecar",
+          "sidecar": true
+        }
+      ]
+    },
+    {
       "identifier": "shell:allow-execute",
       "allow": [
         {

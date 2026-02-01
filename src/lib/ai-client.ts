@@ -6,6 +6,7 @@
 import type { ProviderConfig, ModelInfo } from '@/types/provider';
 import { getProviderConfig } from './provider-storage';
 import { inferModelCapabilities } from './providers/model-classifier';
+import { apiUrl } from './api-config';
 
 /**
  * 获取当前 Provider 配置（如果有）
@@ -29,7 +30,7 @@ export async function fetchModelList(): Promise<ModelInfo[]> {
   const provider = getProviderConfig();
   if (!provider) throw new Error('未配置 API 提供商');
 
-  const response = await fetch('/api/ai/models', {
+  const response = await fetch(apiUrl('/api/ai/models'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
@@ -53,7 +54,7 @@ export async function generateText(prompt: string): Promise<string> {
   const provider = getProviderConfig();
   if (!provider) throw new Error('未配置 API 提供商');
 
-  const response = await fetch('/api/ai/generate', {
+  const response = await fetch(apiUrl('/api/ai/generate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, provider }),
@@ -77,7 +78,7 @@ export async function generateImage(prompt: string): Promise<{
   const provider = getProviderConfig();
   if (!provider) throw new Error('未配置 API 提供商');
 
-  const response = await fetch('/api/ai/generate-image', {
+  const response = await fetch(apiUrl('/api/ai/generate-image'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, provider }),
