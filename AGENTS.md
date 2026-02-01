@@ -1,47 +1,33 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+本文件作为仓库协作与 Agent 的**入口索引**。更具体的规则、架构说明与命令清单放在 `agent_docs/` 中（按需阅读）。
 
-- `src/`: React 19 + TypeScript frontend (TanStack Router file routes live in `src/routes/`).
-- `src/components/`: app/feature components (typically `PascalCase.tsx`).
-- `src/components/ui/`: reusable UI primitives (typically `kebab-case.tsx`).
-- `src/lib/`: shared utilities and domain helpers (use `@/` alias for `src/` imports).
-- `public/`: static assets served by Vite.
-- `sidecar/`: Node.js sidecar service (Hono + Drizzle + SQLite) used by the app at runtime.
-- `src-tauri/`: Tauri 2 Rust shell and packaging config (includes bundled sidecar binaries).
+## Quick Start
 
-Generated/build outputs you generally should not edit by hand: `dist/`, `sidecar/dist/`, `src/routeTree.gen.ts`, `.tanstack/`, `src-tauri/target/`.
+```bash
+pnpm install
+cd sidecar && pnpm install
+pnpm dev:all     # 前端 :1420 + Sidecar :3001（推荐）
+pnpm tauri:dev   # 需要桌面壳联调时使用
+```
 
-## Build, Test, and Development Commands
+## 文档索引（详细说明）
 
-- `pnpm install`: install frontend deps.
-- `cd sidecar && pnpm install`: install sidecar deps.
-- `pnpm dev`: run the frontend dev server (Vite, port `1420`).
-- `pnpm dev:sidecar`: run the sidecar API (port `3001`).
-- `pnpm dev:all`: run both (recommended for feature work).
-- `pnpm build`: TypeScript typecheck + Vite build.
-- `pnpm tauri:dev`: run the desktop app in dev mode.
-- `pnpm tauri:build`: build sidecar, then package the Tauri app.
+- [agent_docs/commands.md](agent_docs/commands.md)：开发/构建/DB 常用命令
+- [agent_docs/architecture.md](agent_docs/architecture.md)：三层架构、端口、通信与打包方式
+- [agent_docs/frontend.md](agent_docs/frontend.md)：前端目录结构、路由、UI/样式约定
+- [agent_docs/sidecar.md](agent_docs/sidecar.md)：Sidecar 结构、API、数据库与迁移
+- [agent_docs/contributing.md](agent_docs/contributing.md)：代码风格、验证/测试、提交与 PR、安全注意事项
 
-Sidecar database tooling (run in `sidecar/`): `pnpm db:generate`, `pnpm db:migrate`, `pnpm db:studio`.
+## 项目结构速览
 
-## Coding Style & Naming Conventions
+- `src/`：React + TypeScript 前端（TanStack Router 文件路由在 `src/routes/`）
+- `sidecar/`：Node.js Sidecar（Hono + Drizzle + SQLite）
+- `src-tauri/`：Tauri 2 Rust 壳与打包配置
+- `public/`：静态资源
 
-- Indentation: 2 spaces; use semicolons and single quotes to match existing files.
-- Prefer small, focused modules; avoid cross-layer imports (frontend ↔ sidecar) except via HTTP APIs.
-- React: `PascalCase` component names; hooks named `useXxx` under `src/hooks/`.
-- Tailwind CSS: keep class lists readable; use `cn()` from `src/lib/utils.ts` for conditional merging.
+## 关键约定（摘要）
 
-## Testing Guidelines
-
-There is currently no dedicated `pnpm test` script or test framework configured. Validate changes by running `pnpm build` and doing a quick smoke test via `pnpm dev:all` (and `pnpm tauri:dev` when desktop integration is involved). If you introduce automated tests, add a `pnpm test` script and document how to run them in your PR.
-
-## Commit & Pull Request Guidelines
-
-This workspace may not include Git history; when in doubt, follow Conventional Commits: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:` (optional scope like `feat(sidecar): ...`).
-
-PRs should include: a short summary, how to test (commands + expected behavior), screenshots/GIFs for UI changes, and any DB migration notes (Drizzle) or breaking changes.
-
-## Security & Configuration Tips
-
-Do not commit API keys or provider credentials. Treat logs as sensitive (avoid printing secrets), and keep changes compatible with the default dev ports (`1420` frontend, `3001` sidecar).
+- 不要手改生成/产物：`dist/`、`sidecar/dist/`、`src/routeTree.gen.ts`、`.tanstack/`、`src-tauri/target/`
+- 默认端口：前端 `1420`（`strictPort`），Sidecar `3001`
+- 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（详见 `agent_docs/contributing.md`）
