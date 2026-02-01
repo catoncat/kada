@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { Plus, Menu, History, Settings as SettingsIcon, MessageSquare, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import type { PlanRecord } from '@/types/plan-record';
-import { getPlanRecordCreatedAt, getPlanRecordId, getPlanRecordTitle } from '@/types/plan-record';
+import type { PlanRecord } from '@/hooks/usePlans';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -76,7 +75,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
           ) : (
             history.map((plan) => (
               <div
-                key={getPlanRecordId(plan)}
+                key={plan.id}
                 className={cn(
                   "flex items-center gap-3 w-full rounded-2xl transition-all text-left group",
                   "border border-transparent",
@@ -87,7 +86,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                   onClick={() => onSelectHistory(plan)}
                   className={cn(
                     "flex items-center gap-3 flex-1 p-3 rounded-2xl transition-colors text-left",
-                    currentId === getPlanRecordId(plan)
+                    currentId === plan.id
                       ? "bg-white shadow-sm border border-[var(--line)] text-primary"
                       : "text-[var(--ink-2)] hover:bg-gray-100"
                   )}
@@ -95,16 +94,16 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                   <MessageSquare
                     className={cn(
                       "w-4 h-4 flex-shrink-0",
-                      currentId === getPlanRecordId(plan) ? "text-primary" : "text-[var(--ink-3)]"
+                      currentId === plan.id ? "text-primary" : "text-[var(--ink-3)]"
                     )}
                   />
                   {!isCollapsed && (
                     <div className="overflow-hidden">
                       <div className="text-sm font-semibold truncate text-[var(--ink)]">
-                        {getPlanRecordTitle(plan)}
+                        {plan.title}
                       </div>
                       <div className="text-[10px] text-[var(--ink-3)] truncate tracking-wider">
-                        {new Date(getPlanRecordCreatedAt(plan)).toLocaleDateString()}
+                        {plan.createdAt ? new Date(plan.createdAt).toLocaleDateString() : ''}
                       </div>
                     </div>
                   )}
@@ -116,7 +115,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                     onClick={(e) => {
                       e.stopPropagation();
                       if (confirm('确定要删除这条历史预案吗？')) {
-                        onDeleteHistory(getPlanRecordId(plan));
+                        onDeleteHistory(plan.id);
                       }
                     }}
                     className="p-2 rounded-xl text-[var(--ink-3)] hover:text-red-600 hover:bg-red-50 transition"

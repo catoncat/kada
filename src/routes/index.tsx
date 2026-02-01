@@ -6,8 +6,8 @@ import { generateContent as generateWithNano } from '@/lib/gemini-nano';
 import { generateText, generateImage as generateAiImage, hasApiConfig } from '@/lib/ai-client';
 import { exportProjectToPPT, exportToPPT } from '@/lib/ppt-exporter';
 import { PPT_STYLES } from '@/lib/ppt-templates';
-import type { PlanRecord } from '@/types/plan-record';
-import { parseHistory, serializeHistory } from '@/types/plan-record';
+import type { PlanRecord } from '@/hooks/usePlans';
+import { useHistory } from '@/hooks/useHistory';
 import type { ExtendedShootingPlan } from '@/types/single-plan';
 import { FileDown, Loader2, Info, Image as ImageIcon, Wand2, ChevronDown, XCircle } from 'lucide-react';
 import type { ProjectPlan, OutfitInput, ClientProfile } from '@/types/project-plan';
@@ -51,9 +51,16 @@ function Index() {
   const [sceneImages, setSceneImages] = useState<Record<number, string>>({});
   const [, setLoadingImage] = useState<Record<number, boolean>>({});
   const [promptDrafts, setPromptDrafts] = useState<Record<number, string>>({});
-  const [history, setHistory] = useState<PlanRecord[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 使用 TanStack Query 管理历史记录
+  const {
+    history,
+    addPlan: addPlanToHistory,
+    updatePlan: updatePlanInHistory,
+    deletePlan: deletePlanFromHistory
+  } = useHistory();
 
   // 批量生成队列管理
   const [batchQueue, setBatchQueue] = useState<{ total: number; completed: number; active: boolean }>({
@@ -76,12 +83,6 @@ function Index() {
     setBatchQueue({ total: 0, completed: 0, active: false });
   }, []);
 
-  // 初始化加载历史记录
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('shooting_history');
-    setHistory(parseHistory(savedHistory));
-  }, []);
-
   // 批量生成完成时重置状态
   useEffect(() => {
     if (batchQueue.active && batchQueue.completed >= batchQueue.total && batchQueue.total > 0) {
@@ -100,7 +101,7 @@ function Index() {
     // 1) 更新当前 projectPlan
     setProjectPlan((prev) => {
       if (!prev) return prev;
-      return {
+      const updated = {
         ...prev,
         plans: prev.plans.map((pp, li) => {
           if (li !== lookIdx) return pp;
@@ -110,34 +111,17 @@ function Index() {
           };
         }),
       };
-    });
 
-    // 2) 写回 history + localStorage
-    setHistory((prevHistory) => {
-      const nextHistory = prevHistory.map((r) => {
-        if (r.kind === 'project' && r.data.id === projectPlan?.id) {
-          return {
-            ...r,
-            data: {
-              ...r.data,
-              plans: r.data.plans.map((pp, li) => {
-                if (li !== lookIdx) return pp;
-                return {
-                  ...pp,
-                  scenes: (pp.scenes || []).map((ss, ssi) =>
-                    ssi === sceneIdx ? { ...ss, visualPrompt: newPrompt } : ss
-                  ),
-                };
-              }),
-            },
-          };
-        }
-        return r;
-      });
-      localStorage.setItem('shooting_history', serializeHistory(nextHistory as PlanRecord[]));
-      return nextHistory as PlanRecord[];
+      // 2) 异步更新到 SQLite
+      if (prev.id) {
+        updatePlanInHistory(prev.id, updated).catch((err) => {
+          console.error('保存 visualPrompt 失败:', err);
+        });
+      }
+
+      return updated;
     });
-  }, [projectPlan?.id]);
+  }, [updatePlanInHistory]);
 
   const debouncedSaveProjectPrompt = useDebouncedCallback(saveProjectPrompt, 800);
 
@@ -146,30 +130,21 @@ function Index() {
     // 1) 更新当前展示
     setPlan((prev) => {
       if (!prev) return prev;
-      return {
+      const updated = {
         ...prev,
         scenes: prev.scenes.map((s, idx) => (idx === sceneIdx ? { ...s, visualPrompt: newPrompt } : s)),
       };
-    });
 
-    // 2) 写回 history + localStorage
-    setHistory((prevHistory) => {
-      const nextHistory = prevHistory.map((r) => {
-        if (r.kind === 'single' && r.data.id === plan?.id) {
-          return {
-            kind: 'single',
-            data: {
-              ...r.data,
-              scenes: r.data.scenes.map((s, idx) => (idx === sceneIdx ? { ...s, visualPrompt: newPrompt } : s)),
-            },
-          } as PlanRecord;
-        }
-        return r;
-      });
-      localStorage.setItem('shooting_history', serializeHistory(nextHistory));
-      return nextHistory;
+      // 2) 异步更新到 SQLite
+      if (prev.id) {
+        updatePlanInHistory(prev.id, updated).catch((err) => {
+          console.error('保存 visualPrompt 失败:', err);
+        });
+      }
+
+      return updated;
     });
-  }, [plan?.id]);
+  }, [updatePlanInHistory]);
 
   const debouncedSaveSinglePrompt = useDebouncedCallback(saveSinglePrompt, 800);
 
@@ -186,13 +161,13 @@ function Index() {
   const loadHistoryPlan = (record: PlanRecord) => {
     if (record.kind === 'single') {
       setProjectPlan(null);
-      setPlan(record.data);
-      setTopic(record.data.title);
+      setPlan(record.data as ExtendedShootingPlan);
+      setTopic(record.title);
       setSceneImages({});
       setPromptDrafts({});
     } else {
       setPlan(null);
-      setProjectPlan(record.data);
+      setProjectPlan(record.data as ProjectPlan);
       setTopic(record.title);
       setSceneImages({});
       setPromptDrafts({});
@@ -315,10 +290,10 @@ function Index() {
       setProjectPlan(normalized);
 
       const title = buildProjectTitle(normalized.client); // 方案 A
-      const record: PlanRecord = { kind: 'project', data: normalized, title };
-      const newHistory: PlanRecord[] = [record, ...history].slice(0, 20);
-      setHistory(newHistory);
-      localStorage.setItem('shooting_history', serializeHistory(newHistory));
+      // 保存到 SQLite
+      addPlanToHistory('project', normalized, title).catch((err) => {
+        console.error('保存预案失败:', err);
+      });
 
       // 项目模式：不自动生成图片（避免成本爆炸）
       setSceneImages({});
@@ -381,13 +356,12 @@ function Index() {
       setProjectPlan(null);
       setPlan(newPlan);
 
-      // 保存到历史记录
-      const record: PlanRecord = { kind: 'single', data: newPlan };
-      const newHistory: PlanRecord[] = [record, ...history].slice(0, 20); // 保留最近20条
-      setHistory(newHistory);
-      localStorage.setItem('shooting_history', serializeHistory(newHistory));
+      // 保存到 SQLite
+      addPlanToHistory('single', newPlan, newPlan.title).catch((err) => {
+        console.error('保存预案失败:', err);
+      });
 
-      // 不自动生成参考图：改为手动“一键生成全部参考图”
+      // 不自动生成参考图：改为手动"一键生成全部参考图"
 
     } catch (error: any) {
       console.error(error);
@@ -399,14 +373,14 @@ function Index() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--paper)]">
-      <Sidebar 
-        onNewChat={handleNewChat} 
-        history={history} 
+      <Sidebar
+        onNewChat={handleNewChat}
+        history={history}
         onSelectHistory={loadHistoryPlan}
         onDeleteHistory={(id) => {
-          const newHistory = history.filter((p) => (p.kind === 'single' ? p.data.id : p.data.id) !== id);
-          setHistory(newHistory);
-          localStorage.setItem('shooting_history', serializeHistory(newHistory));
+          deletePlanFromHistory(id).catch((err) => {
+            console.error('删除预案失败:', err);
+          });
 
           if (plan?.id === id || projectPlan?.id === id) {
             setPlan(null);

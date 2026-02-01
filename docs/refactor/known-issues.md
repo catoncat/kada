@@ -18,9 +18,13 @@
 
 ## 数据与模块重复
 
-4. **Provider/Plans 存储存在"双轨"**
-   - 前端：Provider 与历史用 localStorage。
-   - Sidecar：也实现了 providers/plans/settings 表与 CRUD，但前端目前未接入。
+4. ~~**Provider/Plans 存储存在"双轨"**~~ ✅ 已修复
+   - ~~前端：Provider 与历史用 localStorage。~~
+   - ~~Sidecar：也实现了 providers/plans/settings 表与 CRUD，但前端目前未接入。~~
+   - 已创建 API 客户端: `provider-api.ts`, `plans-api.ts`
+   - 已创建 TanStack Query hooks: `useProviders.ts`, `usePlans.ts`, `useHistory.ts`
+   - 已添加数据迁移逻辑: `data-migration.ts`
+   - 已完成 `index.tsx` 重构，全部使用 SQLite API
 
 5. ~~**重复的 prompt/标题实现**~~ ✅ 已修复
    - ~~代码中存在多份 buildProjectPrompt/buildProjectTitle 等逻辑的重复版本，容易漂移。~~
@@ -37,7 +41,7 @@
 
 8. ~~**编辑 visualPrompt 的持久化时机不直观**~~ ✅ 已修复
    - ~~编辑 textarea 不会立刻写回历史；点击"重新生成"才会写回并生成图片。~~
-   - 已添加防抖自动保存（800ms），编辑后自动持久化到 localStorage。
+   - 已添加防抖自动保存（800ms），编辑后自动持久化到 SQLite。
 
 9. ~~**批量出图缺少取消/队列管理**~~ ✅ 已修复
    - ~~目前用 `setTimeout` 逐个触发，用户无法中途停止，失败重试策略也不统一。~~
