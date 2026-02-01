@@ -51,7 +51,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
             isCollapsed ? "justify-center w-12 mx-auto" : "px-4 w-full"
           )}
         >
-          <Plus className="w-5 h-5 text-[var(--accent)]" />
+          <Plus className="w-5 h-5 text-primary" />
           {!isCollapsed && (
             <span className="font-semibold text-[var(--ink)] whitespace-nowrap tracking-wide">开启新预案</span>
           )}
@@ -88,14 +88,14 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                   className={cn(
                     "flex items-center gap-3 flex-1 p-3 rounded-2xl transition-colors text-left",
                     currentId === getPlanRecordId(plan)
-                      ? "bg-white shadow-sm border border-[var(--line)] text-[var(--accent)]"
+                      ? "bg-white shadow-sm border border-[var(--line)] text-primary"
                       : "text-[var(--ink-2)] hover:bg-gray-100"
                   )}
                 >
                   <MessageSquare
                     className={cn(
                       "w-4 h-4 flex-shrink-0",
-                      currentId === getPlanRecordId(plan) ? "text-[var(--accent)]" : "text-[var(--ink-3)]"
+                      currentId === getPlanRecordId(plan) ? "text-primary" : "text-[var(--ink-3)]"
                     )}
                   />
                   {!isCollapsed && (

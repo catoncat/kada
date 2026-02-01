@@ -12,7 +12,7 @@ export default function GlobalStyleSelector({ style, onChange }: GlobalStyleSele
   return (
     <div className="space-y-4 rounded-[var(--radius-2xl)] border border-[var(--line)] bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2">
-        <Palette className="w-5 h-5 text-[var(--accent)]" />
+        <Palette className="w-5 h-5 text-primary" />
         <h3 className="text-base font-semibold text-[var(--ink)]">全局风格锚点</h3>
       </div>
       
@@ -32,7 +32,7 @@ export default function GlobalStyleSelector({ style, onChange }: GlobalStyleSele
                 onClick={() => onChange({ ...style, colorTone: tone })}
                 className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition ${
                   style.colorTone === tone
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white shadow-sm'
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                     : 'border-[var(--line)] bg-white text-[var(--ink)] hover:bg-gray-50'
                 }`}
               >
@@ -53,7 +53,7 @@ export default function GlobalStyleSelector({ style, onChange }: GlobalStyleSele
                 onClick={() => onChange({ ...style, lightingMood: mood })}
                 className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition ${
                   style.lightingMood === mood
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white shadow-sm'
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                     : 'border-[var(--line)] bg-white text-[var(--ink)] hover:bg-gray-50'
                 }`}
               >
@@ -74,7 +74,7 @@ export default function GlobalStyleSelector({ style, onChange }: GlobalStyleSele
                 onClick={() => onChange({ ...style, era })}
                 className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition ${
                   style.era === era
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white shadow-sm'
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                     : 'border-[var(--line)] bg-white text-[var(--ink)] hover:bg-gray-50'
                 }`}
               >

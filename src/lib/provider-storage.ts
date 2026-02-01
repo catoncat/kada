@@ -191,11 +191,21 @@ export function deleteProvider(id: string): void {
 
   storage.providers = storage.providers.filter(p => p.id !== id);
 
-  // 如果删除的是默认 Provider，切换到本地模式
+  // 如果删除的是默认 Provider，选择第一个可用的 API Provider
   if (storage.defaultProviderId === id) {
-    storage.defaultProviderId = 'local';
-    const localProvider = storage.providers.find(p => p.id === 'local');
-    if (localProvider) localProvider.isDefault = true;
+    // 优先选择第一个非 local 的 API Provider
+    const firstApiProvider = storage.providers.find(p => p.format !== 'local');
+    if (firstApiProvider) {
+      storage.defaultProviderId = firstApiProvider.id;
+      storage.providers.forEach(p => {
+        p.isDefault = p.id === firstApiProvider.id;
+      });
+    } else {
+      // 如果没有 API Provider，回退到 local
+      storage.defaultProviderId = 'local';
+      const localProvider = storage.providers.find(p => p.id === 'local');
+      if (localProvider) localProvider.isDefault = true;
+    }
   }
 
   saveProvidersStorage(storage);

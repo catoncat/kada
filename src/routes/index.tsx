@@ -292,7 +292,7 @@ function Index() {
               <div className="space-y-12 animate-in fade-in duration-1000">
                 <div className="space-y-5">
                   <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2 text-xs tracking-widest text-[var(--ink-2)] shadow-sm">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--primary)' }} />
                     拍摄预案
                   </div>
 
@@ -357,7 +357,7 @@ function Index() {
 
             {loading && (
               <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin mb-4" />
+                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                 <p className="text-[var(--ink-2)] font-medium">正在生成预案...</p>
               </div>
             )}
@@ -373,7 +373,7 @@ function Index() {
                           {buildProjectTitle(projectPlan.client)}
                         </h1>
                         <p className="mt-2 text-sm text-[var(--ink-2)] flex items-center gap-2">
-                          <span className="inline-flex h-2 w-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                          <span className="inline-flex h-2 w-2 rounded-full" style={{ background: 'var(--primary)' }} />
                           <Info className="w-4 h-4" />
                           客户：{projectPlan.client.age ?? '未知'}岁｜{projectPlan.client.gender}
                         </p>
@@ -403,7 +403,7 @@ function Index() {
                               setTimeout(() => generateImage(t.visualPrompt, t.sceneKey), idx * 900);
                             });
                           }}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95 transition"
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95 transition"
                         >
                           <Wand2 className="w-5 h-5" />
                           一键生成全部参考图
@@ -433,7 +433,7 @@ function Index() {
                               <select
                                 value={pptStyleId}
                                 onChange={(e) => setPptStyleId(e.target.value)}
-                                className="w-full appearance-none rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 pr-8 text-xs text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                                className="w-full appearance-none rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 pr-8 text-xs text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-primary"
                               >
                                 {Object.values(PPT_STYLES).map((s) => (
                                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -445,7 +445,7 @@ function Index() {
                           <button
                             type="button"
                             onClick={() => exportProjectToPPT(projectPlan, { images: sceneImages, styleId: pptStyleId })}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 transition"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95 transition"
                           >
                             <FileDown className="w-4 h-4" />
                             导出项目 PPT
@@ -647,7 +647,7 @@ function Index() {
                         {plan.title}
                       </h1>
                       <p className="mt-2 text-sm text-[var(--ink-2)] flex items-center gap-2">
-                        <span className="inline-flex h-2 w-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                        <span className="inline-flex h-2 w-2 rounded-full" style={{ background: 'var(--primary)' }} />
                         <Info className="w-4 h-4" />
                         {plan.theme}
                       </p>
@@ -670,7 +670,7 @@ function Index() {
 
                       <button
                         onClick={() => exportToPPT(plan, { images: sceneImages, styleId: pptStyleId })}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95 transition"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95 transition"
                       >
                         <FileDown className="w-5 h-5" />
                         导出 PPT
@@ -697,7 +697,7 @@ function Index() {
                         <select
                           value={pptStyleId}
                           onChange={(e) => setPptStyleId(e.target.value)}
-                          className="w-full appearance-none rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 pr-8 text-xs text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                          className="w-full appearance-none rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 pr-8 text-xs text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-primary"
                         >
                           {Object.values(PPT_STYLES).map((s) => (
                             <option key={s.id} value={s.id}>{s.name}</option>
@@ -873,7 +873,7 @@ function Index() {
                 className="mr-2 inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition"
                 style={ 
                   (useOutfitMode || topic)
-                    ? { background: 'var(--accent)', color: 'white' }
+                    ? { background: 'var(--primary)', color: 'var(--primary-foreground)' }
                     : { background: 'transparent', color: 'var(--ink-3)' }
                 }
               >

@@ -102,7 +102,7 @@ export default function ModelSelector({
                         {model.name}
                       </span>
                       {model.id === value && (
-                        <span className="text-[10px] text-[var(--accent)] font-medium">✓</span>
+                        <span className="text-[10px] text-primary font-medium">✓</span>
                       )}
                     </div>
                     {model.description && (
