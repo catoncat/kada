@@ -183,21 +183,7 @@ artifactsRoutes.delete('/:id', async (c) => {
     const currentFilePath = asset?.primaryImage?.replace(/^\//, '');
 
     if (currentFilePath === artifact.filePath) {
-      // 找到下一个最新版本
-      const [nextArtifact] = await db
-        .select()
-        .from(generationArtifacts)
-        .where(
-          and(
-            eq(generationArtifacts.ownerType, artifact.ownerType),
-            eq(generationArtifacts.ownerId, artifact.ownerId),
-            isNull(generationArtifacts.deletedAt)
-          )
-        )
-        .orderBy(desc(generationArtifacts.createdAt))
-        .limit(2); // 取两个，第一个是当前的
-
-      // 获取第二个（如果有）
+      // 找到下一个最新版本（取两个，排除当前的）
       const artifacts = await db
         .select()
         .from(generationArtifacts)
