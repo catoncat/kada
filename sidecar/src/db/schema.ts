@@ -67,6 +67,45 @@ export const tasks = sqliteTable('tasks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
+// Generation Runs 表（一次生成动作的执行记录）
+export const generationRuns = sqliteTable('generation_runs', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(), // 'plan-generation' | 'image-generation' | 'image-edit' | 'asset-caption'
+  trigger: text('trigger').notNull().default('ui'), // 'ui' | 'worker' | 'agent'
+  status: text('status').notNull().default('queued'), // 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+  relatedType: text('related_type'), // 'project' | 'asset'
+  relatedId: text('related_id'),
+  effectivePrompt: text('effective_prompt'), // 最终用于出图的提示词
+  promptContext: text('prompt_context'), // JSON - 结构化上下文
+  parentRunId: text('parent_run_id'), // 可选：父 run（用于表达 run 的继承关系）
+  taskId: text('task_id'), // 关联的 task ID（如果是通过 task 触发的）
+  error: text('error'), // JSON - 失败时的错误信息
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+// Generation Artifacts 表（生成产物）
+export const generationArtifacts = sqliteTable('generation_artifacts', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(), // 关联的 run ID
+  type: text('type').notNull().default('image'), // 'image' | 'json' | 'text'
+  mimeType: text('mime_type'), // 'image/png' | 'image/jpeg' | ...
+  filePath: text('file_path'), // 相对路径，如 'uploads/xxx.png'
+  width: integer('width'),
+  height: integer('height'),
+  sizeBytes: integer('size_bytes'),
+  ownerType: text('owner_type'), // 'asset' | 'projectPlanVersion' | 'planScene'
+  ownerId: text('owner_id'),
+  ownerSlot: text('owner_slot'), // 'cover' | 'scene:0' | ...
+  effectivePrompt: text('effective_prompt'), // 冗余存储，便于查询
+  promptContext: text('prompt_context'), // JSON
+  referenceImages: text('reference_images'), // JSON 数组 - 参考图片
+  editInstruction: text('edit_instruction'), // 编辑指令（image-edit 时使用）
+  parentArtifactId: text('parent_artifact_id'), // 基于上一张图编辑时使用
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }), // 软删除
+});
+
 // 类型导出
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = typeof providers.$inferInsert;
@@ -82,3 +121,9 @@ export type InsertSetting = typeof settings.$inferInsert;
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
+
+export type GenerationRun = typeof generationRuns.$inferSelect;
+export type InsertGenerationRun = typeof generationRuns.$inferInsert;
+
+export type GenerationArtifact = typeof generationArtifacts.$inferSelect;
+export type InsertGenerationArtifact = typeof generationArtifacts.$inferInsert;

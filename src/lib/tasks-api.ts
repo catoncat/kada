@@ -120,11 +120,29 @@ export async function deleteTask(id: string): Promise<void> {
 export interface ImageGenerationInput {
   prompt: string;
   providerId?: string;
+  referenceImages?: string[];
+  options?: Record<string, unknown>;
+  owner?: {
+    type: 'asset' | 'projectPlanVersion' | 'planScene';
+    id: string;
+    slot?: string;
+  };
+  parentArtifactId?: string;
+  editInstruction?: string;
 }
 
 export interface ImageGenerationOutput {
-  imageBase64: string;
+  // 新版本（落盘后）
+  artifactId: string;
+  runId: string;
+  filePath: string;
   mimeType: string;
+  effectivePrompt: string;
+  width?: number;
+  height?: number;
+  sizeBytes?: number;
+  // 兼容旧版本
+  imageBase64?: string;
 }
 
 export type ImageGenerationTask = Task<ImageGenerationInput, ImageGenerationOutput>;
@@ -138,11 +156,22 @@ export async function createImageTask(
     providerId?: string;
     relatedId?: string;
     relatedMeta?: string;
+    referenceImages?: string[];
+    owner?: ImageGenerationInput['owner'];
+    parentArtifactId?: string;
+    editInstruction?: string;
   }
 ): Promise<ImageGenerationTask> {
   return createTask<ImageGenerationInput, ImageGenerationOutput>({
     type: 'image-generation',
-    input: { prompt, providerId: options?.providerId },
+    input: {
+      prompt,
+      providerId: options?.providerId,
+      referenceImages: options?.referenceImages,
+      owner: options?.owner,
+      parentArtifactId: options?.parentArtifactId,
+      editInstruction: options?.editInstruction,
+    },
     relatedId: options?.relatedId,
     relatedMeta: options?.relatedMeta,
   });

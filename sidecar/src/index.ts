@@ -10,6 +10,7 @@ import { uploadRoutes } from './routes/upload';
 import { assetsRoutes } from './routes/assets';
 import { projectRoutes } from './routes/projects';
 import { settingsRoutes } from './routes/settings';
+import { artifactsRoutes } from './routes/artifacts';
 import { initDatabase } from './db';
 import { startWorker } from './worker';
 
@@ -36,6 +37,7 @@ app.route('/api/upload', uploadRoutes);
 app.route('/api/assets', assetsRoutes);
 app.route('/api/projects', projectRoutes);
 app.route('/api/settings', settingsRoutes);
+app.route('/api/artifacts', artifactsRoutes);
 
 // 初始化数据库并启动服务器
 const PORT = parseInt(process.env.PORT || '3001', 10);
