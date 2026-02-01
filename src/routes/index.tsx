@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { GlobalStyle } from '@/types/project-plan';
 import { generateContent as generateWithNano } from '@/lib/gemini-nano';
 import { generateText, generateImage as generateAiImage, hasApiConfig } from '@/lib/ai-client';
@@ -9,7 +9,7 @@ import { PPT_STYLES } from '@/lib/ppt-templates';
 import type { PlanRecord } from '@/types/plan-record';
 import { parseHistory, serializeHistory } from '@/types/plan-record';
 import type { ExtendedShootingPlan } from '@/types/single-plan';
-import { FileDown, Loader2, Info, Image as ImageIcon, Wand2, ChevronDown } from 'lucide-react';
+import { FileDown, Loader2, Info, Image as ImageIcon, Wand2, ChevronDown, XCircle } from 'lucide-react';
 import type { ProjectPlan, OutfitInput, ClientProfile } from '@/types/project-plan';
 import { buildProjectTitle } from '@/lib/plan-title';
 import { buildProjectPrompt } from '@/lib/project-prompt';
@@ -54,11 +54,45 @@ function Index() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 批量生成队列管理
+  const [batchQueue, setBatchQueue] = useState<{ total: number; completed: number; active: boolean }>({
+    total: 0,
+    completed: 0,
+    active: false,
+  });
+  const batchTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const batchAbortRef = useRef<AbortController | null>(null);
+
+  // 取消批量生成
+  const cancelBatchGeneration = useCallback(() => {
+    // 清除所有待执行的 timeout
+    batchTimeoutsRef.current.forEach((t) => clearTimeout(t));
+    batchTimeoutsRef.current = [];
+    // 中止正在进行的请求
+    batchAbortRef.current?.abort();
+    batchAbortRef.current = null;
+    // 重置队列状态
+    setBatchQueue({ total: 0, completed: 0, active: false });
+  }, []);
+
   // 初始化加载历史记录
   useEffect(() => {
     const savedHistory = localStorage.getItem('shooting_history');
     setHistory(parseHistory(savedHistory));
   }, []);
+
+  // 批量生成完成时重置状态
+  useEffect(() => {
+    if (batchQueue.active && batchQueue.completed >= batchQueue.total && batchQueue.total > 0) {
+      // 延迟一点点再重置，让用户看到完成状态
+      const timer = setTimeout(() => {
+        setBatchQueue({ total: 0, completed: 0, active: false });
+        batchAbortRef.current = null;
+        batchTimeoutsRef.current = [];
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [batchQueue]);
 
   // 开启新预案
   const handleNewChat = () => {
@@ -87,7 +121,7 @@ function Index() {
   };
 
   // 生成参考图（使用可编辑的提示词）
-  const generateImage = async (visualPrompt: string, index: number) => {
+  const generateImage = async (visualPrompt: string, index: number, signal?: AbortSignal) => {
     setLoadingImage((prev) => ({ ...prev, [index]: true }));
 
     try {
@@ -98,11 +132,23 @@ function Index() {
         return;
       }
 
+      // 检查是否已被取消
+      if (signal?.aborted) {
+        setLoadingImage((prev) => ({ ...prev, [index]: false }));
+        return;
+      }
+
       console.log(`[generateImage] 开始生成 key=${index} 图片...`);
       console.log(`[generateImage] 提示词: ${prompt}`);
 
       // 使用新的 AI 客户端
       const data = await generateAiImage(prompt);
+
+      // 再次检查是否已被取消
+      if (signal?.aborted) {
+        setLoadingImage((prev) => ({ ...prev, [index]: false }));
+        return;
+      }
 
       let imageUrl: string;
       if (data.imageBase64) {
@@ -114,16 +160,26 @@ function Index() {
 
       const img = new window.Image();
       img.onload = () => {
-        setSceneImages((prev) => ({ ...prev, [index]: imageUrl }));
+        if (!signal?.aborted) {
+          setSceneImages((prev) => ({ ...prev, [index]: imageUrl }));
+        }
         setLoadingImage((prev) => ({ ...prev, [index]: false }));
+        // 更新批量进度
+        setBatchQueue((prev) => prev.active ? { ...prev, completed: prev.completed + 1 } : prev);
       };
       img.onerror = () => {
-        alert('图片加载失败，请重试。');
+        if (!signal?.aborted) {
+          alert('图片加载失败，请重试。');
+        }
         setLoadingImage((prev) => ({ ...prev, [index]: false }));
       };
       img.src = imageUrl;
 
     } catch (error: any) {
+      if (signal?.aborted) {
+        setLoadingImage((prev) => ({ ...prev, [index]: false }));
+        return;
+      }
       console.error('[generateImage] 错误:', error);
       alert(`图片生成失败: ${error.message}`);
       setLoadingImage((prev) => ({ ...prev, [index]: false }));
@@ -380,34 +436,61 @@ function Index() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const tasks = projectPlan.plans
-                              .flatMap((p, lookIdx) =>
-                                (p.scenes || []).map((s, si) => ({
-                                  visualPrompt: s.visualPrompt || '',
-                                  sceneKey: lookIdx * 100 + si,
-                                }))
-                              )
-                              .filter((t) => !!t.visualPrompt);
+                        {batchQueue.active ? (
+                          <>
+                            <div className="text-sm text-[var(--ink-2)]">
+                              生成中 {batchQueue.completed}/{batchQueue.total}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={cancelBatchGeneration}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 transition"
+                            >
+                              <XCircle className="w-5 h-5" />
+                              取消生成
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const tasks = projectPlan.plans
+                                .flatMap((p, lookIdx) =>
+                                  (p.scenes || []).map((s, si) => ({
+                                    visualPrompt: s.visualPrompt || '',
+                                    sceneKey: lookIdx * 100 + si,
+                                  }))
+                                )
+                                .filter((t) => !!t.visualPrompt);
 
-                            if (!tasks.length) {
-                              alert('没有找到可生成的 visualPrompt。');
-                              return;
-                            }
+                              if (!tasks.length) {
+                                alert('没有找到可生成的 visualPrompt。');
+                                return;
+                              }
 
-                            if (!confirm(`将开始生成全部 ${tasks.length} 张参考图，可能会消耗额度。确定继续吗？`)) return;
+                              if (!confirm(`将开始生成全部 ${tasks.length} 张参考图，可能会消耗额度。确定继续吗？`)) return;
 
-                            tasks.forEach((t, idx) => {
-                              setTimeout(() => generateImage(t.visualPrompt, t.sceneKey), idx * 900);
-                            });
-                          }}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95 transition"
-                        >
-                          <Wand2 className="w-5 h-5" />
-                          一键生成全部参考图
-                        </button>
+                              // 初始化批量生成
+                              const abortController = new AbortController();
+                              batchAbortRef.current = abortController;
+                              batchTimeoutsRef.current = [];
+                              setBatchQueue({ total: tasks.length, completed: 0, active: true });
+
+                              tasks.forEach((t, idx) => {
+                                const timeoutId = setTimeout(() => {
+                                  if (!abortController.signal.aborted) {
+                                    generateImage(t.visualPrompt, t.sceneKey, abortController.signal);
+                                  }
+                                }, idx * 900);
+                                batchTimeoutsRef.current.push(timeoutId);
+                              });
+                            }}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95 transition"
+                          >
+                            <Wand2 className="w-5 h-5" />
+                            一键生成全部参考图
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -654,19 +737,47 @@ function Index() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!confirm(`将开始生成全部 ${plan.scenes.length} 张参考图，可能会消耗额度。确定继续吗？`)) return;
-                          plan.scenes.forEach((s, idx) => {
-                            setTimeout(() => generateImage(s.visualPrompt, idx), idx * 900);
-                          });
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white px-5 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm hover:bg-gray-50 transition"
-                      >
-                        <Wand2 className="w-5 h-5" />
-                        生成全部参考图
-                      </button>
+                      {batchQueue.active ? (
+                        <>
+                          <div className="text-sm text-[var(--ink-2)]">
+                            生成中 {batchQueue.completed}/{batchQueue.total}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={cancelBatchGeneration}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 transition"
+                          >
+                            <XCircle className="w-5 h-5" />
+                            取消生成
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!confirm(`将开始生成全部 ${plan.scenes.length} 张参考图，可能会消耗额度。确定继续吗？`)) return;
+
+                            // 初始化批量生成
+                            const abortController = new AbortController();
+                            batchAbortRef.current = abortController;
+                            batchTimeoutsRef.current = [];
+                            setBatchQueue({ total: plan.scenes.length, completed: 0, active: true });
+
+                            plan.scenes.forEach((s, idx) => {
+                              const timeoutId = setTimeout(() => {
+                                if (!abortController.signal.aborted) {
+                                  generateImage(s.visualPrompt, idx, abortController.signal);
+                                }
+                              }, idx * 900);
+                              batchTimeoutsRef.current.push(timeoutId);
+                            });
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] bg-white px-5 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm hover:bg-gray-50 transition"
+                        >
+                          <Wand2 className="w-5 h-5" />
+                          生成全部参考图
+                        </button>
+                      )}
 
                       <button
                         onClick={() => exportToPPT(plan, { images: sceneImages, styleId: pptStyleId })}
