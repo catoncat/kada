@@ -19,6 +19,8 @@ export const providers = sqliteTable('providers', {
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
+  // 项目级提示词：参与所有 AI 能力的上下文拼接（可为空）
+  projectPrompt: text('project_prompt'),
   status: text('status').notNull().default('draft'), // 'draft' | 'configured' | 'generated'
   selectedScene: text('selected_scene'), // 场景资产 ID（单选）
   selectedOutfits: text('selected_outfits'), // JSON 数组

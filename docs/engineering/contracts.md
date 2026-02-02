@@ -59,6 +59,21 @@
 
 相关类型：`src/types/project-plan.ts`。
 
+## 2.1) 项目（Project）上下文（长期稳定建议）
+
+Project 是各类 AI 能力的“上下文容器”。为了保证风格一致、可追溯，Project 至少需要包含：
+
+- `title`：项目名称
+- `projectPrompt`：项目级提示词（可为空；会参与所有出图/生成的上下文拼接）
+- `customer`：客户信息（人物列表 + 备注）
+- `selectedScene`：已选场景资产 ID（作为背景环境约束）
+- `generatedPlan`：AI 生成的分镜结构（包含每个场景的 `visualPrompt` 等）
+
+说明：
+
+- `projectPrompt` 与 `prompt_templates`（全局工作室提示词）是不同层级：前者按项目覆盖，后者是全局默认风格/约束。
+- 图片生成时，前端传入的 `prompt` 只是 draft；服务端会拼接上下文得到 `effectivePrompt` 并回显。
+
 ## 3) Provider 配置（前端当前实现）
 
 Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给 Sidecar（当前 UI 未使用 Sidecar 的 providers 表）。
@@ -159,6 +174,7 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
 - UI 允许用户编辑“本次生成要用的提示词”（draft）。
 - 服务端最终用于出图的 **`effectivePrompt` 必须回显**（并建议同时回显 `promptContext`）。
 - 前端展示的 “最终提示词（effective prompt）”以服务端回显为准（覆盖本地推导/拼接），确保可复用与可追溯。
+- `effectivePrompt` 的生成规则由 `settings.key = "prompt_rules"` 管理（UI：设置 → 提示词编排），按 `taskType + ownerType` 选择对应规则。
 
 ### 6.4 版本指针（Active Pointer）
 

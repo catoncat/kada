@@ -11,6 +11,7 @@ import {
   Sparkles,
   Loader2,
   FolderOpen,
+  FileText,
 } from 'lucide-react';
 import { getProject, generatePlan, updateProject } from '@/lib/projects-api';
 import { getSceneAsset, getImageUrl } from '@/lib/scene-assets-api';
@@ -21,6 +22,8 @@ import { CustomerInfoForm } from '@/components/CustomerInfoForm';
 import type { CustomerInfo } from '@/types/project';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 
 interface ProjectWorkspaceProps {
   projectId: string | null;
@@ -46,6 +49,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   const { onTaskComplete, openDrawer, refresh: refreshTasks } = useTaskQueue();
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [projectPromptDraft, setProjectPromptDraft] = useState('');
 
   // 获取项目数据
   const { data: project, isLoading, error } = useQuery({
@@ -55,7 +59,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
 
   // 更新项目的 mutation
   const updateProjectMutation = useMutation({
-    mutationFn: (data: { customer?: CustomerInfo }) =>
+    mutationFn: (data: { customer?: CustomerInfo; projectPrompt?: string | null }) =>
       updateProject(projectId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
@@ -66,6 +70,16 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   const handleCustomerChange = (customer: CustomerInfo | undefined) => {
     updateProjectMutation.mutate({ customer });
   };
+
+  // 同步项目提示词（用于所有 AI 能力的上下文拼接）
+  useEffect(() => {
+    setProjectPromptDraft(project?.projectPrompt || '');
+  }, [project?.id, project?.projectPrompt]);
+
+  const saveProjectPrompt = useDebouncedCallback((value: string) => {
+    const next = value.trim();
+    updateProjectMutation.mutate({ projectPrompt: next ? value : null });
+  }, 600);
 
   // 获取已选场景详情
   const { data: selectedScene } = useQuery({
@@ -168,7 +182,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                render={<Link to="/project/$id/result" params={{ id: projectId }} />}
+                render={<Link to="/project/$id/result" params={{ id: projectId }} search={{}} />}
               >
                 查看预案
               </Button>
@@ -262,6 +276,33 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
                 <span>→</span>
               </Link>
             </div>
+          </div>
+
+          {/* 项目提示词区块 */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <h3 className="font-medium">项目提示词</h3>
+              <span className="text-xs text-muted-foreground">
+                （参与所有 AI 能力的上下文拼接）
+              </span>
+            </div>
+
+            <Textarea
+              className="mt-3 resize-none"
+              rows={4}
+              placeholder="例如：品牌调性、镜头语言偏好、必须出现/避免的元素、风格约束等（可为空）"
+              value={projectPromptDraft}
+              onChange={(e) => {
+                const v = e.target.value;
+                setProjectPromptDraft(v);
+                saveProjectPrompt(v);
+              }}
+            />
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              规则可在「设置 → 提示词编排」中调整。
+            </p>
           </div>
 
           {/* 客户信息区块 */}

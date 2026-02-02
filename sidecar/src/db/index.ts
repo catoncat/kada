@@ -35,6 +35,7 @@ export async function initDatabase() {
 
   // 确保表存在（开发模式使用手动创建，避免迁移冲突）
   ensureTables();
+  ensureColumns();
 
   console.log('✅ Database initialized');
 }
@@ -61,11 +62,13 @@ function ensureTables() {
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      project_prompt TEXT,
       status TEXT NOT NULL DEFAULT 'draft',
       selected_scene TEXT,
       selected_outfits TEXT,
       selected_props TEXT,
       params TEXT,
+      customer TEXT,
       generated_plan TEXT,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
@@ -104,7 +107,67 @@ function ensureTables() {
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS generation_runs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      trigger TEXT NOT NULL DEFAULT 'ui',
+      status TEXT NOT NULL DEFAULT 'queued',
+      related_type TEXT,
+      related_id TEXT,
+      effective_prompt TEXT,
+      prompt_context TEXT,
+      parent_run_id TEXT,
+      task_id TEXT,
+      error TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS generation_artifacts (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'image',
+      mime_type TEXT,
+      file_path TEXT,
+      width INTEGER,
+      height INTEGER,
+      size_bytes INTEGER,
+      owner_type TEXT,
+      owner_id TEXT,
+      owner_slot TEXT,
+      effective_prompt TEXT,
+      prompt_context TEXT,
+      reference_images TEXT,
+      edit_instruction TEXT,
+      parent_artifact_id TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      deleted_at INTEGER
+    );
   `);
+}
+
+function ensureColumns() {
+  if (!sqlite) return;
+
+  const hasColumn = (table: string, column: string): boolean => {
+    const rows = sqlite!.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+    return rows.some((r) => r.name === column);
+  };
+
+  const addColumnIfMissing = (table: string, column: string, sqlType: string) => {
+    if (hasColumn(table, column)) return;
+    console.log(`🧩 Adding missing column: ${table}.${column}`);
+    sqlite!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlType};`);
+  };
+
+  // projects: 历史数据库可能缺少 customer/project_prompt 等列
+  addColumnIfMissing('projects', 'project_prompt', 'TEXT');
+  addColumnIfMissing('projects', 'customer', 'TEXT');
+  addColumnIfMissing('projects', 'selected_props', 'TEXT');
+  addColumnIfMissing('projects', 'selected_outfits', 'TEXT');
+  addColumnIfMissing('projects', 'params', 'TEXT');
+  addColumnIfMissing('projects', 'generated_plan', 'TEXT');
 }
 
 export function closeDatabase() {

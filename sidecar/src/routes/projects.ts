@@ -1,27 +1,159 @@
 import { Hono } from 'hono';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
-import { projects, tasks, sceneAssets, settings } from '../db/schema';
+import { projects, tasks, sceneAssets, settings, generationRuns, generationArtifacts } from '../db/schema';
 import { buildGeneratePlanPrompt, type PromptContext } from '../worker/handlers/plan-generation';
 
 export const projectRoutes = new Hono();
 
-// 获取所有项目
+// 获取所有项目（带元数据）
 projectRoutes.get('/', async (c) => {
   try {
     const db = getDb();
-    const list = await db.select().from(projects).orderBy(projects.createdAt);
+    const list = await db.select().from(projects).orderBy(desc(projects.updatedAt));
 
-    // 解析 JSON 字段
-    const parsed = list.map((p) => ({
-      ...p,
-      selectedOutfits: p.selectedOutfits ? JSON.parse(p.selectedOutfits) : [],
-      selectedProps: p.selectedProps ? JSON.parse(p.selectedProps) : [],
-      params: p.params ? JSON.parse(p.params) : null,
-      customer: p.customer ? JSON.parse(p.customer) : null,
-      generatedPlan: p.generatedPlan ? JSON.parse(p.generatedPlan) : null,
-    }));
+    // 获取所有项目 ID
+    const projectIds = list.map((p) => p.id);
+
+    // 批量获取任务信息
+    const allTasks = projectIds.length > 0
+      ? await db
+          .select()
+          .from(tasks)
+          .where(inArray(tasks.relatedId, projectIds))
+      : [];
+
+    // 批量获取 generation runs（用于方案版本统计）
+    const allRuns = projectIds.length > 0
+      ? await db
+          .select()
+          .from(generationRuns)
+          .where(
+            and(
+              inArray(generationRuns.relatedId, projectIds),
+              eq(generationRuns.kind, 'plan-generation'),
+              eq(generationRuns.status, 'succeeded')
+            )
+          )
+      : [];
+
+    // 批量获取预览图 artifacts（planScene：ownerId=projectId, ownerSlot=scene:n）
+    const allArtifacts = projectIds.length > 0
+      ? await db
+          .select({
+            ownerId: generationArtifacts.ownerId,
+            ownerSlot: generationArtifacts.ownerSlot,
+          })
+          .from(generationArtifacts)
+          .where(
+            and(
+              eq(generationArtifacts.ownerType, 'planScene'),
+              inArray(generationArtifacts.ownerId, projectIds),
+              isNull(generationArtifacts.deletedAt),
+            )
+          )
+      : [];
+
+    const previewSlotsByProject = new Map<string, Set<string>>();
+    for (const a of allArtifacts) {
+      if (!a.ownerId || !a.ownerSlot) continue;
+      if (!a.ownerSlot.startsWith('scene:')) continue;
+      if (!previewSlotsByProject.has(a.ownerId)) {
+        previewSlotsByProject.set(a.ownerId, new Set());
+      }
+      previewSlotsByProject.get(a.ownerId)!.add(a.ownerSlot);
+    }
+
+    // 按项目分组任务
+    const tasksByProject = new Map<string, typeof allTasks>();
+    for (const task of allTasks) {
+      if (!task.relatedId) continue;
+      if (!tasksByProject.has(task.relatedId)) {
+        tasksByProject.set(task.relatedId, []);
+      }
+      tasksByProject.get(task.relatedId)!.push(task);
+    }
+
+    // 按项目分组 runs
+    const runsByProject = new Map<string, typeof allRuns>();
+    for (const run of allRuns) {
+      if (!run.relatedId) continue;
+      if (!runsByProject.has(run.relatedId)) {
+        runsByProject.set(run.relatedId, []);
+      }
+      runsByProject.get(run.relatedId)!.push(run);
+    }
+
+    // 解析 JSON 字段并聚合元数据
+    const parsed = list.map((p) => {
+      const projectTasks = tasksByProject.get(p.id) || [];
+      const projectRuns = runsByProject.get(p.id) || [];
+
+      // 计算任务状态
+      const pendingTasks = projectTasks.filter((t) => t.status === 'pending').length;
+      const runningTask = projectTasks.find((t) => t.status === 'running');
+
+      // 最后的错误（最近失败的任务）
+      const failedTasks = projectTasks
+        .filter((t) => t.status === 'failed')
+        .sort((a, b) => {
+          const aTime = a.updatedAt?.getTime() || 0;
+          const bTime = b.updatedAt?.getTime() || 0;
+          return bTime - aTime;
+        });
+      const lastError = failedTasks.length > 0
+        ? {
+            type: failedTasks[0].type,
+            message: failedTasks[0].error || '未知错误',
+            taskId: failedTasks[0].id,
+          }
+        : undefined;
+
+      // 方案版本数
+      const planVersionCount = projectRuns.length;
+
+      // 预览图进度（简化版：基于 generatedPlan 中的场景数）
+      let previewProgress: { done: number; total: number } | undefined;
+      if (p.generatedPlan) {
+        try {
+          const plan = JSON.parse(p.generatedPlan);
+          const scenes = plan.scenes || [];
+          const total = scenes.length;
+          // 统计有预览图的场景数：优先用 artifacts（更可靠），兼容旧字段 previewUrl
+          const doneFromArtifacts = previewSlotsByProject.get(p.id)?.size ?? 0;
+          const doneFromPlan = scenes.filter((s: { previewUrl?: string; previewArtifactPath?: string }) => s.previewArtifactPath || s.previewUrl).length;
+          const done = Math.max(doneFromArtifacts, doneFromPlan);
+          if (total > 0) {
+            previewProgress = { done, total };
+          }
+        } catch {
+          // 解析失败忽略
+        }
+      }
+
+      return {
+        ...p,
+        selectedOutfits: p.selectedOutfits ? JSON.parse(p.selectedOutfits) : [],
+        selectedProps: p.selectedProps ? JSON.parse(p.selectedProps) : [],
+        params: p.params ? JSON.parse(p.params) : null,
+        customer: p.customer ? JSON.parse(p.customer) : null,
+        generatedPlan: p.generatedPlan ? JSON.parse(p.generatedPlan) : null,
+        // 元数据
+        planVersionCount: planVersionCount || undefined,
+        currentPlanVersion: planVersionCount || undefined,
+        previewProgress,
+        pendingTasks: pendingTasks || undefined,
+        runningTask: runningTask
+          ? {
+              id: runningTask.id,
+              type: runningTask.type,
+              progress: undefined, // 可以后续扩展进度
+            }
+          : undefined,
+        lastError,
+      };
+    });
 
     return c.json({ data: parsed, total: parsed.length });
   } catch (error: unknown) {
@@ -44,13 +176,58 @@ projectRoutes.get('/:id', async (c) => {
     }
 
     // 解析 JSON 字段
+    const generatedPlan = project.generatedPlan ? JSON.parse(project.generatedPlan) : null;
+
+    // 为 generatedPlan.scenes 注入预览图（来自 artifacts）
+    if (generatedPlan?.scenes && Array.isArray(generatedPlan.scenes) && generatedPlan.scenes.length > 0) {
+      const slots = generatedPlan.scenes.map((_: unknown, index: number) => `scene:${index}`);
+
+      const artifacts = await db
+        .select({
+          ownerSlot: generationArtifacts.ownerSlot,
+          filePath: generationArtifacts.filePath,
+          createdAt: generationArtifacts.createdAt,
+        })
+        .from(generationArtifacts)
+        .where(
+          and(
+            eq(generationArtifacts.ownerType, 'planScene'),
+            eq(generationArtifacts.ownerId, id),
+            inArray(generationArtifacts.ownerSlot, slots),
+            isNull(generationArtifacts.deletedAt),
+          )
+        )
+        .orderBy(desc(generationArtifacts.createdAt));
+
+      const latestBySlot = new Map<string, string>();
+      for (const a of artifacts) {
+        if (!a.ownerSlot || !a.filePath) continue;
+        if (!latestBySlot.has(a.ownerSlot)) {
+          latestBySlot.set(a.ownerSlot, a.filePath);
+        }
+      }
+
+      generatedPlan.scenes = generatedPlan.scenes.map((scene: Record<string, unknown>, index: number) => {
+        const slot = `scene:${index}`;
+        const filePath = latestBySlot.get(slot);
+        if (!filePath) return scene;
+        const previewPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+        return {
+          ...scene,
+          previewArtifactPath: previewPath,
+          // 兼容旧字段
+          previewUrl: previewPath,
+        };
+      });
+    }
+
     const parsed = {
       ...project,
       selectedOutfits: project.selectedOutfits ? JSON.parse(project.selectedOutfits) : [],
       selectedProps: project.selectedProps ? JSON.parse(project.selectedProps) : [],
       params: project.params ? JSON.parse(project.params) : null,
       customer: project.customer ? JSON.parse(project.customer) : null,
-      generatedPlan: project.generatedPlan ? JSON.parse(project.generatedPlan) : null,
+      generatedPlan,
     };
 
     return c.json(parsed);
@@ -77,6 +254,7 @@ projectRoutes.post('/', async (c) => {
     const newProject = {
       id,
       title: body.title.trim(),
+      projectPrompt: null,
       status: 'draft',
       selectedScene: null,
       selectedOutfits: null,
@@ -126,6 +304,9 @@ projectRoutes.put('/:id', async (c) => {
 
     // 只更新提供的字段
     if (body.title !== undefined) updates.title = body.title.trim();
+    if (body.projectPrompt !== undefined) {
+      updates.projectPrompt = body.projectPrompt ? String(body.projectPrompt).trim() : null;
+    }
     if (body.status !== undefined) updates.status = body.status;
     if (body.selectedScene !== undefined) {
       updates.selectedScene = body.selectedScene || null;
@@ -246,6 +427,7 @@ projectRoutes.post('/:id/generate', async (c) => {
 
     const promptContext: PromptContext = {
       projectTitle: project.title,
+      projectPrompt: project.projectPrompt || undefined,
       scene: sceneInfo,
       customer,
       systemPrompt,

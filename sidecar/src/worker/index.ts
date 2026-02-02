@@ -12,6 +12,8 @@ import { planGenerationHandler } from './handlers/plan-generation';
 // 任务处理器注册表
 type TaskHandler = (input: any) => Promise<any>;
 
+const DEBUG_WORKER = process.env.SIDECAR_DEBUG_WORKER === '1';
+
 const handlers: Record<string, TaskHandler> = {
   'image-generation': imageGenerationHandler,
   'plan-generation': planGenerationHandler,
@@ -86,6 +88,10 @@ async function processNextTask() {
     .limit(1);
 
   if (!task) return;
+
+  if (DEBUG_WORKER) {
+    console.log(`[Worker] Found pending task: ${task.id} (${task.type})`);
+  }
 
   const handler = handlers[task.type];
   if (!handler) {

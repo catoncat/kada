@@ -6,10 +6,16 @@ import { randomUUID } from 'node:crypto';
 
 export const taskRoutes = new Hono();
 
+const DEBUG_TASKS = process.env.SIDECAR_DEBUG_TASKS === '1';
+
 // 创建任务
 taskRoutes.post('/', async (c) => {
   const body = await c.req.json();
   const { type, input, relatedId, relatedMeta } = body;
+
+  if (DEBUG_TASKS) {
+    console.log('[Tasks] Creating task:', { type, relatedId, hasInput: !!input });
+  }
 
   if (!type || !input) {
     return c.json({ error: 'type and input are required' }, 400);
@@ -29,6 +35,10 @@ taskRoutes.post('/', async (c) => {
     createdAt: now,
     updatedAt: now,
   });
+
+  if (DEBUG_TASKS) {
+    console.log('[Tasks] Task created:', id);
+  }
 
   return c.json({ task: { id, type, status: 'pending' } }, 201);
 });

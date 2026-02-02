@@ -18,6 +18,7 @@ import {
 import { SettingsNav, type SettingsSection } from './settings/SettingsNav';
 import { ProvidersSection } from './settings/ProvidersSection';
 import { PromptTemplatesSection } from './settings/PromptTemplatesSection';
+import { PromptRulesSection } from './settings/PromptRulesSection';
 import { StorageManagement } from './settings/StorageManagement';
 
 interface SettingsPanelProps {
@@ -36,6 +37,8 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
         return <ProvidersSection />;
       case 'templates':
         return <PromptTemplatesSection />;
+      case 'promptRules':
+        return <PromptRulesSection />;
       case 'storage':
         return <StorageManagement />;
       default:

@@ -174,6 +174,7 @@ export async function planGenerationHandler(
   // 使用自定义 prompt 或构建默认 prompt
   const prompt = customPrompt || buildGeneratePlanPrompt({
     projectTitle: project.title,
+    projectPrompt: project.projectPrompt || undefined,
     scene: sceneInfo,
     customer,
     systemPrompt: defaultTemplate?.content,
@@ -216,13 +217,14 @@ export async function planGenerationHandler(
 
 export interface PromptContext {
   projectTitle: string;
+  projectPrompt?: string;
   scene: SceneInfo;
   customer?: CustomerInfo;
   systemPrompt?: string;
 }
 
 export function buildGeneratePlanPrompt(ctx: PromptContext): string {
-  const { projectTitle, scene, customer, systemPrompt } = ctx;
+  const { projectTitle, projectPrompt, scene, customer, systemPrompt } = ctx;
 
   // 场景风格描述
   const styleDesc = scene.style
@@ -280,6 +282,7 @@ ${customer.notes ? `\n备注：${customer.notes}` : ''}
 
 ## 项目信息
 - 项目名称：${projectTitle}
+${projectPrompt ? `\n- 项目提示词：\n${projectPrompt}\n` : ''}
 ${customerSection}
 ## 拍摄场景
 - 场景名称：${scene.name}

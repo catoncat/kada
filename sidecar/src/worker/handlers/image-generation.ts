@@ -15,6 +15,9 @@ import {
   generationArtifacts,
 } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { buildImageEffectivePrompt } from '../prompt-engine';
+
+const DEBUG_IMAGEGEN = process.env.SIDECAR_DEBUG_IMAGEGEN === '1';
 
 export interface ImageGenerationInput {
   prompt: string;
@@ -78,12 +81,33 @@ export async function imageGenerationHandler(
 ): Promise<ImageGenerationOutput> {
   const { prompt, providerId, owner, parentArtifactId, editInstruction, taskId } = input;
 
+  if (DEBUG_IMAGEGEN) {
+    console.log(
+      '[ImageGen] Handler called with prompt:',
+      prompt?.slice(0, 50) + '...',
+    );
+  }
+
   if (!prompt) {
     throw new Error('prompt is required');
   }
 
   const db = getDb();
   const now = new Date();
+
+  // 0. 统一 Prompt 编排（服务端生成 effectivePrompt + promptContext）
+  const composed = await buildImageEffectivePrompt(db, {
+    prompt,
+    owner,
+    editInstruction,
+  });
+  const effectivePrompt = composed.effectivePrompt || prompt;
+  const promptContext = {
+    ...composed.promptContext,
+    options: input.options ?? null,
+    referenceImagesCount: Array.isArray(input.referenceImages) ? input.referenceImages.length : 0,
+    parentArtifactId: parentArtifactId || null,
+  };
 
   // 1. 获取 provider
   let provider;
@@ -101,6 +125,13 @@ export async function imageGenerationHandler(
       .limit(1);
   }
 
+  if (DEBUG_IMAGEGEN) {
+    console.log(
+      '[ImageGen] Provider:',
+      provider ? `${provider.id} (${provider.format})` : 'NOT FOUND',
+    );
+  }
+
   if (!provider) {
     throw new Error('No provider configured');
   }
@@ -116,8 +147,8 @@ export async function imageGenerationHandler(
     status: 'running',
     relatedType: owner?.type,
     relatedId: owner?.id,
-    effectivePrompt: prompt,
-    promptContext: JSON.stringify({ options: input.options }),
+    effectivePrompt,
+    promptContext: JSON.stringify(promptContext),
     parentRunId: null,
     taskId: taskId || null,
     createdAt: now,
@@ -126,7 +157,16 @@ export async function imageGenerationHandler(
 
   try {
     // 3. 调用图片生成 API
-    const result = await generateImage(provider, prompt);
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Calling generateImage API...');
+    const result = await generateImage(provider, effectivePrompt);
+    if (DEBUG_IMAGEGEN) {
+      console.log(
+        '[ImageGen] API returned, mimeType:',
+        result.mimeType,
+        'base64 length:',
+        result.imageBase64?.length,
+      );
+    }
 
     // 4. 写入文件
     const { buffer, sizeBytes } = parseBase64Image(result.imageBase64);
@@ -152,8 +192,8 @@ export async function imageGenerationHandler(
       ownerType: owner?.type || null,
       ownerId: owner?.id || null,
       ownerSlot: owner?.slot || null,
-      effectivePrompt: prompt,
-      promptContext: JSON.stringify({ options: input.options }),
+      effectivePrompt,
+      promptContext: JSON.stringify(promptContext),
       referenceImages: input.referenceImages
         ? JSON.stringify(input.referenceImages)
         : null,
@@ -178,7 +218,7 @@ export async function imageGenerationHandler(
       runId,
       filePath: `uploads/${filename}`,
       mimeType: result.mimeType,
-      effectivePrompt: prompt,
+      effectivePrompt,
       width: result.width,
       height: result.height,
       sizeBytes,
@@ -219,9 +259,23 @@ async function generateImage(
   provider: Provider,
   prompt: string
 ): Promise<GenerateImageResult> {
+  if (DEBUG_IMAGEGEN) {
+    console.log(
+      '[ImageGen] generateImage called, format:',
+      provider.format,
+      'model:',
+      provider.imageModel,
+    );
+  }
+
   if (provider.format === 'gemini') {
-    const url = `${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`;
-    const res = await fetch(url, {
+    if (DEBUG_IMAGEGEN) {
+      console.log('[ImageGen] Gemini request:', {
+        baseUrl: provider.baseUrl,
+        model: provider.imageModel,
+      });
+    }
+    const res = await fetch(`${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -230,8 +284,11 @@ async function generateImage(
       }),
     });
 
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response status:', res.status);
+
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
+      if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini error:', JSON.stringify(errorData));
       throw new Error(
         (errorData as { error?: { message?: string } }).error?.message ||
           `HTTP ${res.status}`
@@ -239,12 +296,16 @@ async function generateImage(
     }
 
     const data = await res.json();
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response keys:', Object.keys(data));
     const parts =
       (data as { candidates?: { content?: { parts?: Array<{ inlineData?: { data: string; mimeType?: string } }> } }[] })
         .candidates?.[0]?.content?.parts || [];
 
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Parts count:', parts.length);
+
     for (const part of parts) {
       if (part.inlineData) {
+        if (DEBUG_IMAGEGEN) console.log('[ImageGen] Found inlineData, mimeType:', part.inlineData.mimeType);
         return {
           imageBase64: part.inlineData.data,
           mimeType: part.inlineData.mimeType || 'image/png',
@@ -256,6 +317,7 @@ async function generateImage(
   } else {
     // OpenAI 兼容格式
     const url = `${provider.baseUrl}/images/generations`;
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI URL:', url);
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -269,8 +331,11 @@ async function generateImage(
       }),
     });
 
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI response status:', res.status);
+
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
+      if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI error:', JSON.stringify(errorData));
       throw new Error(
         (errorData as { error?: { message?: string } }).error?.message ||
           `HTTP ${res.status}`

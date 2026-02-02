@@ -321,6 +321,12 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
 }
 
 function getPromptPreview(task: Task): string | null {
+  // 优先使用服务端回显的 effectivePrompt（更准确、可追溯）
+  if (task.type === 'image-generation' && task.output && typeof (task.output as any).effectivePrompt === 'string') {
+    const ep = ((task.output as any).effectivePrompt as string).trim();
+    if (ep) return ep;
+  }
+
   const input = task.input as { prompt?: unknown } | null;
   if (!input || typeof input !== 'object') return null;
   if (typeof input.prompt === 'string' && input.prompt.trim()) {

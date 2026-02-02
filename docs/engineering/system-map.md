@@ -34,10 +34,12 @@
 5. 写入 React state，并持久化到 localStorage 历史
 
 ### B. 生成参考图（图片）
-1. UI 取场景 `visualPrompt`（可编辑）
-2. 前端 `POST /api/ai/generate-image { prompt, provider }`
-3. Sidecar 调外部模型，返回 `imageBase64/mimeType`
-4. 前端组装 `data:<mime>;base64,...` 写入 `sceneImages`，用于预览与 PPT 嵌入
+1. UI 触发创建任务（`image-generation`），传入 **draft prompt**（通常来自场景 `visualPrompt` 或用户编辑）与 `owner`（用于归属与上下文）
+2. Sidecar Worker 根据 **Prompt 编排规则**拼接上下文，生成服务端最终用于出图的 `effectivePrompt`（并回显/落库）
+   - 拼接来源：全局工作室提示词（`prompt_templates` 默认模板）+ 项目提示词（`projects.project_prompt`）+ 客户信息（`projects.customer`）+ 场景信息（项目分镜/场景资产）+ draft prompt
+   - 规则配置：`settings.key = "prompt_rules"`（对应 UI：设置 → 提示词编排）
+3. Sidecar 调外部模型生成图片，落盘到 `data/uploads/*`，并写入 `GenerationRun + GenerationArtifact`（含 `effectivePrompt + promptContext`）
+4. 前端通过项目详情接口（`GET /api/projects/:id` 注入 `previewArtifactPath`）或 artifacts 接口（`/api/artifacts`）展示图片与版本历史
 
 ### C. 导出 PPT
 - 前端使用 `pptxgenjs` 直接生成并 `writeFile` 下载：
@@ -50,4 +52,3 @@
 - `src/lib/ai-client.ts` + `sidecar/src/routes/ai.ts`：模型调用链路与 Provider 约定
 - `src/lib/ppt-exporter.ts`：导出结构与图片嵌入约束
 - `sidecar/src/db/schema.ts`：未来要接入“持久化”的基础
-
