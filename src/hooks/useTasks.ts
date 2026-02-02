@@ -2,25 +2,26 @@
  * Tasks TanStack Query hooks
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef } from 'react';
 import {
+  type CreateTaskInput,
+  createImageTask,
+  createTask,
+  deleteTask,
   fetchTask,
   fetchTasks,
   fetchTasksBatch,
-  createTask,
-  deleteTask,
-  createImageTask,
+  type ImageGenerationTask,
   type Task,
   type TaskStatus,
-  type CreateTaskInput,
-  type ImageGenerationTask,
 } from '@/lib/tasks-api';
 
 export const taskKeys = {
   all: ['tasks'] as const,
   lists: () => [...taskKeys.all, 'list'] as const,
-  list: (filters: Record<string, unknown>) => [...taskKeys.lists(), filters] as const,
+  list: (filters: Record<string, unknown>) =>
+    [...taskKeys.lists(), filters] as const,
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (id: string) => [...taskKeys.details(), id] as const,
 };
@@ -30,7 +31,7 @@ export const taskKeys = {
  */
 export function useTask<TInput = unknown, TOutput = unknown>(
   id: string | null,
-  options?: { refetchInterval?: number | false }
+  options?: { refetchInterval?: number | false },
 ) {
   return useQuery({
     queryKey: taskKeys.detail(id || ''),
@@ -96,19 +97,29 @@ export function useTasksPolling(
     intervalMs?: number;
     onTaskComplete?: (task: Task) => void;
     onAllComplete?: (tasks: Task[]) => void;
-  }
+  },
 ) {
   const queryClient = useQueryClient();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const completedRef = useRef<Set<string>>(new Set());
 
-  const { enabled = true, intervalMs = 1000, onTaskComplete, onAllComplete } = options || {};
+  const {
+    enabled = true,
+    intervalMs = 1000,
+    onTaskComplete,
+    onAllComplete,
+  } = options || {};
 
   const poll = useCallback(async () => {
     if (taskIds.length === 0) return;
 
     try {
+      console.log('[useTasksPolling] Polling tasks:', taskIds);
       const tasks = await fetchTasksBatch(taskIds);
+      console.log(
+        '[useTasksPolling] Fetched tasks:',
+        tasks.map((t) => ({ id: t.id, status: t.status })),
+      );
 
       // 更新缓存
       for (const task of tasks) {
@@ -119,14 +130,22 @@ export function useTasksPolling(
           (task.status === 'completed' || task.status === 'failed') &&
           !completedRef.current.has(task.id)
         ) {
+          console.log(
+            '[useTasksPolling] Task completed/failed:',
+            task.id,
+            task.status,
+          );
           completedRef.current.add(task.id);
           onTaskComplete?.(task);
         }
       }
 
       // 检查是否全部完成
-      const allDone = tasks.every((t) => t.status === 'completed' || t.status === 'failed');
+      const allDone = tasks.every(
+        (t) => t.status === 'completed' || t.status === 'failed',
+      );
       if (allDone && tasks.length > 0) {
+        console.log('[useTasksPolling] All tasks done, calling onAllComplete');
         onAllComplete?.(tasks);
         // 停止轮询
         if (intervalRef.current) {
@@ -135,7 +154,7 @@ export function useTasksPolling(
         }
       }
     } catch (error) {
-      console.error('轮询任务状态失败:', error);
+      console.error('[useTasksPolling] 轮询任务状态失败:', error);
     }
   }, [taskIds, queryClient, onTaskComplete, onAllComplete]);
 

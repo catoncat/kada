@@ -7,6 +7,16 @@ import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { apiUrl } from '@/lib/api-config';
+import {
+  Dialog,
+  DialogTrigger,
+  DialogPopup,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogPanel,
+} from '@/components/ui/dialog';
 
 export function TaskQueueDrawer() {
   const { allTasks, isDrawerOpen, closeDrawer, refresh } = useTaskQueue();
@@ -138,6 +148,9 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
   const [isRetrying, setIsRetrying] = useState(false);
   const typeLabel = TASK_TYPE_LABELS[task.type] || task.type;
   const statusLabel = TASK_STATUS_LABELS[task.status];
+  const imagePreview = getImagePreview(task);
+  const sourceLink = getTaskSourceLink(task);
+  const promptPreview = getPromptPreview(task);
 
   const StatusIcon = {
     pending: Clock,
@@ -184,6 +197,12 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
             </p>
           )}
 
+          {promptPreview && (
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+              {promptPreview}
+            </p>
+          )}
+
           {task.error && (
             <p className="mt-1 text-xs text-red-500 line-clamp-2">
               {task.error}
@@ -195,11 +214,69 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
             <Link
               to="/project/$id/result"
               params={{ id: task.relatedId }}
+              search={{}}
               onClick={onClick}
               className="mt-1 inline-block text-xs text-primary hover:underline"
             >
               查看结果 →
             </Link>
+          )}
+
+          {/* 图片任务：查看图片 + 跳转来源 */}
+          {task.type === 'image-generation' && imagePreview?.url && (
+            <div className="mt-2 flex items-center gap-2">
+              <Dialog>
+                <DialogTrigger className="shrink-0">
+                  <div className="size-10 rounded-md bg-muted overflow-hidden border">
+                    <img
+                      src={imagePreview.url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </DialogTrigger>
+                <DialogPopup className="max-w-3xl">
+                  <DialogHeader>
+                    <DialogTitle>生成结果</DialogTitle>
+                    {sourceLink?.label && (
+                      <DialogDescription>{sourceLink.label}</DialogDescription>
+                    )}
+                  </DialogHeader>
+                  <DialogPanel className="space-y-3">
+                    <div className="rounded-xl overflow-hidden border bg-muted">
+                      <img
+                        src={imagePreview.url}
+                        alt=""
+                        className="w-full h-auto object-contain"
+                      />
+                    </div>
+                    {sourceLink && (
+                      <Link
+                        to={sourceLink.to}
+                        params={sourceLink.params}
+                        search={sourceLink.search}
+                        onClick={onClick}
+                        className="inline-block text-sm text-primary hover:underline"
+                      >
+                        跳转到请求来源 →
+                      </Link>
+                    )}
+                  </DialogPanel>
+                </DialogPopup>
+              </Dialog>
+
+              {sourceLink && (
+                <Link
+                  to={sourceLink.to}
+                  params={sourceLink.params}
+                  search={sourceLink.search}
+                  onClick={onClick}
+                  className="text-xs text-primary hover:underline"
+                >
+                  来源 →
+                </Link>
+              )}
+            </div>
           )}
 
           {/* 时间 */}
@@ -241,6 +318,84 @@ function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
       </div>
     </div>
   );
+}
+
+function getPromptPreview(task: Task): string | null {
+  const input = task.input as { prompt?: unknown } | null;
+  if (!input || typeof input !== 'object') return null;
+  if (typeof input.prompt === 'string' && input.prompt.trim()) {
+    return input.prompt.trim();
+  }
+  return null;
+}
+
+function getImagePreview(task: Task): { url: string } | null {
+  if (task.type !== 'image-generation') return null;
+  if (task.status !== 'completed' || !task.output) return null;
+
+  const output = task.output as {
+    filePath?: unknown;
+    mimeType?: unknown;
+    imageBase64?: unknown;
+  };
+
+  if (typeof output.filePath === 'string' && output.filePath) {
+    const normalized = output.filePath.startsWith('/') ? output.filePath : `/${output.filePath}`;
+    return { url: apiUrl(normalized) };
+  }
+
+  if (typeof output.imageBase64 === 'string' && output.imageBase64) {
+    const mimeType = typeof output.mimeType === 'string' && output.mimeType ? output.mimeType : 'image/png';
+    return { url: `data:${mimeType};base64,${output.imageBase64}` };
+  }
+
+  return null;
+}
+
+function getTaskSourceLink(task: Task): {
+  to: '/project/$id/result' | '/assets/scenes' | '/';
+  params?: Record<string, string>;
+  search?: Record<string, unknown>;
+  label?: string;
+} | null {
+  const input = task.input as {
+    owner?: { type?: unknown; id?: unknown; slot?: unknown };
+    prompt?: unknown;
+  } | null;
+
+  const owner = input && typeof input === 'object' ? input.owner : null;
+  const ownerType = owner && typeof owner.type === 'string' ? owner.type : null;
+  const ownerId = owner && typeof owner.id === 'string' ? owner.id : null;
+  const ownerSlot = owner && typeof owner.slot === 'string' ? owner.slot : null;
+
+  // planScene：跳到分镜结果页，并打开对应场景的编辑抽屉
+  if (ownerType === 'planScene' && ownerId) {
+    const sceneIndex =
+      ownerSlot?.startsWith('scene:')
+        ? Number.parseInt(ownerSlot.split(':')[1] || '', 10)
+        : null;
+    if (sceneIndex !== null && !Number.isNaN(sceneIndex)) {
+      return {
+        to: '/project/$id/result',
+        params: { id: ownerId },
+        search: { scene: String(sceneIndex), openEdit: '1' },
+        label: `场景 ${sceneIndex + 1}`,
+      };
+    }
+    return { to: '/project/$id/result', params: { id: ownerId }, search: {} };
+  }
+
+  // asset：目前没有细粒度深链，先跳资产页
+  if (ownerType === 'asset') {
+    return { to: '/assets/scenes', label: '场景资产' };
+  }
+
+  // 兜底：如果 relatedId 是项目，就跳项目页
+  if (task.relatedId) {
+    return { to: '/', search: { project: task.relatedId } };
+  }
+
+  return null;
 }
 
 /** 任务队列指示器（始终显示在导航栏） */

@@ -44,6 +44,8 @@ export interface Project {
   id: string;
   title: string;
   status: ProjectStatus;
+  /** 项目级提示词（参与所有 AI 能力的上下文拼接，可为空） */
+  projectPrompt?: string | null;
   /** 已选场景 ID（MVP 单选） */
   selectedScene?: string;
   /** 已选服装配置（JSON） */
@@ -69,6 +71,7 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   title?: string;
   status?: ProjectStatus;
+  projectPrompt?: string | null;
   selectedScene?: string | null;
   selectedOutfits?: string[];
   selectedProps?: string[];
@@ -80,5 +83,38 @@ export interface UpdateProjectInput {
 /** API 响应格式 */
 export interface ProjectListResponse {
   data: Project[];
+  total: number;
+}
+
+/** 项目元数据（用于列表展示） */
+export interface ProjectMeta {
+  /** 方案版本数 */
+  planVersionCount?: number;
+  /** 当前方案版本号 */
+  currentPlanVersion?: number;
+  /** 预览图进度 */
+  previewProgress?: { done: number; total: number };
+  /** 待处理任务数 */
+  pendingTasks?: number;
+  /** 进行中的任务 */
+  runningTask?: {
+    id: string;
+    type: string;
+    progress?: number;
+  };
+  /** 最后的错误信息 */
+  lastError?: {
+    type: string;
+    message: string;
+    taskId?: string;
+  };
+}
+
+/** 带元数据的项目（列表使用） */
+export interface ProjectWithMeta extends Project, ProjectMeta {}
+
+/** 增强版项目列表响应 */
+export interface ProjectListWithMetaResponse {
+  data: ProjectWithMeta[];
   total: number;
 }

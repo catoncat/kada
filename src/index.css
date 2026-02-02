@@ -60,6 +60,18 @@ body {
   margin: 0;
 }
 
+/* App 采用“内滚动容器”策略：避免 body 滚动干扰各面板独立滚动 */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

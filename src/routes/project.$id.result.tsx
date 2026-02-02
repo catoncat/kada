@@ -1,49 +1,57 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, FileDown, Loader2, Wand2, Camera, Lightbulb, MapPin, Image as ImageIcon, Sparkles, Images } from 'lucide-react';
-import { getProject, generatePlan } from '@/lib/projects-api';
-import { getImageUrl } from '@/lib/scene-assets-api';
-import { createImageTask } from '@/lib/tasks-api';
-import { useTasksPolling } from '@/hooks/useTasks';
-import { Button } from '@/components/ui/button';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Image as ImageIcon, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type GeneratedPlan,
+  type GeneratedScene,
+  PlanResultHeader,
+  PlanVersionsDrawer,
+  SceneCard,
+} from '@/components/plan';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { useTasksPolling } from '@/hooks/useTasks';
+import { generatePlan, getProject } from '@/lib/projects-api';
+import { createImageTask } from '@/lib/tasks-api';
+
+interface ResultSearchParams {
+  scene?: number;
+  openEdit?: '1';
+}
 
 export const Route = createFileRoute('/project/$id/result')({
   component: ProjectResultPage,
+  validateSearch: (search: Record<string, unknown>): ResultSearchParams => {
+    const scene =
+      typeof search.scene === 'string' ? Number.parseInt(search.scene, 10) : undefined;
+    return {
+      scene: typeof scene === 'number' && Number.isFinite(scene) ? scene : undefined,
+      openEdit: search.openEdit === '1' ? '1' : undefined,
+    };
+  },
 });
-
-interface GeneratedScene {
-  location: string;
-  description: string;
-  shots: string;
-  lighting: string;
-  visualPrompt: string;
-  sceneAssetId?: string;
-  sceneAssetImage?: string;
-  generatedImage?: string; // base64 图片
-  previewArtifactPath?: string; // 落盘后的图片路径
-}
-
-interface GeneratedPlan {
-  title: string;
-  theme: string;
-  creativeIdea: string;
-  copywriting: string;
-  scenes: GeneratedScene[];
-}
 
 function ProjectResultPage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
+  const { scene: sceneFromUrl, openEdit } = Route.useSearch();
   const queryClient = useQueryClient();
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(new Set());
+  const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(
+    new Set(),
+  );
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
 
   // 获取项目数据
-  const { data: project, isLoading, error } = useQuery({
+  const {
+    data: project,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['project', id],
     queryFn: () => getProject(id),
   });
@@ -78,67 +86,97 @@ function ProjectResultPage() {
   };
 
   // 生成单个场景预览图
-  const handleGenerateScenePreview = useCallback(async (sceneIndex: number, visualPrompt: string) => {
-    setGeneratingScenes(prev => new Set(prev).add(sceneIndex));
-    try {
-      const task = await createImageTask(visualPrompt, {
-        relatedId: id,
-        relatedMeta: JSON.stringify({ sceneIndex }),
-        owner: {
-          type: 'planScene',
-          id: id,
-          slot: `scene:${sceneIndex}`,
-        },
-      });
-      setBatchTaskIds(prev => [...prev, task.id]);
-    } catch (err) {
-      console.error('Failed to create image task:', err);
-      setGeneratingScenes(prev => {
-        const next = new Set(prev);
-        next.delete(sceneIndex);
-        return next;
-      });
-    }
-  }, [id]);
-
-  // 批量生成所有场景预览图
-  const handleBatchGeneratePreview = useCallback(async (scenes: GeneratedScene[]) => {
-    const indices = scenes
-      .map((scene, index) => ({ scene, index }))
-      .filter(({ scene }) => !scene.sceneAssetImage && !scene.previewArtifactPath && scene.visualPrompt);
-
-    if (indices.length === 0) return;
-
-    const newGenerating = new Set<number>();
-    const taskIds: string[] = [];
-
-    for (const { scene, index } of indices) {
-      newGenerating.add(index);
+  const handleGenerateScenePreview = useCallback(
+    async (sceneIndex: number, visualPrompt: string) => {
+      setGeneratingScenes((prev) => new Set(prev).add(sceneIndex));
       try {
-        const task = await createImageTask(scene.visualPrompt, {
+        const task = await createImageTask(visualPrompt, {
           relatedId: id,
-          relatedMeta: JSON.stringify({ sceneIndex: index }),
+          relatedMeta: JSON.stringify({ sceneIndex }),
           owner: {
             type: 'planScene',
             id: id,
-            slot: `scene:${index}`,
+            slot: `scene:${sceneIndex}`,
           },
         });
-        taskIds.push(task.id);
+        setBatchTaskIds((prev) => [...prev, task.id]);
       } catch (err) {
-        console.error(`Failed to create task for scene ${index}:`, err);
+        console.error('Failed to create image task:', err);
+        setGeneratingScenes((prev) => {
+          const next = new Set(prev);
+          next.delete(sceneIndex);
+          return next;
+        });
       }
-    }
+    },
+    [id],
+  );
 
-    setGeneratingScenes(newGenerating);
-    setBatchTaskIds(taskIds);
-  }, [id]);
+  // 批量生成所有场景预览图
+  const handleBatchGeneratePreview = useCallback(
+    async (scenes: GeneratedScene[]) => {
+      const indices = scenes
+        .map((scene, index) => ({ scene, index }))
+        .filter(
+          ({ scene }) =>
+            !scene.sceneAssetImage &&
+            !scene.previewArtifactPath &&
+            scene.visualPrompt,
+        );
+
+      if (indices.length === 0) return;
+
+      const newGenerating = new Set<number>();
+      const taskIds: string[] = [];
+
+      for (const { scene, index } of indices) {
+        newGenerating.add(index);
+        try {
+          const task = await createImageTask(scene.visualPrompt, {
+            relatedId: id,
+            relatedMeta: JSON.stringify({ sceneIndex: index }),
+            owner: {
+              type: 'planScene',
+              id: id,
+              slot: `scene:${index}`,
+            },
+          });
+          taskIds.push(task.id);
+        } catch (err) {
+          console.error(`Failed to create task for scene ${index}:`, err);
+        }
+      }
+
+      setGeneratingScenes(newGenerating);
+      setBatchTaskIds(taskIds);
+    },
+    [id],
+  );
 
   const handleExportPPT = () => {
     // TODO: Phase 4 实现 PPT 导出
     alert('PPT 导出功能将在 Phase 4 实现');
   };
 
+  // 刷新项目数据
+  const handleRefreshProject = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['project', id] });
+  }, [queryClient, id]);
+
+  // 计算预览进度
+  const previewProgress = useMemo(() => {
+    const plan = project?.generatedPlan as GeneratedPlan | null;
+    if (!plan?.scenes) return { done: 0, total: 0 };
+
+    const total = plan.scenes.length;
+    const done = plan.scenes.filter(
+      (scene) => scene.sceneAssetImage || scene.previewArtifactPath,
+    ).length;
+
+    return { done, total };
+  }, [project?.generatedPlan]);
+
+  // Loading 状态
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -147,6 +185,7 @@ function ProjectResultPage() {
     );
   }
 
+  // Error 状态
   if (error || !project) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -162,6 +201,24 @@ function ProjectResultPage() {
 
   const plan = project.generatedPlan as GeneratedPlan | null;
 
+  // 处理从任务列表跳转：滚动到指定场景并自动打开编辑抽屉
+  useEffect(() => {
+    if (!plan?.scenes?.length) return;
+    if (typeof sceneFromUrl !== 'number' || Number.isNaN(sceneFromUrl)) return;
+    if (sceneFromUrl < 0 || sceneFromUrl >= plan.scenes.length) return;
+
+    const el = document.getElementById(`scene-${sceneFromUrl}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // 清理 URL（保持页面状态不受影响）
+    navigate({
+      to: '/project/$id/result',
+      params: { id },
+      search: {},
+      replace: true,
+    });
+  }, [sceneFromUrl, plan?.scenes?.length, navigate, id]);
+
   // 未生成预案
   if (!plan) {
     return (
@@ -170,11 +227,10 @@ function ProjectResultPage() {
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <Link
-              to="/project/$id"
-              params={{ id }}
+              to="/"
+              search={{ project: id }}
               className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
             >
-              <ArrowLeft className="w-4 h-4" />
               返回项目
             </Link>
             <h1 className="text-2xl font-semibold text-foreground">生成结果</h1>
@@ -187,13 +243,15 @@ function ProjectResultPage() {
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <ImageIcon className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-foreground">尚未生成预案</h3>
+            <h3 className="text-lg font-medium text-foreground">
+              尚未生成预案
+            </h3>
             <p className="mt-1 text-sm text-muted-foreground max-w-sm">
               请先完成项目配置，然后点击「生成预案」按钮
             </p>
             <Button
               className="mt-6"
-              render={<Link to="/project/$id" params={{ id }} />}
+              render={<Link to="/" search={{ project: id }} />}
               variant="outline"
             >
               返回配置
@@ -205,183 +263,50 @@ function ProjectResultPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* 顶部导航 */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <Link
-            to="/project/$id"
-            params={{ id }}
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            返回项目
-          </Link>
-          <h1 className="text-2xl font-semibold text-foreground">{plan.title}</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            onClick={() => handleBatchGeneratePreview(plan.scenes)}
-            disabled={batchTaskIds.length > 0}
-            variant="outline"
-          >
-            {batchTaskIds.length > 0 ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Images className="w-4 h-4" />
-            )}
-            批量生成预览
-          </Button>
-          <Button onClick={handleRegenerate} disabled={isRegenerating} variant="outline">
-            {isRegenerating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Wand2 className="w-4 h-4" />
-            )}
-            {isRegenerating ? '生成中...' : '重新生成'}
-          </Button>
-          <Button onClick={handleExportPPT}>
-            <FileDown className="w-4 h-4" />
-            导出 PPT
-          </Button>
-        </div>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Header: 版本信息 + 操作 */}
+      <PlanResultHeader
+        project={project}
+        plan={plan}
+        previewProgress={previewProgress}
+        isBatchGenerating={batchTaskIds.length > 0}
+        isRegenerating={isRegenerating}
+        onGeneratePreviews={() => handleBatchGeneratePreview(plan.scenes)}
+        onOpenVersions={() => setShowVersions(true)}
+        onRegenerate={handleRegenerate}
+        onExportPPT={handleExportPPT}
+      />
+
+      {/* 场景列表标题 */}
+      <div className="mt-8 mb-4">
+        <h2 className="text-lg font-semibold text-foreground">
+          分镜场景 ({plan.scenes.length})
+        </h2>
       </div>
 
-      {/* 预案概要 */}
-      <div className="rounded-2xl border border-border bg-card p-6 mb-6">
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">主题</h3>
-            <p className="mt-1 text-lg text-foreground">{plan.theme}</p>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">创意思路</h3>
-            <p className="mt-1 text-foreground">{plan.creativeIdea}</p>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">核心文案</h3>
-            <p className="mt-1 text-foreground italic">"{plan.copywriting}"</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 分镜列表 */}
+      {/* 场景列表 */}
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-foreground">分镜场景 ({plan.scenes.length})</h2>
-
         {plan.scenes.map((scene, index) => (
-          <div key={scene.location} className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="flex flex-col md:flex-row">
-              {/* 场景参考图 */}
-              <div className="relative w-full md:w-1/3 aspect-video md:aspect-square bg-muted flex-shrink-0 group">
-                {scene.sceneAssetImage ? (
-                  <img
-                    src={getImageUrl(scene.sceneAssetImage)}
-                    alt={scene.location}
-                    className="w-full h-full object-cover"
-                  />
-                ) : scene.previewArtifactPath ? (
-                  <img
-                    src={getImageUrl(scene.previewArtifactPath)}
-                    alt={scene.location}
-                    className="w-full h-full object-cover"
-                  />
-                ) : scene.generatedImage ? (
-                  <img
-                    src={`data:image/png;base64,${scene.generatedImage}`}
-                    alt={scene.location}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                    <ImageIcon className="w-12 h-12 text-muted-foreground" />
-                    {scene.visualPrompt && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleGenerateScenePreview(index, scene.visualPrompt)}
-                        disabled={generatingScenes.has(index)}
-                      >
-                        {generatingScenes.has(index) ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-4 h-4" />
-                        )}
-                        生成预览
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {/* 已有图片时的重新生成按钮 */}
-                {(scene.sceneAssetImage || scene.previewArtifactPath || scene.generatedImage) && scene.visualPrompt && (
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => handleGenerateScenePreview(index, scene.visualPrompt)}
-                      disabled={generatingScenes.has(index)}
-                    >
-                      {generatingScenes.has(index) ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4" />
-                      )}
-                      重新生成
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* 场景详情 */}
-              <div className="flex-1 p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-medium">
-                    {index + 1}
-                  </span>
-                  <h3 className="text-lg font-semibold text-foreground">{scene.location}</h3>
-                </div>
-
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div>
-                      <span className="text-muted-foreground">内容描述：</span>
-                      <span className="text-foreground">{scene.description}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2">
-                    <Camera className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div>
-                      <span className="text-muted-foreground">拍摄建议：</span>
-                      <span className="text-foreground">{scene.shots}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2">
-                    <Lightbulb className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                    <div>
-                      <span className="text-muted-foreground">灯光布置：</span>
-                      <span className="text-foreground">{scene.lighting}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Visual Prompt (可折叠) */}
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-sm text-primary hover:underline">
-                    查看 AI 提示词
-                  </summary>
-                  <div className="mt-2 p-3 rounded-lg bg-muted text-xs text-muted-foreground font-mono whitespace-pre-wrap">
-                    {scene.visualPrompt}
-                  </div>
-                </details>
-              </div>
-            </div>
+          <div key={`${scene.location}-${index}`} id={`scene-${index}`}>
+            <SceneCard
+              scene={scene}
+              sceneIndex={index}
+              projectId={project.id}
+              autoOpenEdit={openEdit === '1' && sceneFromUrl === index}
+              isGenerating={generatingScenes.has(index)}
+              onGeneratePreview={handleGenerateScenePreview}
+              onImageChange={handleRefreshProject}
+            />
           </div>
         ))}
       </div>
+
+      {/* 版本抽屉 */}
+      <PlanVersionsDrawer
+        open={showVersions}
+        onOpenChange={setShowVersions}
+        projectId={project.id}
+      />
     </div>
   );
 }

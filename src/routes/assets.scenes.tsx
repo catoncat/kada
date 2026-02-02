@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { useState, useEffect } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, ImageIcon, Loader2 } from 'lucide-react';
 import { SceneCard } from '@/components/assets/SceneCard';
@@ -20,14 +20,34 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
+// Search params 类型
+interface ScenesSearchParams {
+  action?: 'create';
+}
+
 export const Route = createFileRoute('/assets/scenes')({
   component: ScenesAssetPage,
+  validateSearch: (search: Record<string, unknown>): ScenesSearchParams => ({
+    action: search.action === 'create' ? 'create' : undefined,
+  }),
 });
 
 function ScenesAssetPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { action } = Route.useSearch();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingScene, setEditingScene] = useState<SceneAsset | null>(null);
+
+  // 处理 action=create 参数
+  useEffect(() => {
+    if (action === 'create') {
+      setEditingScene(null);
+      setIsFormOpen(true);
+      // 清除 URL 参数
+      navigate({ to: '/assets/scenes', search: {}, replace: true });
+    }
+  }, [action, navigate]);
 
   // 获取场景列表
   const { data, isLoading, error } = useQuery({

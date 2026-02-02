@@ -1,14 +1,17 @@
 'use client';
 
 import { Link } from '@tanstack/react-router';
-import { Trash2, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { Trash2, CheckCircle2, Clock, Sparkles, AlertCircle, Loader2, RefreshCw, MoreHorizontal, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Project } from '@/types/project';
+import type { ProjectWithMeta } from '@/types/project';
 import { Badge } from '@/components/ui/badge';
+import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuSeparator } from '@/components/ui/menu';
 
 interface ProjectCardProps {
-  project: Project;
+  project: ProjectWithMeta;
   onDelete?: () => void;
+  onRename?: () => void;
+  onRetry?: (taskId: string) => void;
 }
 
 const STATUS_CONFIG = {
@@ -29,14 +32,24 @@ const STATUS_CONFIG = {
   },
 } as const;
 
-export function ProjectCard({ project, onDelete }: ProjectCardProps) {
+function getTaskTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    'plan-generation': '生成方案中...',
+    'image-generation': '生成图片中...',
+    'image-edit': '编辑图片中...',
+    'asset-caption': '生成描述中...',
+  };
+  return labels[type] || '处理中...';
+}
+
+export function ProjectCard({ project, onDelete, onRename, onRetry }: ProjectCardProps) {
   const statusConfig = STATUS_CONFIG[project.status] || STATUS_CONFIG.draft;
   const StatusIcon = statusConfig.icon;
 
   return (
     <Link
-      to="/project/$id"
-      params={{ id: project.id }}
+      to="/"
+      search={{ project: project.id }}
       className={cn(
         'group block rounded-2xl border bg-card p-5 text-card-foreground shadow-xs/5 transition-all',
         'hover:shadow-md hover:border-ring/24',
@@ -61,24 +74,51 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
           </div>
         </div>
 
-        {/* 删除按钮 */}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete();
-            }}
-            className={cn(
-              'rounded-lg p-2 text-muted-foreground transition opacity-0 group-hover:opacity-100',
-              'hover:bg-destructive/10 hover:text-destructive',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            )}
-            title="删除项目"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+        {/* 操作菜单 */}
+        {(onDelete || onRename) && (
+          <Menu>
+            <MenuTrigger
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className={cn(
+                'rounded-lg p-2 text-muted-foreground transition opacity-0 group-hover:opacity-100',
+                'hover:bg-accent hover:text-accent-foreground',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              )}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </MenuTrigger>
+            <MenuPopup>
+              {onRename && (
+                <MenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRename();
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                  重命名
+                </MenuItem>
+              )}
+              {onRename && onDelete && <MenuSeparator />}
+              {onDelete && (
+                <MenuItem
+                  variant="destructive"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除
+                </MenuItem>
+              )}
+            </MenuPopup>
+          </Menu>
         )}
       </div>
 
@@ -117,6 +157,58 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
           </div>
         </div>
       </div>
+
+      {/* 方案和预览进度 */}
+      {(project.planVersionCount || project.previewProgress) && (
+        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+          {project.planVersionCount && (
+            <span>方案 v{project.currentPlanVersion}</span>
+          )}
+          {project.previewProgress && (
+            <span className={cn(
+              project.previewProgress.done === project.previewProgress.total
+                ? 'text-success'
+                : ''
+            )}>
+              预览图 {project.previewProgress.done}/{project.previewProgress.total}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 任务状态 */}
+      {project.runningTask && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span>{getTaskTypeLabel(project.runningTask.type)}</span>
+        </div>
+      )}
+
+      {/* 最后错误 */}
+      {!project.runningTask && project.lastError && (
+        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-destructive">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <AlertCircle className="w-3 h-3 shrink-0" />
+            <span className="truncate">
+              {project.lastError.type}: {project.lastError.message}
+            </span>
+          </div>
+          {onRetry && project.lastError.taskId && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRetry(project.lastError!.taskId!);
+              }}
+              className="shrink-0 p-1 rounded hover:bg-destructive/10 transition-colors"
+              title="重试"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 底部时间 */}
       <div className="mt-4 pt-3 border-t border-border text-xs text-muted-foreground">

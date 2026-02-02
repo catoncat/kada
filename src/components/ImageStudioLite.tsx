@@ -7,29 +7,37 @@
  * - 编辑 effective prompt
  * - 生成新版本
  * - 版本列表和切换
+ * - 自动轮询任务状态
  */
 
-import { useState, useCallback } from 'react';
-import { Image as ImageIcon, Sparkles, History, Trash2, Check, Loader2 } from 'lucide-react';
+import {
+  Check,
+  History,
+  Image as ImageIcon,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
 import {
-  useArtifacts,
-  useSetCurrentArtifact,
-  useDeleteArtifact,
   type GenerationArtifact,
+  useArtifacts,
+  useDeleteArtifact,
+  useSetCurrentArtifact,
 } from '@/hooks/useArtifacts';
-import { useImageGeneration } from '@/hooks/useTasks';
-import { getArtifactUrl, type ArtifactOwnerType } from '@/lib/artifacts-api';
+import { useImageGeneration, useTasksPolling } from '@/hooks/useTasks';
 import { apiUrl } from '@/lib/api-config';
+import { type ArtifactOwnerType, getArtifactUrl } from '@/lib/artifacts-api';
+import { cn } from '@/lib/utils';
 
 export interface ImageStudioLiteProps {
   /** Owner 信息（用于查询和归属 artifacts） */
@@ -64,6 +72,7 @@ export function ImageStudioLite({
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
 
   // 获取版本列表
   const {
@@ -72,30 +81,58 @@ export function ImageStudioLite({
     refetch: refetchArtifacts,
   } = useArtifacts(
     { ownerType: owner.type, ownerId: owner.id, slot: owner.slot },
-    { enabled: showHistory }
+    { enabled: showHistory || pendingTaskIds.length > 0 },
   );
 
   const setCurrentMutation = useSetCurrentArtifact();
   const deleteMutation = useDeleteArtifact();
   const { createTask } = useImageGeneration();
 
+  // 轮询任务状态
+  useTasksPolling(pendingTaskIds, {
+    enabled: pendingTaskIds.length > 0,
+    onTaskComplete: (task) => {
+      console.log('[ImageStudioLite] Task completed:', task.id, task.status);
+    },
+    onAllComplete: (tasks) => {
+      console.log('[ImageStudioLite] All tasks completed:', tasks.length);
+      setPendingTaskIds([]);
+      setIsGenerating(false);
+      // 刷新 artifacts 以获取新生成的图片
+      refetchArtifacts();
+      // 通知外部刷新
+      onImageChange?.(null, null);
+    },
+  });
+
+  // 同步 defaultPrompt 变化
+  useEffect(() => {
+    if (defaultPrompt && !prompt) {
+      setPrompt(defaultPrompt);
+    }
+  }, [defaultPrompt, prompt]);
+
   // 生成图片
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
+    console.log(
+      '[ImageStudioLite] Creating image task with prompt:',
+      prompt.trim(),
+    );
     setIsGenerating(true);
     try {
-      await createTask({
+      const task = await createTask({
         prompt: prompt.trim(),
         relatedId: owner.id,
         relatedMeta: JSON.stringify({ type: owner.type, slot: owner.slot }),
         owner,
       });
-      // 任务创建成功后，轮询会处理后续更新
-      // 这里可以添加 toast 提示
+      console.log('[ImageStudioLite] Task created:', task.id);
+      // 添加到轮询列表
+      setPendingTaskIds((prev) => [...prev, task.id]);
     } catch (error) {
-      console.error('Failed to create image task:', error);
-    } finally {
+      console.error('[ImageStudioLite] Failed to create image task:', error);
       setIsGenerating(false);
     }
   }, [prompt, isGenerating, createTask, owner]);
@@ -111,7 +148,7 @@ export function ImageStudioLite({
         console.error('Failed to switch version:', error);
       }
     },
-    [setCurrentMutation, onImageChange]
+    [setCurrentMutation, onImageChange],
   );
 
   // 删除版本
@@ -124,14 +161,18 @@ export function ImageStudioLite({
         console.error('Failed to delete version:', error);
       }
     },
-    [deleteMutation, refetchArtifacts]
+    [deleteMutation, refetchArtifacts],
   );
 
-  // 计算图片 URL
-  const imageUrl = currentImagePath
-    ? currentImagePath.startsWith('/')
-      ? apiUrl(currentImagePath)
-      : apiUrl(`/${currentImagePath}`)
+  // 计算图片 URL - 优先使用当前 artifact
+  const currentArtifact = artifactsData?.artifacts.find(
+    (a) => a.id === artifactsData.currentArtifactId,
+  );
+  const displayPath = currentArtifact?.filePath || currentImagePath;
+  const imageUrl = displayPath
+    ? displayPath.startsWith('/')
+      ? apiUrl(displayPath)
+      : apiUrl(`/${displayPath}`)
     : null;
 
   const aspectRatioClass = {
@@ -147,7 +188,7 @@ export function ImageStudioLite({
       <div
         className={cn(
           'relative rounded-xl border bg-muted overflow-hidden',
-          aspectRatioClass
+          aspectRatioClass,
         )}
       >
         {imageUrl ? (
@@ -160,6 +201,14 @@ export function ImageStudioLite({
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageIcon className="size-12 opacity-50" />
             <span className="text-sm">暂无图片</span>
+          </div>
+        )}
+
+        {/* 生成中状态 */}
+        {isGenerating && (
+          <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="size-8 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">生成中...</span>
           </div>
         )}
 
@@ -270,7 +319,7 @@ function VersionItem({
     <div
       className={cn(
         'flex items-center gap-2 p-2 rounded-lg hover:bg-accent cursor-pointer group',
-        isCurrent && 'bg-accent'
+        isCurrent && 'bg-accent',
       )}
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
@@ -280,11 +329,7 @@ function VersionItem({
       {/* 缩略图 */}
       <div className="size-10 rounded-md bg-muted overflow-hidden shrink-0">
         {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt=""
-            className="w-full h-full object-cover"
-          />
+          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <ImageIcon className="size-4 text-muted-foreground" />

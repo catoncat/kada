@@ -2,13 +2,13 @@
  * Settings API 客户端
  */
 
-const API_BASE = 'http://localhost:3001/api';
+import { apiUrl } from './api-config';
 
 /**
  * 获取设置项
  */
 export async function getSetting<T>(key: string): Promise<T | null> {
-  const res = await fetch(`${API_BASE}/settings/${key}`);
+  const res = await fetch(apiUrl(`/api/settings/${key}`));
   if (!res.ok) {
     throw new Error('获取设置失败');
   }
@@ -20,7 +20,7 @@ export async function getSetting<T>(key: string): Promise<T | null> {
  * 更新设置项
  */
 export async function setSetting<T>(key: string, value: T): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/${key}`, {
+  const res = await fetch(apiUrl(`/api/settings/${key}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ value }),
@@ -34,7 +34,7 @@ export async function setSetting<T>(key: string, value: T): Promise<void> {
  * 删除设置项
  */
 export async function deleteSetting(key: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/settings/${key}`, {
+  const res = await fetch(apiUrl(`/api/settings/${key}`), {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -46,7 +46,7 @@ export async function deleteSetting(key: string): Promise<void> {
  * 批量获取设置项
  */
 export async function getSettings(keys: string[]): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}/settings/batch`, {
+  const res = await fetch(apiUrl('/api/settings/batch'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ keys }),

@@ -49,7 +49,7 @@ function ProjectScenesPage() {
   };
 
   const handleConfirm = () => {
-    navigate({ to: '/project/$id', params: { id } });
+    navigate({ to: '/', search: { project: id } });
   };
 
   const isLoading = projectLoading || scenesLoading;
@@ -70,8 +70,8 @@ function ProjectScenesPage() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Link
-            to="/project/$id"
-            params={{ id }}
+            to="/"
+            search={{ project: id }}
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
           >
             <ArrowLeft className="w-4 h-4" />
