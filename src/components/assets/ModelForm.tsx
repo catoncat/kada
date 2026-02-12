@@ -3,8 +3,16 @@
 import { useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import type { ModelAsset, CreateModelAssetInput } from '@/types/model-asset';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { getImageUrl } from '@/lib/scene-assets-api';
 
 interface ModelFormProps {
@@ -22,6 +30,32 @@ const GENDER_OPTIONS = [
   { value: 'female', label: '女' },
   { value: 'other', label: '其他' },
 ];
+
+function ReferencePhotoThumb({
+  src,
+  alt,
+  onRemove,
+}: {
+  src: string;
+  alt: string;
+  onRemove: () => void;
+}) {
+  return (
+    <PhotoFrame
+      src={src}
+      alt={alt}
+      className="rounded-lg border border-input bg-background"
+    >
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+    </PhotoFrame>
+  );
+}
 
 export function ModelForm({
   initialData,
@@ -91,7 +125,12 @@ export function ModelForm({
   };
 
   const inputClass =
+    'w-full h-10 rounded-lg border border-input bg-background px-4 py-0 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+
+  const textareaClass =
     'w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+
+  const genderSelectValue = gender || '__any__';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -137,18 +176,28 @@ export function ModelForm({
           <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-gender">
             性别
           </label>
-          <select
-            id="model-gender"
-            value={gender}
-            onChange={(e) => setGender(e.target.value)}
-            className={inputClass}
+          <Select
+            value={genderSelectValue}
+            onValueChange={(value) => {
+              if (!value || value === '__any__') {
+                setGender('');
+                return;
+              }
+              setGender(value);
+            }}
           >
-            {GENDER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="model-gender" className="h-10 sm:h-10">
+              <SelectValue placeholder="不限" />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="__any__">不限</SelectItem>
+              {GENDER_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-age-min">
@@ -193,7 +242,7 @@ export function ModelForm({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="关于这个模特的备注信息"
           rows={2}
-          className={`${inputClass} resize-none`}
+          className={`${textareaClass} resize-none`}
         />
       </div>
 
@@ -221,20 +270,12 @@ export function ModelForm({
           </div>
           <div className="grid grid-cols-5 gap-2">
             {referenceImages.map((img, i) => (
-              <div key={img} className="relative aspect-square rounded-lg overflow-hidden bg-background border border-input">
-                <img
-                  src={getImageUrl(img)}
-                  alt={`参考照 ${i + 1}`}
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleRemoveReferenceImage(i)}
-                  className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
+              <ReferencePhotoThumb
+                key={img}
+                src={getImageUrl(img)}
+                alt={`参考照 ${i + 1}`}
+                onRemove={() => handleRemoveReferenceImage(i)}
+              />
             ))}
             {referenceImages.length < 5 && (
               <ImageUploader
@@ -260,7 +301,7 @@ export function ModelForm({
           onChange={(e) => setAppearancePrompt(e.target.value)}
           placeholder="描述人物的外貌特征，如肤色、发型、体型、五官等"
           rows={4}
-          className={`${inputClass} resize-none`}
+          className={`${textareaClass} resize-none`}
         />
         <p className="mt-1 text-xs text-muted-foreground">
           此描述将注入到出图提示词中，帮助 AI 保持人物外观一致。建议 20-200 字。

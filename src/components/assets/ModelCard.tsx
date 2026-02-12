@@ -1,6 +1,7 @@
 'use client';
 
 import { Edit2, Trash2, User, ImageIcon } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { getImageUrl } from '@/lib/scene-assets-api';
 import type { ModelAsset } from '@/types/model-asset';
 
@@ -28,22 +29,21 @@ export function ModelCard({ model, onEdit, onDelete }: ModelCardProps) {
 
   const refCount =
     (model.primaryImage ? 1 : 0) + (model.referenceImages?.length ?? 0);
+  const modelImageUrl = model.primaryImage ? getImageUrl(model.primaryImage) : null;
 
   return (
     <div className="rounded-2xl border border-border bg-card text-card-foreground overflow-hidden transition-all">
       {/* 图片区域 */}
-      <div className="relative aspect-[4/3] bg-muted">
-        {model.primaryImage ? (
-          <img
-            src={getImageUrl(model.primaryImage)}
-            alt={model.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
+      <PhotoFrame
+        src={modelImageUrl}
+        alt={model.name}
+        className="relative"
+        fallback={
+          <div className="h-full w-full flex items-center justify-center">
             <User className="w-12 h-12 text-muted-foreground opacity-50" />
           </div>
-        )}
+        }
+      >
 
         {/* 项目专属标签 */}
         {model.projectId && (
@@ -59,7 +59,7 @@ export function ModelCard({ model, onEdit, onDelete }: ModelCardProps) {
             {refCount}张参考图
           </div>
         )}
-      </div>
+      </PhotoFrame>
 
       {/* 信息区域 */}
       <div className="p-4">

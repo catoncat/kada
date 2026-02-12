@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { Upload, X, Loader2, ImageIcon } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { cn } from '@/lib/utils';
 import { uploadImage, getImageUrl } from '@/lib/scene-assets-api';
 
@@ -29,6 +30,7 @@ export function ImageUploader({
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const imageUrl = value ? getImageUrl(value) : null;
 
   const handleUpload = useCallback(async (file: File) => {
     if (disabled) return;
@@ -106,12 +108,11 @@ export function ImageUploader({
   if (value) {
     return (
       <div className={cn('relative group', className)}>
-        <div className="relative rounded-xl overflow-hidden border border-border bg-muted">
-          <img
-            src={getImageUrl(value)}
-            alt="已上传图片"
-            className="w-full h-48 object-cover"
-          />
+        <PhotoFrame
+          src={imageUrl}
+          alt="已上传图片"
+          className="rounded-xl border border-border"
+        >
           {/* 悬浮操作层 */}
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
             <button
@@ -137,7 +138,7 @@ export function ImageUploader({
               <X className="w-5 h-5 text-destructive" />
             </button>
           </div>
-        </div>
+        </PhotoFrame>
         <input
           ref={inputRef}
           type="file"
@@ -161,6 +162,7 @@ export function ImageUploader({
         disabled={disabled || uploading}
         className={cn(
           'rounded-xl border-2 border-dashed p-8 transition-colors cursor-pointer',
+          'aspect-[3/2]',
           'flex flex-col items-center justify-center text-center',
           dragOver
             ? 'border-primary bg-primary/5'

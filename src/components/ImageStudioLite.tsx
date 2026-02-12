@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -43,6 +44,7 @@ import { apiUrl } from '@/lib/api-config';
 import { type ArtifactOwnerType, getArtifactUrl } from '@/lib/artifacts-api';
 import { previewImagePrompt, type RenderedPromptBlock } from '@/lib/prompts-api';
 import { cn } from '@/lib/utils';
+import type { PhotoOrientation } from '@/hooks/usePhotoOrientation';
 
 export interface ImageStudioLiteProps {
   /** Owner 信息（用于查询和归属 artifacts） */
@@ -64,7 +66,7 @@ export interface ImageStudioLiteProps {
   /** 自定义类名 */
   className?: string;
   /** 图片显示比例 */
-  aspectRatio?: 'square' | '4/3' | '16/9' | 'auto';
+  aspectRatio?: 'photo' | 'landscape' | 'portrait' | 'square' | '4/3' | '16/9' | 'auto';
 }
 
 export function ImageStudioLite({
@@ -75,7 +77,7 @@ export function ImageStudioLite({
   onImageChange,
   readonly = false,
   className,
-  aspectRatio = '4/3',
+  aspectRatio = 'photo',
 }: ImageStudioLiteProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -203,7 +205,7 @@ export function ImageStudioLite({
 
   useEffect(() => {
     previewEffectivePrompt(prompt);
-  }, [prompt, ownerKey, readonly, previewEffectivePrompt]);
+  }, [prompt, previewEffectivePrompt]);
 
   // 生成图片
   const handleGenerate = useCallback(async () => {
@@ -281,31 +283,36 @@ export function ImageStudioLite({
     square: 'aspect-square',
     '4/3': 'aspect-[4/3]',
     '16/9': 'aspect-[16/9]',
+    photo: '',
+    landscape: '',
+    portrait: '',
     auto: '',
   }[aspectRatio];
+  const forcedOrientation: PhotoOrientation | undefined =
+    aspectRatio === 'landscape'
+      ? 'landscape'
+      : aspectRatio === 'portrait'
+        ? 'portrait'
+        : undefined;
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
       {/* 图片预览区 */}
-      <div
+      <PhotoFrame
+        src={imageUrl}
+        alt="Generated"
+        forcedOrientation={forcedOrientation}
         className={cn(
-          'relative rounded-xl border bg-muted overflow-hidden',
+          'rounded-xl border',
           aspectRatioClass,
         )}
-      >
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt="Generated"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+        fallback={
+          <div className="h-full w-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageIcon className="size-12 opacity-50" />
             <span className="text-sm">暂无图片</span>
           </div>
-        )}
-
+        }
+      >
         {/* 生成中状态 */}
         {isGenerating && (
           <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center gap-2">
@@ -358,7 +365,7 @@ export function ImageStudioLite({
             </Popover>
           </div>
         )}
-      </div>
+      </PhotoFrame>
 
       {/* 提示词编辑区 */}
       {!readonly && (
@@ -509,6 +516,7 @@ function VersionItem({
     : '未知时间';
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: container includes nested interactive controls
     <div
       className={cn(
         'flex items-center gap-2 p-2 rounded-lg hover:bg-accent cursor-pointer group',
@@ -520,15 +528,16 @@ function VersionItem({
       tabIndex={0}
     >
       {/* 缩略图 */}
-      <div className="size-10 rounded-md bg-muted overflow-hidden shrink-0">
-        {imageUrl ? (
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
+      <PhotoFrame
+        src={imageUrl}
+        alt=""
+        className="h-10 rounded-md shrink-0"
+        fallback={
+          <div className="h-full w-full flex items-center justify-center">
             <ImageIcon className="size-4 text-muted-foreground" />
           </div>
-        )}
-      </div>
+        }
+      />
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">

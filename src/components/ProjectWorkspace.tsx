@@ -20,6 +20,7 @@ import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { GenerateButton } from '@/components/GenerateButton';
 import { CustomerInfoForm } from '@/components/CustomerInfoForm';
 import { ModelConfigSection } from '@/components/ModelConfigSection';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import type { CustomerInfo } from '@/types/project';
 import type { ProjectModelConfig } from '@/types/model-asset';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -76,7 +77,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   // 同步项目提示词（用于所有 AI 能力的上下文拼接）
   useEffect(() => {
     setProjectPromptDraft(project?.projectPrompt || '');
-  }, [project?.id, project?.projectPrompt]);
+  }, [project?.projectPrompt]);
 
   const saveProjectPrompt = useDebouncedCallback((value: string) => {
     const next = value.trim();
@@ -89,6 +90,9 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
     queryFn: () => getSceneAsset(project!.selectedScene!),
     enabled: !!project?.selectedScene,
   });
+  const selectedSceneImageUrl = selectedScene?.primaryImage
+    ? getImageUrl(selectedScene.primaryImage)
+    : null;
 
   // 检查是否有进行中的生成任务
   useEffect(() => {
@@ -233,19 +237,16 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-4 flex-1 min-w-0">
                 {/* 场景缩略图 */}
-                <div className="w-20 h-20 rounded-lg bg-muted flex-shrink-0 overflow-hidden">
-                  {selectedScene?.primaryImage ? (
-                    <img
-                      src={getImageUrl(selectedScene.primaryImage)}
-                      alt={selectedScene.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
+                <PhotoFrame
+                  src={selectedSceneImageUrl}
+                  alt={selectedScene?.name || '场景'}
+                  className="h-20 rounded-lg flex-shrink-0"
+                  fallback={
+                    <div className="h-full w-full flex items-center justify-center">
                       <ImageIcon className="w-6 h-6 text-muted-foreground" />
                     </div>
-                  )}
-                </div>
+                  }
+                />
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

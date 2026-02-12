@@ -25,6 +25,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
 } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -870,13 +871,11 @@ function TaskDetailPane({
                       aria-label={`查看参考图 ${idx + 1}`}
                       className="group rounded-md border bg-muted p-1"
                     >
-                      <div className="aspect-square overflow-hidden rounded">
-                        <img
-                          src={preview}
-                          alt={`${task.id}-reference-${idx + 1}`}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
+                      <PhotoFrame
+                        src={preview}
+                        alt={`${task.id}-reference-${idx + 1}`}
+                        className="rounded"
+                      />
                       <p className="mt-1 truncate text-[10px] text-muted-foreground group-hover:text-foreground">
                         {img}
                       </p>
@@ -938,11 +937,13 @@ function TaskDetailPane({
                   </div>
 
                   {url ? (
-                    <div className="mb-2 aspect-video overflow-hidden rounded border bg-muted">
-                      <img src={url} alt={artifact.id} className="h-full w-full object-cover" />
-                    </div>
+                    <PhotoFrame
+                      src={url}
+                      alt={artifact.id}
+                      className="mb-2 rounded border"
+                    />
                   ) : (
-                    <div className="mb-2 flex aspect-video items-center justify-center rounded border bg-muted text-[11px] text-muted-foreground">
+                    <div className="mb-2 flex aspect-[3/2] items-center justify-center rounded border bg-muted text-[11px] text-muted-foreground">
                       <ImageIcon className="mr-1 h-3.5 w-3.5" /> 无预览
                     </div>
                   )}

@@ -4,6 +4,7 @@
  */
 
 import { Edit, Image as ImageIcon, Loader2, Sparkles } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { Button } from '@/components/ui/button';
 import { getImageUrl } from '@/lib/scene-assets-api';
 
@@ -41,17 +42,14 @@ export function SceneCardImage({
   const imageUrl = displayImage ? getImageUrl(displayImage) : null;
 
   return (
-    <div className="relative w-full md:w-64 lg:w-72 flex-shrink-0 bg-muted">
+    <div className="relative w-full md:w-64 lg:w-72 flex-shrink-0">
       {/* 图片预览区域 */}
-      <div className="aspect-square relative group">
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={sceneName}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+      <PhotoFrame
+        src={imageUrl}
+        alt={sceneName}
+        className="group"
+        fallback={
+          <div className="h-full w-full flex flex-col items-center justify-center gap-3">
             <ImageIcon className="w-12 h-12 text-muted-foreground" />
             {defaultPrompt && (
               <Button
@@ -69,7 +67,8 @@ export function SceneCardImage({
               </Button>
             )}
           </div>
-        )}
+        }
+      >
 
         {/* 悬浮操作按钮（有图片时显示） */}
         {imageUrl && (
@@ -104,7 +103,7 @@ export function SceneCardImage({
             </Button>
           </div>
         )}
-      </div>
+      </PhotoFrame>
 
       {/* 编辑按钮（固定在右下角） */}
       <div className="absolute bottom-2 right-2 z-10">

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Plus, X, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { getModelAssets, autoMatchModels, createModelAsset } from '@/lib/model-assets-api';
 import { getImageUrl } from '@/lib/scene-assets-api';
 import type { ModelAsset, CreateModelAssetInput, ProjectModelConfig } from '@/types/model-asset';
@@ -237,10 +238,10 @@ export function ModelConfigSection({
                   ) : model ? (
                     <div className="mt-1 flex items-center gap-2">
                       {model.primaryImage && (
-                        <img
+                        <PhotoFrame
                           src={getImageUrl(model.primaryImage)}
                           alt={model.name}
-                          className="w-8 h-8 rounded object-cover"
+                          className="h-8 rounded shrink-0"
                         />
                       )}
                       <span className="text-sm text-muted-foreground">
@@ -459,10 +460,10 @@ function ModelSelector({
                   )}
                 >
                   {model.primaryImage ? (
-                    <img
+                    <PhotoFrame
                       src={getImageUrl(model.primaryImage)}
                       alt={model.name}
-                      className="w-6 h-6 rounded object-cover flex-shrink-0"
+                      className="h-6 rounded flex-shrink-0"
                     />
                   ) : (
                     <div className="w-6 h-6 rounded bg-muted flex items-center justify-center flex-shrink-0">

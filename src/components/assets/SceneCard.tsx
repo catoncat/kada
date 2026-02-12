@@ -1,6 +1,7 @@
 'use client';
 
 import { Edit2, Trash2, ImageIcon, Sun, MapPin } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { cn } from '@/lib/utils';
 import { getImageUrl } from '@/lib/scene-assets-api';
 import type { SceneAsset } from '@/types/scene-asset';
@@ -25,6 +26,8 @@ export function SceneCard({
   selected = false,
   onSelect,
 }: SceneCardProps) {
+  const sceneImageUrl = scene.primaryImage ? getImageUrl(scene.primaryImage) : null;
+
   const handleClick = () => {
     if (!onSelect) return;
     onSelect();
@@ -46,18 +49,16 @@ export function SceneCard({
         onClick={handleClick}
       >
         {/* 图片区域 */}
-        <div className="relative aspect-[4/3] bg-muted">
-          {scene.primaryImage ? (
-            <img
-              src={getImageUrl(scene.primaryImage)}
-              alt={scene.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
+        <PhotoFrame
+          src={sceneImageUrl}
+          alt={scene.name}
+          className="relative"
+          fallback={
+            <div className="h-full w-full flex items-center justify-center">
               <ImageIcon className="w-12 h-12 text-muted-foreground opacity-50" />
             </div>
-          )}
+          }
+        >
 
           {/* 选中标记 */}
           {selected && (
@@ -86,7 +87,7 @@ export function SceneCard({
               户外
             </div>
           )}
-        </div>
+        </PhotoFrame>
 
         {/* 信息区域 */}
         <div className="p-4">
@@ -134,18 +135,16 @@ export function SceneCard({
   return (
     <div className={cardClassName}>
       {/* 图片区域 */}
-      <div className="relative aspect-[4/3] bg-muted">
-        {scene.primaryImage ? (
-          <img
-            src={getImageUrl(scene.primaryImage)}
-            alt={scene.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
+      <PhotoFrame
+        src={sceneImageUrl}
+        alt={scene.name}
+        className="relative"
+        fallback={
+          <div className="h-full w-full flex items-center justify-center">
             <ImageIcon className="w-12 h-12 text-muted-foreground opacity-50" />
           </div>
-        )}
+        }
+      >
 
         {/* 选中标记 */}
         {selected && (
@@ -169,7 +168,7 @@ export function SceneCard({
             户外
           </div>
         )}
-      </div>
+      </PhotoFrame>
 
       {/* 信息区域 */}
       <div className="p-4">

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, ImageIcon, Loader2 } from 'lucide-react';
 import { getProject, updateProject } from '@/lib/projects-api';
 import { getSceneAssets, getImageUrl } from '@/lib/scene-assets-api';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { SceneCard } from '@/components/assets/SceneCard';
 import type { SceneAsset } from '@/types/scene-asset';
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,9 @@ function ProjectScenesPage() {
   const isLoading = projectLoading || scenesLoading;
   const scenes = scenesData?.data || [];
   const selectedScene = scenes.find((s) => s.id === project?.selectedScene);
+  const selectedSceneImageUrl = selectedScene?.primaryImage
+    ? getImageUrl(selectedScene.primaryImage)
+    : null;
 
   if (isLoading) {
     return (
@@ -133,19 +137,16 @@ function ProjectScenesPage() {
           <div className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="flex flex-col md:flex-row">
               {/* 大图预览 */}
-              <div className="md:w-1/2 aspect-[4/3] bg-muted">
-                {selectedScene.primaryImage ? (
-                  <img
-                    src={getImageUrl(selectedScene.primaryImage)}
-                    alt={selectedScene.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
+              <PhotoFrame
+                src={selectedSceneImageUrl}
+                alt={selectedScene.name}
+                className="md:w-1/2"
+                fallback={
+                  <div className="h-full w-full flex items-center justify-center">
                     <ImageIcon className="w-16 h-16 text-muted-foreground opacity-50" />
                   </div>
-                )}
-              </div>
+                }
+              />
 
               {/* 详情信息 */}
               <div className="md:w-1/2 p-6">

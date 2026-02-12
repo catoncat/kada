@@ -59,7 +59,7 @@ export function SceneEditDrawer({
               referenceImages={scene.sceneAssetImage ? [scene.sceneAssetImage] : undefined}
               defaultPrompt={scene.visualPrompt}
               onImageChange={handleImageChange}
-              aspectRatio="square"
+              aspectRatio="photo"
             />
 
             {/* 场景信息摘要 */}
