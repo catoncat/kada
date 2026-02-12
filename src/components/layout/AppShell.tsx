@@ -1,11 +1,18 @@
 'use client';
 
-import type * as React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { FolderKanban, Image, Search, Settings2 } from 'lucide-react';
-
-import { TaskQueueIndicator } from '@/components/TaskQueueDrawer';
+import {
+  FolderKanban,
+  Image,
+  Package,
+  Search,
+  Settings2,
+  Shirt,
+  Users,
+} from 'lucide-react';
+import type * as React from 'react';
 import { useCommandSearchContext } from '@/components/CommandSearch';
+import { TaskQueueIndicator } from '@/components/TaskQueueDrawer';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import {
@@ -34,7 +41,12 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
   const location = useLocation();
   const pathname = location.pathname;
   const { setOpen } = useCommandSearchContext();
-  const isProjectsPage = pathname === '/' || pathname === '/index.html' || pathname === '/index.html/';
+  const isProjectsPage =
+    pathname === '/' ||
+    pathname === '/index.html' ||
+    pathname === '/index.html/';
+  const needsFixedHeight =
+    isProjectsPage || pathname.startsWith('/assets/models');
 
   const isActive = (to: string, exact?: boolean) => {
     if (exact) return pathname === to;
@@ -46,17 +58,17 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
       <Sidebar collapsible="icon" variant="inset">
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+            <SidebarGroupLabel>工作区</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={isActive('/', true)}
                     render={<Link to="/" />}
-                    tooltip="Projects"
+                    tooltip="项目"
                   >
                     <FolderKanban />
-                    <span>Projects</span>
+                    <span>项目</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
@@ -66,17 +78,39 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           <SidebarSeparator />
 
           <SidebarGroup>
-            <SidebarGroupLabel>Assets</SidebarGroupLabel>
+            <SidebarGroupLabel>资产</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    isActive={isActive('/assets')}
+                    isActive={isActive('/assets/scenes')}
                     render={<Link to="/assets/scenes" />}
-                    tooltip="Scenes"
+                    tooltip="场景"
                   >
                     <Image />
-                    <span>Scenes</span>
+                    <span>场景</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isActive('/assets/models')}
+                    render={<Link to="/assets/models" />}
+                    tooltip="模特"
+                  >
+                    <Users />
+                    <span>模特</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton disabled tooltip="服装（待开发）">
+                    <Shirt />
+                    <span>服装</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton disabled tooltip="道具（待开发）">
+                    <Package />
+                    <span>道具</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
@@ -90,10 +124,10 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
               <SidebarMenuButton
                 isActive={isActive('/settings')}
                 render={<Link to="/settings" />}
-                tooltip="Settings"
+                tooltip="设置"
               >
                 <Settings2 />
-                <span>Settings</span>
+                <span>设置</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -114,7 +148,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
             )}
           >
             <Search className="size-4 shrink-0 opacity-70" />
-            <span className="truncate">Search…</span>
+            <span className="truncate">搜索…</span>
             <span className="ms-auto shrink-0">
               <KbdGroup>
                 <Kbd>⌘</Kbd>
@@ -126,7 +160,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           <div className="flex shrink-0 items-center gap-2">
             <TaskQueueIndicator />
             <Button
-              aria-label="Settings"
+              aria-label="设置"
               render={<Link to="/settings" />}
               size="icon"
               variant="ghost"
@@ -141,7 +175,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
             className={cn(
               'min-w-0 min-h-0 flex-1',
               // Projects 首页：左右两栏各自滚动，避免父级滚动干扰
-              isProjectsPage ? 'overflow-hidden' : 'overflow-auto',
+              needsFixedHeight ? 'overflow-hidden' : 'overflow-auto',
             )}
           >
             {children}

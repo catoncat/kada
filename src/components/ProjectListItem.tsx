@@ -1,6 +1,21 @@
 'use client';
 
-import { Clock, CheckCircle2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Edit2,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
 import type { ProjectWithMeta } from '@/types/project';
 
@@ -9,6 +24,8 @@ interface ProjectListItemProps {
   selected?: boolean;
   onSelect?: () => void;
   onDoubleClick?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
 }
 
 const STATUS_CONFIG = {
@@ -51,52 +68,75 @@ export function ProjectListItem({
   selected,
   onSelect,
   onDoubleClick,
+  onRename,
+  onDelete,
 }: ProjectListItemProps) {
   const statusConfig = STATUS_CONFIG[project.status] || STATUS_CONFIG.draft;
   const StatusIcon = statusConfig.icon;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      onDoubleClick={onDoubleClick}
-      className={cn(
-        'w-full text-left px-2.5 py-2 rounded-md transition-colors mb-0.5',
-        'hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        selected && 'bg-sidebar-accent'
-      )}
-    >
-      <div className="flex items-center gap-2.5">
-        {/* 状态图标 */}
-        <div className={cn('shrink-0', statusConfig.className)}>
-          {project.runningTask ? (
-            <Loader2 className="w-4 h-4 animate-spin text-primary" />
-          ) : project.lastError ? (
-            <AlertCircle className="w-4 h-4 text-destructive" />
-          ) : (
-            <StatusIcon className="w-4 h-4" />
-          )}
-        </div>
-
-        {/* 内容 */}
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{project.title}</div>
-          <div className="text-xs text-muted-foreground truncate">
+    <ContextMenu>
+      <ContextMenuTrigger
+        className={cn(
+          'w-full text-left px-2.5 py-2 rounded-md transition-colors mb-0.5',
+          'hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          selected && 'bg-sidebar-accent',
+        )}
+        onClick={onSelect}
+        onDoubleClick={onDoubleClick}
+      >
+        <div className="flex items-center gap-2.5">
+          {/* 状态图标 */}
+          <div className={cn('shrink-0', statusConfig.className)}>
             {project.runningTask ? (
-              '处理中...'
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
             ) : project.lastError ? (
-              <span className="text-destructive">有错误</span>
+              <AlertCircle className="w-4 h-4 text-destructive" />
             ) : (
-              <>
-                {formatRelativeDate(project.updatedAt)}
-                {(project.planVersionCount ?? 0) > 0 && (
-                  <span className="ml-1.5">· v{project.currentPlanVersion}</span>
-                )}
-              </>
+              <StatusIcon className="w-4 h-4" />
             )}
           </div>
+
+          {/* 内容 */}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{project.title}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {project.runningTask ? (
+                '处理中...'
+              ) : project.lastError ? (
+                <span className="text-destructive">有错误</span>
+              ) : (
+                <>
+                  {formatRelativeDate(project.updatedAt)}
+                  {(project.planVersionCount ?? 0) > 0 && (
+                    <span className="ml-1.5">
+                      · v{project.currentPlanVersion}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-    </button>
+      </ContextMenuTrigger>
+
+      <ContextMenuPopup>
+        {onRename && (
+          <ContextMenuItem onClick={onRename}>
+            <Edit2 className="w-4 h-4" />
+            重命名
+          </ContextMenuItem>
+        )}
+        {onDelete && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 className="w-4 h-4" />
+              删除
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuPopup>
+    </ContextMenu>
   );
 }

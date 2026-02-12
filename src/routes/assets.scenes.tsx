@@ -1,24 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, ImageIcon, Loader2 } from 'lucide-react';
+import { ImageIcon, Loader2, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { SceneCard } from '@/components/assets/SceneCard';
 import { SceneForm } from '@/components/assets/SceneForm';
-import {
-  getSceneAssets,
-  createSceneAsset,
-  updateSceneAsset,
-  deleteSceneAsset,
-} from '@/lib/scene-assets-api';
-import type { SceneAsset, CreateSceneAssetInput } from '@/types/scene-asset';
-import {
-  Dialog,
-  DialogPopup,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogPopup } from '@/components/ui/dialog';
+import {
+  createSceneAsset,
+  deleteSceneAsset,
+  getSceneAssets,
+  updateSceneAsset,
+} from '@/lib/scene-assets-api';
+import type { CreateSceneAssetInput, SceneAsset } from '@/types/scene-asset';
 
 // Search params 类型
 interface ScenesSearchParams {
@@ -116,12 +113,17 @@ function ScenesAssetPage() {
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6">
-      {/* 操作栏 */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* 页面标题 */}
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground">场景管理</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           管理你的拍摄场景，上传场景照片并添加描述
         </p>
+      </div>
+
+      {/* 操作栏 */}
+      <div className="flex items-center justify-end">
         <Button onClick={handleCreate}>
           <Plus className="w-4 h-4" />
           新建场景

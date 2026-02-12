@@ -11,7 +11,6 @@ import {
   SelectItem,
   SelectPopup,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select';
 import { getImageUrl } from '@/lib/scene-assets-api';
 
@@ -131,6 +130,8 @@ export function ModelForm({
     'w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
   const genderSelectValue = gender || '__any__';
+  const selectedGenderLabel =
+    GENDER_OPTIONS.find((opt) => opt.value === gender)?.label || '不限';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -187,7 +188,7 @@ export function ModelForm({
             }}
           >
             <SelectTrigger id="model-gender" className="h-10 sm:h-10">
-              <SelectValue placeholder="不限" />
+              <span className="truncate">{selectedGenderLabel}</span>
             </SelectTrigger>
             <SelectPopup>
               <SelectItem value="__any__">不限</SelectItem>

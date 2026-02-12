@@ -1,5 +1,11 @@
 # 前端开发指南
 
+## UI 框架与设计方向
+
+- **组件库**：[coss ui](agent_docs/coss-ui.llm.md) — 基于 Base UI + Tailwind CSS 的组件集，通过 shadcn CLI 以 `@coss` registry 安装到 `src/components/ui/`。
+- **设计方向**：目标是接近 **macOS 桌面端**的视觉与交互风格（紧凑间距、原生感控件、精致阴影/圆角），而非典型 Web 页面风格。
+- **shadcn 注意事项**：从 `@coss` registry 添加组件后，检查生成文件的 import 路径 — 如出现 `@coss/ui/components/...` 需手动改为项目约定的 `@/components/ui/...`（详见「路径别名」一节）。
+
 ## 目录与路由
 
 - 入口：`src/main.tsx`
@@ -19,6 +25,11 @@
 - `src/components/`：业务组件（多用 `PascalCase.tsx`）
 - `src/hooks/`：自定义 Hooks（命名 `useXxx`）
 - `src/lib/`：工具函数与领域逻辑（例如 `src/lib/utils.ts` 的 `cn()` 用于类名合并）
+
+## 组件使用约定
+
+- 默认优先复用 `src/components/ui/` 中的组件，减少业务层样式分叉与端侧表现差异。
+- 表单场景优先使用现有 `ui` 组件（如 `input`、`textarea`、`select`、`number-field`），缺失能力再补充封装。
 
 ## 样式与资源
 

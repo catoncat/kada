@@ -1,27 +1,33 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ProjectSidebar, type StatusFilter, type SortBy } from '@/components/ProjectSidebar';
-import { ProjectWorkspace } from '@/components/ProjectWorkspace';
-import { getProjects, createProject, deleteProject, updateProject } from '@/lib/projects-api';
-import type { ProjectWithMeta } from '@/types/project';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Dialog,
-  DialogPopup,
-} from '@/components/ui/dialog';
+  ProjectSidebar,
+  type SortBy,
+  type StatusFilter,
+} from '@/components/ProjectSidebar';
+import { ProjectWorkspace } from '@/components/ProjectWorkspace';
 import {
   AlertDialog,
-  AlertDialogPopup,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
   AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogPopup } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  createProject,
+  deleteProject,
+  getProjects,
+  updateProject,
+} from '@/lib/projects-api';
+import type { ProjectWithMeta } from '@/types/project';
 
 // Search params 类型
 interface IndexSearchParams {
@@ -44,7 +50,7 @@ function ProjectListPage() {
 
   // 选中的项目
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    projectFromUrl || null
+    projectFromUrl || null,
   );
 
   // 对话框状态
@@ -120,7 +126,9 @@ function ProjectListPage() {
       updateProject(id, { title }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['project', projectToRename?.id] });
+      queryClient.invalidateQueries({
+        queryKey: ['project', projectToRename?.id],
+      });
       setRenameDialogOpen(false);
       setProjectToRename(null);
       setRenameTitle('');
@@ -152,7 +160,10 @@ function ProjectListPage() {
   const handleSubmitRename = (e: React.FormEvent) => {
     e.preventDefault();
     if (!renameTitle.trim() || !projectToRename) return;
-    renameMutation.mutate({ id: projectToRename.id, title: renameTitle.trim() });
+    renameMutation.mutate({
+      id: projectToRename.id,
+      title: renameTitle.trim(),
+    });
   };
 
   // 原始项目列表
@@ -175,7 +186,9 @@ function ProjectListPage() {
     // 搜索过滤
     if (search.trim()) {
       const searchLower = search.toLowerCase();
-      result = result.filter((p) => p.title.toLowerCase().includes(searchLower));
+      result = result.filter((p) =>
+        p.title.toLowerCase().includes(searchLower),
+      );
     }
 
     // 状态过滤
@@ -226,6 +239,15 @@ function ProjectListPage() {
         onSelectProject={handleSelectProject}
         onOpenProject={handleOpenProject}
         onCreateProject={handleCreate}
+        onRenameProject={(project) => {
+          setProjectToRename({ id: project.id, title: project.title });
+          setRenameTitle(project.title);
+          setRenameDialogOpen(true);
+        }}
+        onDeleteProject={(project) => {
+          setProjectToDelete({ id: project.id, title: project.title });
+          setDeleteDialogOpen(true);
+        }}
         search={search}
         onSearchChange={setSearch}
         statusFilter={statusFilter}

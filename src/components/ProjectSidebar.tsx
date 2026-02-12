@@ -1,17 +1,17 @@
 'use client';
 
 import { Plus, Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import type { ProjectWithMeta } from '@/types/project';
+import { ProjectListItem } from '@/components/ProjectListItem';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
-  SelectTrigger,
-  SelectPopup,
   SelectItem,
+  SelectPopup,
+  SelectTrigger,
 } from '@/components/ui/select';
-import { ProjectListItem } from '@/components/ProjectListItem';
+import { cn } from '@/lib/utils';
+import type { ProjectWithMeta } from '@/types/project';
 
 export type StatusFilter = 'all' | 'draft' | 'configured' | 'generated';
 export type SortBy = 'updatedAt' | 'createdAt' | 'title';
@@ -22,6 +22,8 @@ interface ProjectSidebarProps {
   onSelectProject: (id: string) => void;
   onOpenProject: (id: string) => void;
   onCreateProject: () => void;
+  onRenameProject?: (project: ProjectWithMeta) => void;
+  onDeleteProject?: (project: ProjectWithMeta) => void;
   // 筛选状态
   search: string;
   onSearchChange: (value: string) => void;
@@ -59,6 +61,8 @@ export function ProjectSidebar({
   onSelectProject,
   onOpenProject,
   onCreateProject,
+  onRenameProject,
+  onDeleteProject,
   search,
   onSearchChange,
   statusFilter,
@@ -69,7 +73,8 @@ export function ProjectSidebar({
   isLoading,
   isEmpty,
 }: ProjectSidebarProps) {
-  const sortLabel = SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
+  const sortLabel =
+    SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
 
   return (
     <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-sidebar">
@@ -109,7 +114,7 @@ export function ProjectSidebar({
                 'hover:bg-sidebar-accent',
                 statusFilter === tab.value
                   ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-foreground'
+                  : 'text-sidebar-foreground',
               )}
             >
               <span>{tab.label}</span>
@@ -118,7 +123,7 @@ export function ProjectSidebar({
                   'text-xs tabular-nums',
                   statusFilter === tab.value
                     ? 'text-sidebar-accent-foreground'
-                    : 'text-muted-foreground'
+                    : 'text-muted-foreground',
                 )}
               >
                 {counts[tab.value]}
@@ -134,8 +139,13 @@ export function ProjectSidebar({
       {/* 排序选择 */}
       <div className="px-3 py-2">
         <Select value={sortBy} onValueChange={(v) => onSortChange(v as SortBy)}>
-          <SelectTrigger size="sm" className="w-full bg-transparent border-0 shadow-none">
-            <span className="text-xs text-muted-foreground">排序：{sortLabel}</span>
+          <SelectTrigger
+            size="sm"
+            className="w-full bg-transparent border-0 shadow-none"
+          >
+            <span className="text-xs text-muted-foreground">
+              排序：{sortLabel}
+            </span>
           </SelectTrigger>
           <SelectPopup>
             {SORT_OPTIONS.map((option) => (
@@ -179,6 +189,12 @@ export function ProjectSidebar({
                 selected={project.id === selectedProjectId}
                 onSelect={() => onSelectProject(project.id)}
                 onDoubleClick={() => onOpenProject(project.id)}
+                onRename={
+                  onRenameProject ? () => onRenameProject(project) : undefined
+                }
+                onDelete={
+                  onDeleteProject ? () => onDeleteProject(project) : undefined
+                }
               />
             ))}
           </div>
