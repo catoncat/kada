@@ -56,6 +56,8 @@ export interface Project {
   params?: ShootingParams;
   /** 客户信息 */
   customer?: CustomerInfo;
+  /** 模特配置（JSON 字符串） */
+  selectedModels?: string;
   /** AI 生成的预案结果 */
   generatedPlan?: Record<string, unknown> | null;
   createdAt?: Date;
@@ -77,6 +79,7 @@ export interface UpdateProjectInput {
   selectedProps?: string[];
   params?: ShootingParams;
   customer?: CustomerInfo;
+  selectedModels?: string;
   generatedPlan?: unknown;
 }
 

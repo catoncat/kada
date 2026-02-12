@@ -8,9 +8,11 @@ import { providerRoutes } from './routes/providers';
 import { taskRoutes } from './routes/tasks';
 import { uploadRoutes } from './routes/upload';
 import { assetsRoutes } from './routes/assets';
+import { modelAssetsRoutes } from './routes/model-assets';
 import { projectRoutes } from './routes/projects';
 import { settingsRoutes } from './routes/settings';
 import { artifactsRoutes } from './routes/artifacts';
+import { promptsRoutes } from './routes/prompts';
 import { initDatabase } from './db';
 import { startWorker } from './worker';
 
@@ -92,10 +94,12 @@ app.route('/api/ai', aiRoutes);
 app.route('/api/providers', providerRoutes);
 app.route('/api/tasks', taskRoutes);
 app.route('/api/upload', uploadRoutes);
+app.route('/api/assets/models', modelAssetsRoutes);
 app.route('/api/assets', assetsRoutes);
 app.route('/api/projects', projectRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/artifacts', artifactsRoutes);
+app.route('/api/prompts', promptsRoutes);
 
 // 初始化数据库并启动服务器
 const PORT = parseInt(process.env.PORT || '3001', 10);

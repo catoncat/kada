@@ -1,6 +1,19 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { DEFAULT_PROMPT_RULES_V1, type PromptRuleKey, type PromptRulesV1 } from '../prompt-rules';
-import { projects, sceneAssets, settings } from '../db/schema';
+import { projects, sceneAssets, settings, modelAssets } from '../db/schema';
+
+const FALLBACK_STUDIO_PROMPT = `你是一位专业的儿童摄影师和创意导演，服务于消费级影楼。
+
+## 工作室定位
+- 业务类型：儿童摄影
+- 目标客户：0-12岁儿童及其家庭
+- 拍摄风格：自然、活泼、温馨，捕捉童真瞬间
+
+## 拍摄要点
+- 以儿童为主体，场景作为背景烘托氛围
+- 动作要自然，善于引导孩子的真实表情
+- 注意安全，避免危险动作
+- 利用游戏、玩具引导自然表情`;
 
 type Db = {
   select: (...args: any[]) => any;
@@ -126,15 +139,30 @@ function formatPlanScene(scene: any, sceneIndex: number | null): string | null {
   return compactLines(lines.join('\n'));
 }
 
+function formatModelInfo(
+  models: Array<{ personRole: string; name: string; appearancePrompt: string }>,
+): string | null {
+  if (!models || models.length === 0) return null;
+  const lines: string[] = ['## 人物外观描述（保持跨场景一致）'];
+  for (const m of models) {
+    lines.push(`### ${m.personRole}（模特：${m.name}）`);
+    if (m.appearancePrompt) {
+      lines.push(m.appearancePrompt);
+    }
+    lines.push('');
+  }
+  return compactLines(lines.join('\n'));
+}
+
 async function loadStudioPrompt(db: any): Promise<{ content: string; templateId?: string } | null> {
   const [templateSetting] = await db.select().from(settings).where(eq(settings.key, 'prompt_templates')).limit(1);
-  if (!templateSetting?.value) return null;
+  if (!templateSetting?.value) return { content: FALLBACK_STUDIO_PROMPT, templateId: 'builtin-default' };
   const data = safeJsonParse<{ templates?: Array<{ id: string; content: string; isDefault?: boolean }> }>(
     templateSetting.value,
   );
   const templates = data?.templates || [];
   const defaultTemplate = templates.find((t) => t && t.isDefault) || templates[0];
-  if (!defaultTemplate?.content) return null;
+  if (!defaultTemplate?.content) return { content: FALLBACK_STUDIO_PROMPT, templateId: 'builtin-default' };
   return { content: String(defaultTemplate.content), templateId: defaultTemplate.id };
 }
 
@@ -195,6 +223,46 @@ export async function buildImageEffectivePrompt(
     }
   }
 
+  // 加载模特映射数据
+  let modelInfoData: Array<{ personRole: string; name: string; appearancePrompt: string }> = [];
+  let modelReferenceImages: string[] = [];
+
+  if (project) {
+    const selectedModels = safeJsonParse<{ personModelMap?: Record<string, string> }>(project.selectedModels);
+    const customerData = safeJsonParse<{ people?: Array<{ id: string; role: string }> }>(project.customer);
+    const personModelMap = selectedModels?.personModelMap || {};
+    const people = customerData?.people || [];
+
+    const modelIds = [...new Set(Object.values(personModelMap))].filter(Boolean);
+
+    if (modelIds.length > 0) {
+      const models = await db.select().from(modelAssets).where(inArray(modelAssets.id, modelIds));
+      const modelMap = new Map(models.map((m: any) => [m.id, m]));
+
+      for (const person of people) {
+        const modelId = personModelMap[person.id];
+        if (!modelId) continue;
+        const model = modelMap.get(modelId);
+        if (!model) continue;
+
+        if (model.appearancePrompt) {
+          modelInfoData.push({
+            personRole: person.role || '人物',
+            name: model.name,
+            appearancePrompt: model.appearancePrompt,
+          });
+        }
+
+        // 收集参考图（优先级：主参考 > 辅助参考）
+        if (model.primaryImage) {
+          modelReferenceImages.push(model.primaryImage);
+        }
+        const refs = safeJsonParse<string[]>(model.referenceImages) ?? [];
+        modelReferenceImages.push(...refs.slice(0, 2));
+      }
+    }
+  }
+
   if (owner?.type === 'asset') {
     const [asset] = await db
       .select()
@@ -233,6 +301,9 @@ export async function buildImageEffectivePrompt(
       }
       case 'customerInfo':
         text = formatCustomerInfo(projectCustomer) || '';
+        break;
+      case 'modelInfo':
+        text = formatModelInfo(modelInfoData) || '';
         break;
       case 'selectedSceneAsset':
         text = formatSceneAsset(selectedSceneAsset) || '';
@@ -292,6 +363,7 @@ export async function buildImageEffectivePrompt(
             ? project?.selectedScene || null
             : null,
     },
+    modelReferenceImages,
     renderedBlocks,
   };
 
@@ -303,4 +375,3 @@ export async function buildImageEffectivePrompt(
     renderedBlocks,
   };
 }
-

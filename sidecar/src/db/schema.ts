@@ -27,6 +27,7 @@ export const projects = sqliteTable('projects', {
   selectedProps: text('selected_props'), // JSON 数组
   params: text('params'), // JSON（拍摄参数）
   customer: text('customer'), // JSON（客户信息：type, ageRange, count, relation, notes）
+  selectedModels: text('selected_models'), // JSON（模特配置：{ personModelMap, autoMatch }）
   generatedPlan: text('generated_plan'), // JSON（AI 生成的预案结果）
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
@@ -44,6 +45,23 @@ export const sceneAssets = sqliteTable('scene_assets', {
   tags: text('tags'), // JSON 数组
   isOutdoor: integer('is_outdoor', { mode: 'boolean' }).default(false),
   style: text('style'), // JSON（风格属性：colorTone, lightingMood, era）
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+// Model Assets 表（模特资产）
+export const modelAssets = sqliteTable('model_assets', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  gender: text('gender'), // 'male' | 'female' | 'other'
+  ageRangeMin: integer('age_range_min'),
+  ageRangeMax: integer('age_range_max'),
+  description: text('description'),
+  appearancePrompt: text('appearance_prompt'),
+  primaryImage: text('primary_image'), // 主参考照片路径
+  referenceImages: text('reference_images'), // JSON 数组（辅助参考照片）
+  tags: text('tags'), // JSON 数组
+  projectId: text('project_id'), // null=全局, 非null=项目专属
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
@@ -108,6 +126,14 @@ export const generationArtifacts = sqliteTable('generation_artifacts', {
   deletedAt: integer('deleted_at', { mode: 'timestamp' }), // 软删除
 });
 
+// Task Replay Idempotency（任务重放幂等请求记录）
+export const taskReplayRequests = sqliteTable('task_replay_requests', {
+  id: text('id').primaryKey(), // `${sourceTaskId}:${requestId}`
+  sourceTaskId: text('source_task_id').notNull(),
+  newTaskId: text('new_task_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
 // 类型导出
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = typeof providers.$inferInsert;
@@ -117,6 +143,9 @@ export type InsertProject = typeof projects.$inferInsert;
 
 export type SceneAsset = typeof sceneAssets.$inferSelect;
 export type InsertSceneAsset = typeof sceneAssets.$inferInsert;
+
+export type ModelAsset = typeof modelAssets.$inferSelect;
+export type InsertModelAsset = typeof modelAssets.$inferInsert;
 
 export type Setting = typeof settings.$inferSelect;
 export type InsertSetting = typeof settings.$inferInsert;
@@ -129,3 +158,6 @@ export type InsertGenerationRun = typeof generationRuns.$inferInsert;
 
 export type GenerationArtifact = typeof generationArtifacts.$inferSelect;
 export type InsertGenerationArtifact = typeof generationArtifacts.$inferInsert;
+
+export type TaskReplayRequest = typeof taskReplayRequests.$inferSelect;
+export type InsertTaskReplayRequest = typeof taskReplayRequests.$inferInsert;

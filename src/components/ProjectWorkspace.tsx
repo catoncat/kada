@@ -19,7 +19,9 @@ import { fetchTasks, type Task } from '@/lib/tasks-api';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { GenerateButton } from '@/components/GenerateButton';
 import { CustomerInfoForm } from '@/components/CustomerInfoForm';
+import { ModelConfigSection } from '@/components/ModelConfigSection';
 import type { CustomerInfo } from '@/types/project';
+import type { ProjectModelConfig } from '@/types/model-asset';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,7 +61,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
 
   // 更新项目的 mutation
   const updateProjectMutation = useMutation({
-    mutationFn: (data: { customer?: CustomerInfo; projectPrompt?: string | null }) =>
+    mutationFn: (data: { customer?: CustomerInfo; projectPrompt?: string | null; selectedModels?: string }) =>
       updateProject(projectId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
@@ -309,6 +311,18 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
           <CustomerInfoForm
             value={project.customer}
             onChange={handleCustomerChange}
+          />
+
+          {/* 模特配置区块 */}
+          <ModelConfigSection
+            projectId={projectId}
+            customer={project.customer}
+            selectedModels={project.selectedModels}
+            onUpdate={(config: ProjectModelConfig) => {
+              updateProjectMutation.mutate({
+                selectedModels: JSON.stringify(config),
+              });
+            }}
           />
 
           {/* 服装配置区块 */}

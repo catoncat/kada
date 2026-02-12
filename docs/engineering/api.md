@@ -31,9 +31,33 @@ Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以
 - `POST /api/tasks/:id/retry`（规划中，见 ADR 0005）
   - 语义：创建一个“重试任务”（新 task id），复制原任务的 `type + input + relatedId/relatedMeta`，并保留原失败任务记录不变
   - 响应：`{ task: { id, type, status: "pending" }, retryOfTaskId: string }`
+- `GET /api/tasks/:id/detail`（已实现，task-replay-center）
+  - 语义：返回任务复盘详情聚合视图（`task + run + artifacts + timeline + recoveryContext`）
+  - 响应：`{ detail: TaskDetailView }`
+  - 404 语义：任务不存在时返回 `{ error }`；前端使用深链备用参数（`sourceType/relatedId/owner*`）展示可恢复页
+- `POST /api/tasks/:id/replay`（已实现，task-replay-center）
+  - 请求：`{ requestId: string }`
+  - 语义：复制原任务参数创建新任务；原任务不变；支持幂等去重
+  - 响应：`{ task: { id, type, status }, replayOfTaskId: string, deduped: boolean }`
 - `POST /api/tasks/batch-status`（用于批量轮询）
   - 请求：`{ ids: string[] }`
   - 响应：`{ tasks }`
+
+### Replay 定稿策略（task-replay-center）
+
+- 按任务类型分流：
+  - `plan-generation`：有可用文本能力（在线或本地降级）时允许 replay
+  - `image-generation`：无可用图片能力（无 Provider / 无 Key / 模型不支持 image）时阻断 replay，并返回可恢复错误
+- 幂等要求：
+  - `requestId` 为必填幂等键
+  - 推荐幂等窗口：`30-60s`
+  - 命中去重时返回同一 `taskId` 且 `deduped=true`
+- 错误码建议：
+  - `400`：原任务不可重放（输入缺失/类型不支持）
+  - `401/403`：鉴权失败
+  - `404`：原任务不存在
+  - `409`：请求冲突（可选，若实现锁语义）
+  - `500`：内部异常
 
 ### 任务类型约定（规划中，Phase A）
 
@@ -45,16 +69,32 @@ Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以
 - `image-generation`
   - input（规划）：`{ prompt: string, providerId?: string, referenceImages?: string[], options?: object, owner?: object, parentArtifactId?: string }`
   - output（规划）：`{ artifactId: string, filePath: string, mimeType: string, effectivePrompt: string }`
+  - 说明：`referenceImages` 支持 `data:`、`http(s):`、以及本地 `/uploads/*` 路径（用于文+图生图；模型不支持时会被忽略）。
 
 ## Assets（已实现）
 
-目前先实现“场景资产（scenes）”闭环。
+目前先实现"场景资产（scenes）"闭环。
 
 - `GET /api/assets/scenes` → `{ data: SceneAsset[], total }`
 - `GET /api/assets/scenes/:id` → `SceneAsset`
 - `POST /api/assets/scenes` → `SceneAsset`
 - `PUT /api/assets/scenes/:id` → `SceneAsset`
 - `DELETE /api/assets/scenes/:id` → `{ success: true }`
+
+### 模特资产（已实现）
+
+模特资产支持全局（`projectId` 为空）和项目专属（`projectId` 非空）两种。查询时可传 `?projectId=xxx` 返回"全局 + 项目专属"合集。
+
+- `GET /api/assets/models?projectId=xxx` → `{ data: ModelAsset[], total }`
+- `GET /api/assets/models/:id` → `ModelAsset`
+- `POST /api/assets/models` → `ModelAsset`
+  - 请求：`{ name, gender?, ageRangeMin?, ageRangeMax?, description?, appearancePrompt?, primaryImage?, referenceImages?, tags?, projectId? }`
+- `PUT /api/assets/models/:id` → `ModelAsset`
+- `DELETE /api/assets/models/:id` → `{ success: true }`
+- `POST /api/assets/models/auto-match`
+  - 请求：`{ projectId: string, people: Array<{ id, role, gender?, age? }> }`
+  - 响应：`{ matches: Record<personId, Array<{ modelId, name, score }>> }`
+  - 说明：按性别（+50）、年龄范围（+40）、同项目（+10）打分，每人返回 Top-3
 
 ## Projects（已实现）
 
@@ -131,6 +171,14 @@ Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以
 
 - `auto_preview_images_policy`: `"off" | "cover_plus_n" | "all"`（见 ADR 0003）
 - `auto_preview_images_n`: number（可选；未设置时默认 `3`；见 ADR 0003）
+
+## Prompts（/api/prompts）（已实现）
+
+用于在 UI 侧预览“服务端拼接后的 `effectivePrompt`”（不会创建任务/不会生成图片）。
+
+- `POST /api/prompts/preview-image`
+  - 请求：`{ prompt: string, owner?: { type: 'asset' | 'projectPlanVersion' | 'planScene', id: string, slot?: string }, editInstruction?: string }`
+  - 响应：`{ effectivePrompt: string, rule: { key: string, id: string }, renderedBlocks: Array<{ id: string, kind: string, label: string, text: string }>, promptContext?: object }`
 
 ## Generations / Artifacts / Versions（规划中，Phase A）
 

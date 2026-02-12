@@ -89,6 +89,22 @@ function ensureTables() {
       updated_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS model_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      gender TEXT,
+      age_range_min INTEGER,
+      age_range_max INTEGER,
+      description TEXT,
+      appearance_prompt TEXT,
+      primary_image TEXT,
+      reference_images TEXT,
+      tags TEXT,
+      project_id TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -144,6 +160,13 @@ function ensureTables() {
       created_at INTEGER DEFAULT (unixepoch()),
       deleted_at INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS task_replay_requests (
+      id TEXT PRIMARY KEY,
+      source_task_id TEXT NOT NULL,
+      new_task_id TEXT NOT NULL,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
   `);
 }
 
@@ -168,6 +191,10 @@ function ensureColumns() {
   addColumnIfMissing('projects', 'selected_outfits', 'TEXT');
   addColumnIfMissing('projects', 'params', 'TEXT');
   addColumnIfMissing('projects', 'generated_plan', 'TEXT');
+  addColumnIfMissing('projects', 'selected_models', 'TEXT');
+
+  // generation_runs: 历史数据库可能缺少任务关联列
+  addColumnIfMissing('generation_runs', 'task_id', 'TEXT');
 }
 
 export function closeDatabase() {

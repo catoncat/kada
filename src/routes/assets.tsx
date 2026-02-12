@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, Link, useLocation } from '@tanstack/react-router';
-import { ImageIcon, Package, Shirt } from 'lucide-react';
+import { ImageIcon, Users, Package, Shirt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/assets')({
@@ -11,6 +11,7 @@ function AssetsLayout() {
 
   const tabs = [
     { to: '/assets/scenes', label: '场景', icon: ImageIcon },
+    { to: '/assets/models', label: '模特', icon: Users },
     { to: '/assets/props', label: '道具', icon: Package, disabled: true },
     { to: '/assets/outfits', label: '服装', icon: Shirt, disabled: true },
   ];

@@ -4,7 +4,7 @@
 
 ## 1) 单预案（Single Plan）
 
-来源：LLM 返回的 JSON（中文字段 + `visualPrompt` 英文），再由前端补充 `id/createdAt` 用于历史记录。
+来源：LLM 返回的 JSON（统一中文字段），再由前端补充 `id/createdAt` 用于历史记录。
 
 最小结构：
 
@@ -21,7 +21,7 @@
       "location": "场景名称",
       "description": "场景描述（中文）",
       "shots": "镜头建议（中文）",
-      "visualPrompt": "English prompt ..."
+      "visualPrompt": "中文视觉描述提示词"
     }
   ]
 }
@@ -67,12 +67,28 @@ Project 是各类 AI 能力的“上下文容器”。为了保证风格一致�
 - `projectPrompt`：项目级提示词（可为空；会参与所有出图/生成的上下文拼接）
 - `customer`：客户信息（人物列表 + 备注）
 - `selectedScene`：已选场景资产 ID（作为背景环境约束）
+- `selectedModels`：模特配置（JSON 字符串，结构见下方 `ProjectModelConfig`）
 - `generatedPlan`：AI 生成的分镜结构（包含每个场景的 `visualPrompt` 等）
 
 说明：
 
 - `projectPrompt` 与 `prompt_templates`（全局工作室提示词）是不同层级：前者按项目覆盖，后者是全局默认风格/约束。
 - 图片生成时，前端传入的 `prompt` 只是 draft；服务端会拼接上下文得到 `effectivePrompt` 并回显。
+
+### ProjectModelConfig（模特配置结构）
+
+```json
+{
+  "personModelMap": {
+    "<personId>": "<modelAssetId>"
+  },
+  "autoMatch": false
+}
+```
+
+- `personModelMap`：客户 `people` 条目与模特资产的映射（person.id → modelAsset.id）
+- `autoMatch`：是否通过自动匹配设置（用于 UI 标记）
+- 当映射的模特资产被删除时，前端显示"已失效"警告，允许用户重新选择
 
 ## 3) Provider 配置（前端当前实现）
 
@@ -153,7 +169,7 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
   "owner": { "type": "asset | projectPlanVersion | planScene", "id": "...", "slot": "cover | scene:0" },
   "effectivePrompt": "string",
   "promptContext": {},
-  "referenceImages": [{ "artifactId": "ga_...", "filePath": "uploads/..." }],
+  "referenceImages": ["/uploads/xxx.jpg"],
   "editInstruction": "string (optional)",
   "parentArtifactId": "ga_... (optional)",
   "createdAt": 1700000000000,
@@ -165,6 +181,7 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
 
 - `filePath` 建议为相对路径（由 Sidecar 静态路由映射到 `/uploads/*`），避免把绝对系统路径泄露到前端与导出。
 - `owner.type/id/slot` 用于把 artifact 归属到“某个资产/某个方案版本/某个场景卡片”的某个图片位（slot）。
+- `referenceImages` 为参考图输入（用于文+图生图/编辑）：支持 `data:`、`http(s):`、以及本地 `/uploads/*` 路径（Sidecar 会读取本地文件并以 inlineData 方式喂给支持多模态的模型）。
 - `parentArtifactId` 用于表达“基于上一张图重新编辑/重新生成”的版本链路。
 
 ### 6.3 effective prompt 一致性原则（硬性）
@@ -183,3 +200,96 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
 - 例如：`asset.coverArtifactId`、`planScene.previewArtifactId`
 - 删除当前版本必须有明确规则：
   - 本产品默认：允许删除任何版本；删除当前版本后自动回退到“最近版本”（按 `createdAt` 取最新）；若无版本则进入空状态（见 ADR 0004）
+
+## 7) 任务复盘契约（Task Replay）
+
+> 目标：让任务中心能够稳定展示“输入快照 + 执行快照 + 产物快照 + 恢复动作”。
+
+### 7.1 TaskDetailView（任务详情聚合视图）
+
+最小结构（建议）：
+
+```json
+{
+  "task": {
+    "id": "uuid",
+    "type": "plan-generation | image-generation",
+    "status": "pending | running | completed | failed",
+    "input": {},
+    "output": {},
+    "error": "string|null",
+    "relatedId": "string|null",
+    "relatedMeta": "string|null",
+    "createdAt": "ISO-8601",
+    "updatedAt": "ISO-8601"
+  },
+  "run": {
+    "id": "gr_...",
+    "kind": "plan-generation | image-generation | image-edit",
+    "status": "queued | running | succeeded | failed | canceled",
+    "effectivePrompt": "string|null",
+    "promptContext": {},
+    "error": { "message": "..." },
+    "taskId": "uuid"
+  },
+  "artifacts": [
+    {
+      "id": "ga_...",
+      "runId": "gr_...",
+      "filePath": "uploads/xxx.jpg",
+      "mimeType": "image/jpeg",
+      "ownerType": "asset | projectPlanVersion | planScene",
+      "ownerId": "string",
+      "ownerSlot": "scene:0",
+      "effectivePrompt": "string|null",
+      "promptContext": {},
+      "referenceImages": ["/uploads/ref.jpg"],
+      "editInstruction": "string|null",
+      "parentArtifactId": "ga_...|null",
+      "createdAt": "ISO-8601"
+    }
+  ],
+  "timeline": [
+    { "status": "pending", "at": "ISO-8601" },
+    { "status": "running", "at": "ISO-8601" },
+    { "status": "completed", "at": "ISO-8601" }
+  ],
+  "recoveryContext": {
+    "sourceType": "projectResult | project | assets",
+    "projectId": "string|null",
+    "sceneIndex": 0
+  },
+  "missingFields": ["run", "artifacts"]
+}
+```
+
+字段约束：
+
+- `task` 必须存在。
+- `run`/`artifacts` 在历史数据中允许为空，但应通过 `missingFields` 显式标记缺失原因。
+- `timeline` 至少包含当前状态；能补全历史时优先补全。
+
+### 7.2 重放（Replay）语义
+
+`Replay` 的本质是“复制原任务参数创建新任务”，原任务不可被覆盖。
+
+- 请求至少包含：`requestId`（幂等键）。
+- 响应建议包含：`task`、`replayOfTaskId`、`deduped`（是否命中去重）。
+- 幂等窗口建议：`30-60s`（本地桌面场景）。
+
+### 7.3 Provider 策略（已定稿）
+
+按任务类型分流：
+
+- `plan-generation`：有可用文本能力（在线或本地降级）时允许重放。
+- `image-generation`：无可用图片能力（无 Provider / 无 Key / 模型不支持 image）时禁止重放，并返回可恢复错误信息。
+
+### 7.4 深链恢复契约
+
+当任务不存在（删除/历史清理）时，前端仍应可恢复：
+
+- 推荐深链携带：`taskId` + `sourceType` + `relatedId` + `ownerType/ownerId/ownerSlot`（可选）。
+- 服务端详情接口返回 404 时，前端应使用上述上下文展示“可恢复页”，至少提供：
+  - 返回任务列表
+  - 查看同来源最近任务
+  - 跳转来源页面

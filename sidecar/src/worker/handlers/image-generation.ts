@@ -5,7 +5,7 @@
  * - 创建 GenerationRun 和 GenerationArtifact 记录
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../../db';
@@ -77,9 +77,11 @@ function getExtension(mimeType: string): string {
 }
 
 export async function imageGenerationHandler(
-  input: ImageGenerationInput
+  input: ImageGenerationInput,
+  context?: { taskId?: string },
 ): Promise<ImageGenerationOutput> {
-  const { prompt, providerId, owner, parentArtifactId, editInstruction, taskId } = input;
+  const { prompt, providerId, owner, parentArtifactId, editInstruction } = input;
+  const taskId = input.taskId || context?.taskId;
 
   if (DEBUG_IMAGEGEN) {
     console.log(
@@ -105,9 +107,19 @@ export async function imageGenerationHandler(
   const promptContext = {
     ...composed.promptContext,
     options: input.options ?? null,
-    referenceImagesCount: Array.isArray(input.referenceImages) ? input.referenceImages.length : 0,
     parentArtifactId: parentArtifactId || null,
   };
+
+  // 合并模特参考图到 referenceImages
+  const modelRefImages: string[] = Array.isArray((composed.promptContext as any).modelReferenceImages)
+    ? (composed.promptContext as any).modelReferenceImages
+    : [];
+  const allReferenceImages = [
+    ...modelRefImages,                // 模特参考图（最高优先级）
+    ...(input.referenceImages ?? []), // 原有参考图
+  ].slice(0, 8); // 总数上限 8 张
+
+  (promptContext as any).referenceImagesCount = allReferenceImages.length;
 
   // 1. 获取 provider
   let provider;
@@ -158,7 +170,12 @@ export async function imageGenerationHandler(
   try {
     // 3. 调用图片生成 API
     if (DEBUG_IMAGEGEN) console.log('[ImageGen] Calling generateImage API...');
-    const result = await generateImage(provider, effectivePrompt);
+    const result = await generateImage(
+      provider,
+      effectivePrompt,
+      allReferenceImages,
+      input.options,
+    );
     if (DEBUG_IMAGEGEN) {
       console.log(
         '[ImageGen] API returned, mimeType:',
@@ -194,8 +211,8 @@ export async function imageGenerationHandler(
       ownerSlot: owner?.slot || null,
       effectivePrompt,
       promptContext: JSON.stringify(promptContext),
-      referenceImages: input.referenceImages
-        ? JSON.stringify(input.referenceImages)
+      referenceImages: allReferenceImages.length > 0
+        ? JSON.stringify(allReferenceImages)
         : null,
       editInstruction: editInstruction || null,
       parentArtifactId: parentArtifactId || null,
@@ -255,9 +272,103 @@ interface GenerateImageResult {
   height?: number;
 }
 
+interface ImageGenerationOptions {
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+}
+
+function getDataDir(): string {
+  return process.env.DATA_DIR || path.join(process.cwd(), 'data');
+}
+
+function guessMimeTypeFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  return 'image/jpeg';
+}
+
+function normalizeLocalUploadPath(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (raw.startsWith('/uploads/')) return raw.slice(1);
+  if (raw.startsWith('uploads/')) return raw;
+  return null;
+}
+
+async function buildGeminiReferenceParts(referenceImages?: string[]): Promise<any[]> {
+  const parts: any[] = [];
+  if (!referenceImages || referenceImages.length === 0) return parts;
+
+  for (const img of referenceImages) {
+    if (typeof img !== 'string' || !img.trim()) continue;
+    const raw = img.trim();
+
+    if (raw.startsWith('data:')) {
+      const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({
+          inlineData: {
+            mimeType: match[1],
+            data: match[2],
+          },
+        });
+      }
+      continue;
+    }
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      try {
+        const response = await fetch(raw);
+        if (!response.ok) continue;
+        const buffer = await response.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        const contentType = response.headers.get('content-type') || 'image/jpeg';
+        parts.push({ inlineData: { mimeType: contentType, data: base64 } });
+      } catch (e) {
+        console.warn('Failed to fetch reference image:', raw, e);
+      }
+      continue;
+    }
+
+    const localUploadPath = normalizeLocalUploadPath(raw);
+    if (localUploadPath) {
+      try {
+        const fullPath = path.join(getDataDir(), localUploadPath);
+        if (!existsSync(fullPath)) continue;
+        const buffer = readFileSync(fullPath);
+        parts.push({
+          inlineData: {
+            mimeType: guessMimeTypeFromPath(localUploadPath),
+            data: buffer.toString('base64'),
+          },
+        });
+      } catch (e) {
+        console.warn('Failed to read reference image:', raw, e);
+      }
+      continue;
+    }
+
+    // 兜底：假设是纯 base64（jpeg）
+    parts.push({
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: raw,
+      },
+    });
+  }
+
+  return parts;
+}
+
 async function generateImage(
   provider: Provider,
-  prompt: string
+  prompt: string,
+  referenceImages?: string[],
+  options?: Record<string, unknown>
 ): Promise<GenerateImageResult> {
   if (DEBUG_IMAGEGEN) {
     console.log(
@@ -275,12 +386,18 @@ async function generateImage(
         model: provider.imageModel,
       });
     }
+    const parsedOptions = (options && typeof options === 'object' ? options : null) as ImageGenerationOptions | null;
+    const requestParts = await buildGeminiReferenceParts(referenceImages);
+
     const res = await fetch(`${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+        contents: [{ parts: [...requestParts, { text: prompt }] }],
+        generationConfig: {
+          responseModalities: ['IMAGE', 'TEXT'],
+          ...(parsedOptions?.aspectRatio ? { aspectRatio: parsedOptions.aspectRatio } : null),
+        },
       }),
     });
 
@@ -297,13 +414,13 @@ async function generateImage(
 
     const data = await res.json();
     if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response keys:', Object.keys(data));
-    const parts =
+    const responseParts =
       (data as { candidates?: { content?: { parts?: Array<{ inlineData?: { data: string; mimeType?: string } }> } }[] })
         .candidates?.[0]?.content?.parts || [];
 
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Parts count:', parts.length);
+    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Parts count:', responseParts.length);
 
-    for (const part of parts) {
+    for (const part of responseParts) {
       if (part.inlineData) {
         if (DEBUG_IMAGEGEN) console.log('[ImageGen] Found inlineData, mimeType:', part.inlineData.mimeType);
         return {

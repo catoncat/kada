@@ -15,6 +15,7 @@ export type PromptBlockKind =
   | 'studioPrompt'
   | 'projectPrompt'
   | 'customerInfo'
+  | 'modelInfo'
   | 'selectedSceneAsset'
   | 'planScene'
   | 'asset'
@@ -52,6 +53,7 @@ export const DEFAULT_PROMPT_RULES_V1: PromptRulesV1 = {
         { id: 'studio', kind: 'studioPrompt', label: '全局工作室提示词', enabled: true },
         { id: 'project', kind: 'projectPrompt', label: '项目提示词', enabled: true },
         { id: 'customer', kind: 'customerInfo', label: '客户信息', enabled: true },
+        { id: 'model-info', kind: 'modelInfo', label: '模特外观信息', enabled: true },
         { id: 'scene-asset', kind: 'selectedSceneAsset', label: '已选场景资产', enabled: true },
         { id: 'plan-scene', kind: 'planScene', label: '具体分镜场景', enabled: true },
         { id: 'draft', kind: 'draftPrompt', label: '用户/分镜提示词（draft）', enabled: true },

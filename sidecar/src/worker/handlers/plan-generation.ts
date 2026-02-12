@@ -4,7 +4,14 @@
  */
 
 import { getDb } from '../../db';
-import { providers, projects, sceneAssets, settings } from '../../db/schema';
+import { randomUUID } from 'node:crypto';
+import {
+  providers,
+  projects,
+  sceneAssets,
+  settings,
+  generationRuns,
+} from '../../db/schema';
 import { eq } from 'drizzle-orm';
 
 // ========== 类型定义 ==========
@@ -13,6 +20,7 @@ interface PlanGenerationInput {
   projectId: string;
   providerId?: string;
   customPrompt?: string;
+  taskId?: string;
 }
 
 interface GeneratedScene {
@@ -83,7 +91,8 @@ const GENDER_LABELS: Record<string, string> = {
 // ========== 主处理函数 ==========
 
 export async function planGenerationHandler(
-  input: PlanGenerationInput
+  input: PlanGenerationInput,
+  context?: { taskId?: string },
 ): Promise<PlanGenerationOutput> {
   const { projectId, providerId, customPrompt } = input;
 
@@ -180,37 +189,89 @@ export async function planGenerationHandler(
     systemPrompt: defaultTemplate?.content,
   });
 
-  // 调用 AI 生成文本
-  const planText = await callAiGenerate(provider, prompt);
-
-  // 解析 AI 返回的 JSON
-  let generatedPlan: GeneratedPlan;
-  try {
-    // 尝试提取 JSON（可能被包在 markdown 代码块中）
-    const jsonMatch = planText.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, planText];
-    generatedPlan = JSON.parse(jsonMatch[1]?.trim() || planText);
-  } catch {
-    throw new Error('AI 返回的预案格式无效');
-  }
-
-  // 为每个场景添加场景资产信息（用于图+文生图）
-  if (generatedPlan.scenes && Array.isArray(generatedPlan.scenes)) {
-    generatedPlan.scenes = generatedPlan.scenes.map((s: GeneratedScene) => ({
-      ...s,
-      sceneAssetId: scene.id,
-      sceneAssetImage: scene.primaryImage ?? undefined,
-    }));
-  }
-
-  // 更新项目
   const now = new Date();
-  await db.update(projects).set({
-    generatedPlan: JSON.stringify(generatedPlan),
-    status: 'generated',
-    updatedAt: now,
-  }).where(eq(projects.id, projectId));
+  const runId = `gr_${randomUUID()}`;
+  const taskId = context?.taskId || input.taskId || null;
+  const runPromptContext = {
+    projectId,
+    providerId: provider.id,
+    providerFormat: provider.format,
+    textModel: provider.textModel,
+    selectedSceneId: scene.id,
+    sceneName: scene.name,
+    usedCustomPrompt: Boolean(customPrompt),
+    hasProjectPrompt: Boolean(project.projectPrompt),
+    customerPeopleCount: customer?.people?.length ?? 0,
+  };
 
-  return { plan: generatedPlan };
+  await db.insert(generationRuns).values({
+    id: runId,
+    kind: 'plan-generation',
+    trigger: 'worker',
+    status: 'running',
+    relatedType: 'project',
+    relatedId: projectId,
+    effectivePrompt: prompt,
+    promptContext: JSON.stringify(runPromptContext),
+    parentRunId: null,
+    taskId,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  try {
+    // 调用 AI 生成文本
+    const planText = await callAiGenerate(provider, prompt);
+
+    // 解析 AI 返回的 JSON
+    let generatedPlan: GeneratedPlan;
+    try {
+      // 尝试提取 JSON（可能被包在 markdown 代码块中）
+      const jsonMatch = planText.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, planText];
+      generatedPlan = JSON.parse(jsonMatch[1]?.trim() || planText);
+    } catch {
+      throw new Error('AI 返回的预案格式无效');
+    }
+
+    // 为每个场景添加场景资产信息（用于图+文生图）
+    if (generatedPlan.scenes && Array.isArray(generatedPlan.scenes)) {
+      generatedPlan.scenes = generatedPlan.scenes.map((s: GeneratedScene) => ({
+        ...s,
+        sceneAssetId: scene.id,
+        sceneAssetImage: scene.primaryImage ?? undefined,
+      }));
+    }
+
+    // 更新项目
+    await db.update(projects).set({
+      generatedPlan: JSON.stringify(generatedPlan),
+      status: 'generated',
+      updatedAt: new Date(),
+    }).where(eq(projects.id, projectId));
+
+    await db
+      .update(generationRuns)
+      .set({
+        status: 'succeeded',
+        updatedAt: new Date(),
+      })
+      .where(eq(generationRuns.id, runId));
+
+    return { plan: generatedPlan };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+
+    await db
+      .update(generationRuns)
+      .set({
+        status: 'failed',
+        error: JSON.stringify({ message }),
+        updatedAt: new Date(),
+      })
+      .where(eq(generationRuns.id, runId));
+
+    throw error;
+  }
 }
 
 // ========== Prompt 构建 ==========
@@ -305,7 +366,7 @@ ${customerSection}
       "description": "拍摄内容描述（动作、表情、互动）",
       "shots": "拍摄手法建议（镜头焦段、角度、景别）",
       "lighting": "灯光布置建议",
-      "visualPrompt": "A highly detailed English stable diffusion prompt for this scene. The subject should be the main focus with '${scene.name}' as background. Style: photorealistic, professional photography."
+      "visualPrompt": "用中文描述这个分镜场景的画面，包括人物的动作、表情、姿态以及与场景环境的空间关系。描述应具体、可视化，风格为专业摄影、真实质感。示例：一个3岁的小男孩站在花园小径上，好奇地弯腰观察一朵黄色野花，阳光从侧面洒落，背景是模糊的绿色植被。"
     }
   ]
 }
@@ -313,9 +374,8 @@ ${customerSection}
 ## 注意事项
 1. 生成 3-4 个不同的分镜场景
 2. 每个场景的主角是拍摄主体，场景只是背景
-3. 每个 visualPrompt 必须使用英文
-4. 其他内容使用中文
-5. 请直接返回 JSON 内容，不要包含 markdown 代码块标记`;
+3. 所有内容统一使用中文（包括 visualPrompt）
+4. 请直接返回 JSON 内容，不要包含 markdown 代码块标记`;
 }
 
 // ========== AI 调用 ==========
