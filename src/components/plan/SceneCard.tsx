@@ -22,6 +22,8 @@ export interface SceneCardProps {
   onGeneratePreview?: (sceneIndex: number, visualPrompt: string) => void;
   /** 图片变化回调（用于刷新数据） */
   onImageChange?: () => void;
+  /** 查看该场景最近任务 */
+  onViewRecentTasks?: (sceneIndex: number) => void;
 }
 
 export function SceneCard({
@@ -32,6 +34,7 @@ export function SceneCard({
   isGenerating = false,
   onGeneratePreview,
   onImageChange,
+  onViewRecentTasks,
 }: SceneCardProps) {
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
 
@@ -63,6 +66,10 @@ export function SceneCard({
     onImageChange?.();
   }, [onImageChange]);
 
+  const handleViewRecentTasks = useCallback(() => {
+    onViewRecentTasks?.(sceneIndex);
+  }, [onViewRecentTasks, sceneIndex]);
+
   return (
     <>
       <Card className="overflow-hidden">
@@ -76,6 +83,7 @@ export function SceneCard({
             isGenerating={isGenerating}
             onGenerate={handleGenerate}
             onOpenEdit={handleOpenEdit}
+            onViewRecentTasks={handleViewRecentTasks}
           />
 
           {/* 右侧：内容区域 */}

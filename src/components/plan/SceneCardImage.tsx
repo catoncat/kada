@@ -22,6 +22,8 @@ export interface SceneCardImageProps {
   onGenerate?: () => void;
   /** 打开编辑抽屉回调 */
   onOpenEdit?: () => void;
+  /** 查看最近任务回调 */
+  onViewRecentTasks?: () => void;
 }
 
 export function SceneCardImage({
@@ -32,6 +34,7 @@ export function SceneCardImage({
   isGenerating = false,
   onGenerate,
   onOpenEdit,
+  onViewRecentTasks,
 }: SceneCardImageProps) {
   // 确定显示的图片
   const displayImage = currentImage || sceneAssetImage;
@@ -91,6 +94,13 @@ export function SceneCardImage({
             >
               <Edit className="w-4 h-4" />
               编辑
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onViewRecentTasks?.()}
+            >
+              查看最近任务
             </Button>
           </div>
         )}

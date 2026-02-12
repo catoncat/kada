@@ -15,7 +15,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useTasksPolling } from '@/hooks/useTasks';
 import { generatePlan, getProject } from '@/lib/projects-api';
-import { createImageTask } from '@/lib/tasks-api';
+import { createImageTask, fetchTasks } from '@/lib/tasks-api';
+import { parseSceneIndexFromTask } from '@/lib/task-recovery';
+import { useTaskQueue } from '@/contexts/TaskQueueContext';
 
 interface ResultSearchParams {
   scene?: number;
@@ -39,12 +41,14 @@ function ProjectResultPage() {
   const navigate = useNavigate();
   const { scene: sceneFromUrl, openEdit } = Route.useSearch();
   const queryClient = useQueryClient();
+  const { openDrawer } = useTaskQueue();
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(
     new Set(),
   );
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [sceneTaskHint, setSceneTaskHint] = useState<string | null>(null);
 
   // 获取项目数据
   const {
@@ -54,6 +58,12 @@ function ProjectResultPage() {
   } = useQuery({
     queryKey: ['project', id],
     queryFn: () => getProject(id),
+  });
+
+  // 获取项目相关任务（用于“查看最近任务”入口）
+  const { data: projectTasks = [] } = useQuery({
+    queryKey: ['project-tasks', id],
+    queryFn: () => fetchTasks({ relatedId: id, limit: 200 }),
   });
 
   // 重新生成 mutation
@@ -71,8 +81,53 @@ function ProjectResultPage() {
       setBatchTaskIds([]);
       setGeneratingScenes(new Set());
       queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['project-tasks', id] });
     },
   });
+
+  const latestSceneTaskMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const sorted = [...projectTasks].sort((a, b) => {
+      const t1 = new Date(a.createdAt || 0).getTime();
+      const t2 = new Date(b.createdAt || 0).getTime();
+      return t2 - t1;
+    });
+
+    for (const task of sorted) {
+      if (task.type !== 'image-generation' && task.type !== 'plan-generation') continue;
+      const sceneIndex = parseSceneIndexFromTask(task);
+      if (sceneIndex === null) continue;
+      if (!map.has(sceneIndex)) {
+        map.set(sceneIndex, task.id);
+      }
+    }
+
+    return map;
+  }, [projectTasks]);
+
+  const handleViewRecentTasks = useCallback(
+    (sceneIndex: number) => {
+      const recentTaskId = latestSceneTaskMap.get(sceneIndex);
+      if (recentTaskId) {
+        setSceneTaskHint(null);
+        navigate({
+          to: '/tasks/$id',
+          params: { id: recentTaskId },
+          search: {
+            sourceType: 'projectResult',
+            projectId: id,
+            relatedId: id,
+            sceneIndex,
+          },
+        });
+        return;
+      }
+
+      setSceneTaskHint(`场景 ${sceneIndex + 1} 暂无历史任务，已打开任务中心。`);
+      openDrawer();
+    },
+    [id, latestSceneTaskMap, navigate, openDrawer],
+  );
 
   const handleRegenerate = async () => {
     setIsRegenerating(true);
@@ -183,6 +238,26 @@ function ProjectResultPage() {
     return { done, total };
   }, [project?.generatedPlan]);
 
+  const plan = project?.generatedPlan as GeneratedPlan | null;
+
+  // 处理从任务列表跳转：滚动到指定场景并自动打开编辑抽屉
+  useEffect(() => {
+    if (!plan?.scenes?.length) return;
+    if (typeof sceneFromUrl !== 'number' || Number.isNaN(sceneFromUrl)) return;
+    if (sceneFromUrl < 0 || sceneFromUrl >= plan.scenes.length) return;
+
+    const el = document.getElementById(`scene-${sceneFromUrl}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // 清理 URL（保持页面状态不受影响）
+    navigate({
+      to: '/project/$id/result',
+      params: { id },
+      search: {},
+      replace: true,
+    });
+  }, [sceneFromUrl, plan?.scenes?.length, navigate, id]);
+
   // Loading 状态
   if (isLoading) {
     return (
@@ -205,26 +280,6 @@ function ProjectResultPage() {
       </div>
     );
   }
-
-  const plan = project.generatedPlan as GeneratedPlan | null;
-
-  // 处理从任务列表跳转：滚动到指定场景并自动打开编辑抽屉
-  useEffect(() => {
-    if (!plan?.scenes?.length) return;
-    if (typeof sceneFromUrl !== 'number' || Number.isNaN(sceneFromUrl)) return;
-    if (sceneFromUrl < 0 || sceneFromUrl >= plan.scenes.length) return;
-
-    const el = document.getElementById(`scene-${sceneFromUrl}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    // 清理 URL（保持页面状态不受影响）
-    navigate({
-      to: '/project/$id/result',
-      params: { id },
-      search: {},
-      replace: true,
-    });
-  }, [sceneFromUrl, plan?.scenes?.length, navigate, id]);
 
   // 未生成预案
   if (!plan) {
@@ -289,6 +344,12 @@ function ProjectResultPage() {
         <h2 className="text-lg font-semibold text-foreground">
           分镜场景 ({plan.scenes.length})
         </h2>
+        {sceneTaskHint && (
+          <Alert variant="info" className="mt-3">
+            <AlertTitle>查看最近任务</AlertTitle>
+            <AlertDescription>{sceneTaskHint}</AlertDescription>
+          </Alert>
+        )}
       </div>
 
       {/* 场景列表 */}
@@ -303,6 +364,7 @@ function ProjectResultPage() {
               isGenerating={generatingScenes.has(index)}
               onGeneratePreview={handleGenerateScenePreview}
               onImageChange={handleRefreshProject}
+              onViewRecentTasks={handleViewRecentTasks}
             />
           </div>
         ))}

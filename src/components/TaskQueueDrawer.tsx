@@ -2,6 +2,7 @@
 
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import {
+  isApiError,
   TASK_TYPE_LABELS,
   TASK_STATUS_LABELS,
   type Task,
@@ -27,27 +28,20 @@ import {
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { apiUrl } from '@/lib/api-config';
+import {
+  buildTaskDeepLinkSearch,
+  getTaskSourceLink,
+  type TaskSourceLink,
+} from '@/lib/task-recovery';
 
 type TaskFilter = 'all' | 'active' | 'history';
-
-type TaskSourceLink =
-  | {
-      to: '/project/$id/result';
-      params: { id: string };
-      search?: { scene?: number; openEdit?: '1' };
-      label?: string;
-    }
-  | {
-      to: '/assets/scenes';
-      label?: string;
-    }
-  | {
-      to: '/';
-      search?: { project?: string };
-      label?: string;
-    };
 
 const STATUS_ICON = {
   pending: Clock,
@@ -95,79 +89,6 @@ function getEffectivePrompt(task: Task, detail?: TaskDetailView | null): string 
   return null;
 }
 
-function getTaskSourceLink(
-  task: Task,
-  detail?: TaskDetailView | null,
-): TaskSourceLink | null {
-  const rc = detail?.recoveryContext;
-  if (rc?.sourceType === 'projectResult' && rc.projectId) {
-    const search =
-      typeof rc.sceneIndex === 'number' && Number.isFinite(rc.sceneIndex)
-        ? { scene: rc.sceneIndex, openEdit: '1' as const }
-        : {};
-    return {
-      to: '/project/$id/result',
-      params: { id: rc.projectId },
-      search,
-      label:
-        typeof rc.sceneIndex === 'number' && Number.isFinite(rc.sceneIndex)
-          ? `场景 ${rc.sceneIndex + 1}`
-          : '项目结果页',
-    };
-  }
-
-  if (rc?.sourceType === 'assets') {
-    return { to: '/assets/scenes', label: '场景资产' };
-  }
-
-  if (rc?.sourceType === 'project' && rc.projectId) {
-    return {
-      to: '/',
-      search: { project: rc.projectId },
-      label: '项目列表',
-    };
-  }
-
-  if (isRecord(task.input) && isRecord(task.input.owner)) {
-    const ownerType = safeString(task.input.owner.type);
-    const ownerId = safeString(task.input.owner.id);
-    const ownerSlot = safeString(task.input.owner.slot);
-
-    if (ownerType === 'planScene' && ownerId) {
-      const sceneIndex = ownerSlot?.startsWith('scene:')
-        ? Number.parseInt(ownerSlot.split(':')[1] || '', 10)
-        : NaN;
-      if (Number.isFinite(sceneIndex)) {
-        return {
-          to: '/project/$id/result',
-          params: { id: ownerId },
-          search: { scene: sceneIndex, openEdit: '1' },
-          label: `场景 ${sceneIndex + 1}`,
-        };
-      }
-      return {
-        to: '/project/$id/result',
-        params: { id: ownerId },
-        label: '项目结果页',
-      };
-    }
-
-    if (ownerType === 'asset') {
-      return { to: '/assets/scenes', label: '场景资产' };
-    }
-  }
-
-  if (task.relatedId) {
-    return {
-      to: '/',
-      search: { project: task.relatedId },
-      label: '项目列表',
-    };
-  }
-
-  return null;
-}
-
 function buildReplayPayload(task: Task, detail?: TaskDetailView | null): string {
   const sourceLink = getTaskSourceLink(task, detail);
   return JSON.stringify(
@@ -205,6 +126,22 @@ function extractRunErrorMessage(detail?: TaskDetailView | null): string | null {
   const message = safeString(detail.run.error.message);
   if (message) return message;
   return JSON.stringify(detail.run.error);
+}
+
+function getActionErrorMessage(error: Error | null): string | null {
+  if (!error) return null;
+  if (isApiError(error)) return error.message;
+  return error.message || '操作失败';
+}
+
+function shouldSuggestProviderSettings(error: Error | null): boolean {
+  if (!error || !isApiError(error)) return false;
+  return (
+    error.status === 401 ||
+    error.status === 403 ||
+    error.code === 'TEXT_CAPABILITY_UNAVAILABLE' ||
+    error.code === 'IMAGE_CAPABILITY_UNAVAILABLE'
+  );
 }
 
 function getArtifactPreviewUrl(artifact: TaskDetailArtifact): string | null {
@@ -308,7 +245,13 @@ export function TaskQueueDrawer() {
 
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Error | null>(null);
+  const [actionNotice, setActionNotice] = useState<{
+    kind: 'success' | 'info';
+    message: string;
+  } | null>(null);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   const activeTasks = useMemo(
     () => allTasks.filter((t) => t.status === 'pending' || t.status === 'running'),
@@ -332,6 +275,37 @@ export function TaskQueueDrawer() {
   });
 
   useEffect(() => {
+    if (!isDrawerOpen) {
+      if (restoreFocusRef.current) {
+        restoreFocusRef.current.focus();
+        restoreFocusRef.current = null;
+      }
+      return;
+    }
+
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const id = window.setTimeout(() => {
+      titleRef.current?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(id);
+  }, [isDrawerOpen]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeDrawer();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeDrawer, isDrawerOpen]);
+
+  useEffect(() => {
     if (!isDrawerOpen) return;
 
     if (selectedTaskId && allTasks.some((t) => t.id === selectedTaskId)) {
@@ -339,6 +313,8 @@ export function TaskQueueDrawer() {
     }
 
     const next = activeTasks[0] || historyTasks[0] || null;
+    setActionError(null);
+    setActionNotice(null);
     setSelectedTaskId(next?.id || null);
   }, [allTasks, activeTasks, historyTasks, isDrawerOpen, selectedTaskId]);
 
@@ -350,49 +326,77 @@ export function TaskQueueDrawer() {
 
   const handleDelete = async (task: Task) => {
     setActionError(null);
+    setActionNotice(null);
     if (task.status === 'running') {
-      setActionError('无法删除正在运行的任务');
+      setActionError(new Error('无法删除正在运行的任务'));
+      return;
+    }
+
+    if (!window.confirm('删除后将无法在任务中心查看该记录，是否继续删除？')) {
       return;
     }
 
     try {
       await deleteTask(task.id);
       await refresh();
+      setActionNotice({ kind: 'info', message: '任务已删除。' });
       if (selectedTaskId === task.id) {
         setSelectedTaskId(null);
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : '删除失败');
+      setActionError(error instanceof Error ? error : new Error('删除失败'));
     }
   };
 
   const handleRetry = async (task: Task) => {
     setActionError(null);
+    setActionNotice(null);
     try {
       await retryTask(task.id);
       await refresh();
+      setActionNotice({
+        kind: 'success',
+        message: '已提交重试，任务已回到等待队列。',
+      });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : '重试失败');
+      setActionError(error instanceof Error ? error : new Error('重试失败'));
     }
   };
 
   const handleReplay = async (task: Task) => {
     setActionError(null);
+    setActionNotice(null);
     try {
       const result = await replayMutation.mutateAsync({ taskId: task.id });
       await refresh();
       setSelectedTaskId(result.task.id);
+      setActionNotice(
+        result.deduped
+          ? {
+              kind: 'info',
+              message: `已命中去重，复用任务 ${result.task.id}。`,
+            }
+          : {
+              kind: 'success',
+              message: `已创建新任务 ${result.task.id}，等待执行。`,
+            },
+      );
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : '重放失败');
+      setActionError(error instanceof Error ? error : new Error('重放失败'));
     }
   };
 
   const handleCopyReplayInfo = async (task: Task, detail?: TaskDetailView | null) => {
     setActionError(null);
+    setActionNotice(null);
     try {
       await copyToClipboard(buildReplayPayload(task, detail));
+      setActionNotice({
+        kind: 'success',
+        message: '已复制复盘信息，可用于排查或复现。',
+      });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : '复制失败');
+      setActionError(error instanceof Error ? error : new Error('复制失败'));
     }
   };
 
@@ -413,10 +417,22 @@ export function TaskQueueDrawer() {
         onClick={closeDrawer}
       />
 
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1160px] flex-col border-l bg-popover text-popover-foreground shadow-lg/10">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-replay-center-title"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1160px] flex-col border-l bg-popover text-popover-foreground shadow-lg/10"
+      >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
-            <h2 className="text-base font-semibold">任务复盘中心</h2>
+            <h2
+              id="task-replay-center-title"
+              ref={titleRef}
+              tabIndex={-1}
+              className="text-base font-semibold outline-none"
+            >
+              任务复盘中心
+            </h2>
             <p className="text-xs text-muted-foreground">
               共 {allTasks.length} 条，进行中 {activeTasks.length} 条
             </p>
@@ -424,6 +440,7 @@ export function TaskQueueDrawer() {
           <button
             type="button"
             onClick={closeDrawer}
+            aria-label="关闭任务复盘中心"
             className="rounded-lg p-1.5 transition hover:bg-accent/60"
           >
             <X className="h-5 w-5 text-muted-foreground" />
@@ -454,7 +471,33 @@ export function TaskQueueDrawer() {
               {filteredTasks.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
                   <ListTodo className="h-10 w-10 text-muted-foreground/70" />
-                  <p className="text-sm text-muted-foreground">当前筛选下暂无任务</p>
+                  {allTasks.length === 0 ? (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        还没有任务记录。先生成一次预案或参考图。
+                      </p>
+                      <Link
+                        to="/"
+                        onClick={closeDrawer}
+                        className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
+                      >
+                        去项目页
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        没有匹配的任务，试试放宽筛选条件。
+                      </p>
+                      <button
+                        type="button"
+                        className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+                        onClick={() => setFilter('all')}
+                      >
+                        清空筛选
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="divide-y divide-border">
@@ -470,15 +513,18 @@ export function TaskQueueDrawer() {
                         type="button"
                         onClick={() => {
                           setActionError(null);
+                          setActionNotice(null);
                           setSelectedTaskId(task.id);
                         }}
                         className={cn(
                           'w-full px-3 py-3 text-left transition hover:bg-accent/60',
                           isSelected && 'bg-accent/70',
                         )}
+                        aria-label={`${TASK_TYPE_LABELS[task.type] || task.type}，状态 ${TASK_STATUS_LABELS[task.status]}`}
                       >
                         <div className="flex items-start gap-2">
                           <StatusIcon
+                            aria-hidden="true"
                             className={cn(
                               'mt-0.5 h-4 w-4 shrink-0',
                               statusColor,
@@ -492,6 +538,9 @@ export function TaskQueueDrawer() {
                               </span>
                               <span className={cn('text-xs', statusColor)}>
                                 {TASK_STATUS_LABELS[task.status]}
+                              </span>
+                              <span className="sr-only">
+                                状态：{TASK_STATUS_LABELS[task.status]}
                               </span>
                             </div>
 
@@ -524,7 +573,11 @@ export function TaskQueueDrawer() {
             {!selectedTask ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <ListTodo className="h-12 w-12 text-muted-foreground/70" />
-                <p className="text-sm text-muted-foreground">选择左侧任务查看完整复盘信息</p>
+                <p className="text-sm text-muted-foreground">
+                  {allTasks.length === 0
+                    ? '当前暂无可复盘任务。'
+                    : '选择左侧任务查看完整复盘信息。'}
+                </p>
               </div>
             ) : (
               <TaskDetailPane
@@ -533,6 +586,7 @@ export function TaskQueueDrawer() {
                 isLoading={detailQuery.isLoading}
                 loadError={detailQuery.error instanceof Error ? detailQuery.error : null}
                 actionError={actionError}
+                actionNotice={actionNotice}
                 onDelete={handleDelete}
                 onRetry={handleRetry}
                 onReplay={handleReplay}
@@ -553,7 +607,8 @@ interface TaskDetailPaneProps {
   detail?: TaskDetailView;
   isLoading: boolean;
   loadError: Error | null;
-  actionError: string | null;
+  actionError: Error | null;
+  actionNotice: { kind: 'success' | 'info'; message: string } | null;
   onDelete: (task: Task) => Promise<void>;
   onRetry: (task: Task) => Promise<void>;
   onReplay: (task: Task) => Promise<void>;
@@ -568,6 +623,7 @@ function TaskDetailPane({
   isLoading,
   loadError,
   actionError,
+  actionNotice,
   onDelete,
   onRetry,
   onReplay,
@@ -577,13 +633,18 @@ function TaskDetailPane({
 }: TaskDetailPaneProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [copyState, setCopyState] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<{
+    kind: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const sourceLink = getTaskSourceLink(task, detail);
   const draftPrompt = getDraftPrompt(task);
   const effectivePrompt = getEffectivePrompt(task, detail);
   const imageParams = getImageParams(task, detail);
   const runError = extractRunErrorMessage(detail);
+  const actionErrorMessage = getActionErrorMessage(actionError);
+  const showProviderSetupAction = shouldSuggestProviderSettings(actionError);
 
   const runStatusLabel =
     detail?.run?.status === 'succeeded'
@@ -598,10 +659,10 @@ function TaskDetailPane({
     if (!content) return;
     try {
       await copyToClipboard(content);
-      setCopyState(`${label}已复制`);
+      setCopyState({ kind: 'success', message: `${label}已复制` });
       window.setTimeout(() => setCopyState(null), 1200);
     } catch {
-      setCopyState('复制失败');
+      setCopyState({ kind: 'error', message: '复制失败' });
       window.setTimeout(() => setCopyState(null), 1200);
     }
   };
@@ -630,11 +691,23 @@ function TaskDetailPane({
             <button
               type="button"
               onClick={() => onCopyReplay(task, detail || null)}
+              aria-label="复制任务复盘信息"
               className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
             >
               <Copy className="h-3.5 w-3.5" />
               复制复盘信息
             </button>
+
+            <Link
+              to="/tasks/$id"
+              params={{ id: task.id }}
+              search={buildTaskDeepLinkSearch(task, detail)}
+              aria-label="打开任务详情页"
+              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              打开详情页
+            </Link>
 
             {sourceLink && <SourceLinkButton link={sourceLink} onClick={() => onJumpPrepare(task)} />}
 
@@ -642,7 +715,13 @@ function TaskDetailPane({
               type="button"
               onClick={() => onReplay(task)}
               disabled={isReplaying}
-              className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              aria-label="按原参数再生成"
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs disabled:opacity-60',
+                task.status === 'failed'
+                  ? 'border hover:bg-accent'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90',
+              )}
             >
               {isReplaying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               按原参数再生成
@@ -660,7 +739,8 @@ function TaskDetailPane({
                   }
                 }}
                 disabled={isRetrying}
-                className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60"
+                aria-label="重试当前任务"
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               >
                 {isRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 重试任务
@@ -679,6 +759,7 @@ function TaskDetailPane({
                   }
                 }}
                 disabled={isDeleting}
+                aria-label="删除当前任务"
                 className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60"
               >
                 {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -688,9 +769,45 @@ function TaskDetailPane({
           </div>
         </div>
 
-        {(actionError || copyState) && (
+        {actionNotice && (
+          <div
+            className={cn(
+              'mt-3 rounded-md border px-3 py-2 text-xs',
+              actionNotice.kind === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-blue-200 bg-blue-50 text-blue-700',
+            )}
+          >
+            {actionNotice.message}
+          </div>
+        )}
+
+        {actionErrorMessage && (
           <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            {actionError || copyState}
+            <p>{actionErrorMessage}</p>
+            {showProviderSetupAction && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Link
+                  to="/settings"
+                  className="inline-flex items-center rounded border border-red-300 px-2 py-1 text-[11px] text-red-700 hover:bg-red-100"
+                >
+                  去设置 Provider
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
+        {copyState && (
+          <div
+            className={cn(
+              'mt-3 rounded-md border px-3 py-2 text-xs',
+              copyState.kind === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-red-200 bg-red-50 text-red-700',
+            )}
+          >
+            {copyState.message}
           </div>
         )}
       </div>
@@ -746,16 +863,17 @@ function TaskDetailPane({
 
                   return (
                     <a
-                      key={`${img}-${idx}`}
+                      key={`${task.id}-${img}`}
                       href={preview}
                       target="_blank"
                       rel="noreferrer"
+                      aria-label={`查看参考图 ${idx + 1}`}
                       className="group rounded-md border bg-muted p-1"
                     >
                       <div className="aspect-square overflow-hidden rounded">
                         <img
                           src={preview}
-                          alt={`reference-${idx + 1}`}
+                          alt={`${task.id}-reference-${idx + 1}`}
                           className="h-full w-full object-cover"
                         />
                       </div>
@@ -879,6 +997,7 @@ function PromptBlock({
         <button
           type="button"
           onClick={onCopy}
+          aria-label={`复制${label}`}
           disabled={!content}
           className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] hover:bg-accent disabled:opacity-50"
         >
@@ -920,6 +1039,7 @@ function SourceLinkButton({
         params={link.params}
         search={link.search || {}}
         onClick={onClick}
+        aria-label="跳转到任务来源页面"
         className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
       >
         <ExternalLink className="h-3.5 w-3.5" />
@@ -933,6 +1053,7 @@ function SourceLinkButton({
       <Link
         to={link.to}
         onClick={onClick}
+        aria-label="跳转到任务来源页面"
         className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
       >
         <ExternalLink className="h-3.5 w-3.5" />
@@ -946,6 +1067,7 @@ function SourceLinkButton({
       to={link.to}
       search={link.search || {}}
       onClick={onClick}
+      aria-label="跳转到任务来源页面"
       className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
     >
       <ExternalLink className="h-3.5 w-3.5" />
@@ -964,6 +1086,7 @@ export function TaskQueueIndicator() {
     <button
       type="button"
       onClick={toggleDrawer}
+      aria-label={hasActiveTasks ? `任务中心，当前有 ${activeCount} 个进行中任务` : '打开任务复盘中心'}
       className={cn(
         'relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition text-sm font-medium',
         hasActiveTasks

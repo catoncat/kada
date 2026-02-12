@@ -8,6 +8,39 @@ import type { TaskDetailView, ReplayTaskResponse } from '@/types/task-detail';
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+interface ApiErrorPayload {
+  error?: string;
+  code?: string;
+  recoverableActions?: string[];
+  [key: string]: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+  code: string | null;
+  recoverableActions: string[];
+  details: unknown;
+
+  constructor(options: {
+    message: string;
+    status: number;
+    code?: string | null;
+    recoverableActions?: string[];
+    details?: unknown;
+  }) {
+    super(options.message);
+    this.name = 'ApiError';
+    this.status = options.status;
+    this.code = options.code ?? null;
+    this.recoverableActions = options.recoverableActions ?? [];
+    this.details = options.details;
+  }
+}
+
+export function isApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError;
+}
+
 export interface Task<TInput = unknown, TOutput = unknown> {
   id: string;
   type: string;
@@ -28,6 +61,40 @@ export interface CreateTaskInput<T = unknown> {
   relatedMeta?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+async function readResponseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function toApiError(
+  response: Response,
+  body: unknown,
+  fallbackMessage: string,
+): ApiError {
+  const payload = isRecord(body) ? (body as ApiErrorPayload) : null;
+  return new ApiError({
+    message:
+      typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error.trim()
+        : fallbackMessage,
+    status: response.status,
+    code: typeof payload?.code === 'string' ? payload.code : null,
+    recoverableActions: Array.isArray(payload?.recoverableActions)
+      ? payload.recoverableActions.filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : [],
+    details: body,
+  });
+}
+
 /**
  * 创建任务
  */
@@ -40,11 +107,16 @@ export async function createTask<TInput, TOutput = unknown>(
     body: JSON.stringify(input),
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '创建任务失败');
+    throw toApiError(response, data, '创建任务失败');
   }
-  return data.task;
+
+  if (!isRecord(data) || !('task' in data)) {
+    throw new Error('创建任务返回格式异常');
+  }
+
+  return data.task as Task<TInput, TOutput>;
 }
 
 /**
@@ -54,11 +126,16 @@ export async function fetchTask<TInput = unknown, TOutput = unknown>(
   id: string
 ): Promise<Task<TInput, TOutput>> {
   const response = await fetch(apiUrl(`/api/tasks/${id}`));
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '获取任务失败');
+    throw toApiError(response, data, '获取任务失败');
   }
-  return data.task;
+
+  if (!isRecord(data) || !('task' in data)) {
+    throw new Error('获取任务返回格式异常');
+  }
+
+  return data.task as Task<TInput, TOutput>;
 }
 
 /**
@@ -68,11 +145,16 @@ export async function fetchTaskDetail<TInput = unknown, TOutput = unknown>(
   id: string
 ): Promise<TaskDetailView<TInput, TOutput>> {
   const response = await fetch(apiUrl(`/api/tasks/${id}/detail`));
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '获取任务详情失败');
+    throw toApiError(response, data, '获取任务详情失败');
   }
-  return data.detail;
+
+  if (!isRecord(data) || !('detail' in data)) {
+    throw new Error('获取任务详情返回格式异常');
+  }
+
+  return data.detail as TaskDetailView<TInput, TOutput>;
 }
 
 /**
@@ -93,11 +175,16 @@ export async function fetchTasks(options?: {
   if (options?.limit) params.set('limit', options.limit.toString());
 
   const response = await fetch(apiUrl(`/api/tasks?${params.toString()}`));
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '获取任务列表失败');
+    throw toApiError(response, data, '获取任务列表失败');
   }
-  return data.tasks;
+
+  if (!isRecord(data) || !Array.isArray(data.tasks)) {
+    throw new Error('获取任务列表返回格式异常');
+  }
+
+  return data.tasks as Task[];
 }
 
 /**
@@ -110,11 +197,16 @@ export async function fetchTasksBatch(ids: string[]): Promise<Task[]> {
     body: JSON.stringify({ ids }),
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '批量获取任务失败');
+    throw toApiError(response, data, '批量获取任务失败');
   }
-  return data.tasks;
+
+  if (!isRecord(data) || !Array.isArray(data.tasks)) {
+    throw new Error('批量获取任务返回格式异常');
+  }
+
+  return data.tasks as Task[];
 }
 
 /**
@@ -125,9 +217,9 @@ export async function deleteTask(id: string): Promise<void> {
     method: 'DELETE',
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '删除任务失败');
+    throw toApiError(response, data, '删除任务失败');
   }
 }
 
@@ -244,11 +336,16 @@ export async function retryTask(id: string): Promise<Task> {
     method: 'POST',
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '重试任务失败');
+    throw toApiError(response, data, '重试任务失败');
   }
-  return data.task;
+
+  if (!isRecord(data) || !('task' in data)) {
+    throw new Error('重试任务返回格式异常');
+  }
+
+  return data.task as Task;
 }
 
 /**
@@ -268,11 +365,21 @@ export async function replayTask(
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
+  const data = await readResponseJson(response);
   if (!response.ok) {
-    throw new Error(data.error || '重放任务失败');
+    throw toApiError(response, data, '重放任务失败');
   }
-  return data;
+
+  if (
+    !isRecord(data) ||
+    !isRecord(data.task) ||
+    typeof data.replayOfTaskId !== 'string' ||
+    typeof data.deduped !== 'boolean'
+  ) {
+    throw new Error('重放任务返回格式异常');
+  }
+
+  return data as unknown as ReplayTaskResponse;
 }
 
 /** 任务类型显示名称 */
