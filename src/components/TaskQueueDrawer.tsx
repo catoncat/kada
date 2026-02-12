@@ -1,51 +1,402 @@
 'use client';
 
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, type Task, deleteTask, retryTask } from '@/lib/tasks-api';
-import { X, Loader2, CheckCircle, XCircle, Clock, Trash2, RefreshCw, ListTodo } from 'lucide-react';
+import {
+  TASK_TYPE_LABELS,
+  TASK_STATUS_LABELS,
+  type Task,
+  deleteTask,
+  retryTask,
+} from '@/lib/tasks-api';
+import { useReplayTask, useTaskDetail } from '@/hooks/useTasks';
+import type { TaskDetailArtifact, TaskDetailView } from '@/types/task-detail';
+import {
+  X,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Trash2,
+  RefreshCw,
+  ListTodo,
+  Sparkles,
+  Copy,
+  ExternalLink,
+  Image as ImageIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '@/lib/api-config';
-import {
-  Dialog,
-  DialogTrigger,
-  DialogPopup,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogPanel,
-} from '@/components/ui/dialog';
+
+type TaskFilter = 'all' | 'active' | 'history';
+
+type TaskSourceLink =
+  | {
+      to: '/project/$id/result';
+      params: { id: string };
+      search?: { scene?: number; openEdit?: '1' };
+      label?: string;
+    }
+  | {
+      to: '/assets/scenes';
+      label?: string;
+    }
+  | {
+      to: '/';
+      search?: { project?: string };
+      label?: string;
+    };
+
+const STATUS_ICON = {
+  pending: Clock,
+  running: Loader2,
+  completed: CheckCircle,
+  failed: XCircle,
+} as const;
+
+const STATUS_COLOR = {
+  pending: 'text-yellow-500',
+  running: 'text-blue-500',
+  completed: 'text-green-500',
+  failed: 'text-red-500',
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function safeString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getDraftPrompt(task: Task): string | null {
+  if (!isRecord(task.input)) return null;
+
+  const directPrompt = safeString(task.input.prompt);
+  if (directPrompt) return directPrompt;
+
+  const customPrompt = safeString(task.input.customPrompt);
+  if (customPrompt) return customPrompt;
+
+  return null;
+}
+
+function getEffectivePrompt(task: Task, detail?: TaskDetailView | null): string | null {
+  const fromRun = safeString(detail?.run?.effectivePrompt);
+  if (fromRun) return fromRun;
+
+  if (isRecord(task.output)) {
+    const fromOutput = safeString(task.output.effectivePrompt);
+    if (fromOutput) return fromOutput;
+  }
+
+  return null;
+}
+
+function getTaskSourceLink(
+  task: Task,
+  detail?: TaskDetailView | null,
+): TaskSourceLink | null {
+  const rc = detail?.recoveryContext;
+  if (rc?.sourceType === 'projectResult' && rc.projectId) {
+    const search =
+      typeof rc.sceneIndex === 'number' && Number.isFinite(rc.sceneIndex)
+        ? { scene: rc.sceneIndex, openEdit: '1' as const }
+        : {};
+    return {
+      to: '/project/$id/result',
+      params: { id: rc.projectId },
+      search,
+      label:
+        typeof rc.sceneIndex === 'number' && Number.isFinite(rc.sceneIndex)
+          ? `场景 ${rc.sceneIndex + 1}`
+          : '项目结果页',
+    };
+  }
+
+  if (rc?.sourceType === 'assets') {
+    return { to: '/assets/scenes', label: '场景资产' };
+  }
+
+  if (rc?.sourceType === 'project' && rc.projectId) {
+    return {
+      to: '/',
+      search: { project: rc.projectId },
+      label: '项目列表',
+    };
+  }
+
+  if (isRecord(task.input) && isRecord(task.input.owner)) {
+    const ownerType = safeString(task.input.owner.type);
+    const ownerId = safeString(task.input.owner.id);
+    const ownerSlot = safeString(task.input.owner.slot);
+
+    if (ownerType === 'planScene' && ownerId) {
+      const sceneIndex = ownerSlot?.startsWith('scene:')
+        ? Number.parseInt(ownerSlot.split(':')[1] || '', 10)
+        : NaN;
+      if (Number.isFinite(sceneIndex)) {
+        return {
+          to: '/project/$id/result',
+          params: { id: ownerId },
+          search: { scene: sceneIndex, openEdit: '1' },
+          label: `场景 ${sceneIndex + 1}`,
+        };
+      }
+      return {
+        to: '/project/$id/result',
+        params: { id: ownerId },
+        label: '项目结果页',
+      };
+    }
+
+    if (ownerType === 'asset') {
+      return { to: '/assets/scenes', label: '场景资产' };
+    }
+  }
+
+  if (task.relatedId) {
+    return {
+      to: '/',
+      search: { project: task.relatedId },
+      label: '项目列表',
+    };
+  }
+
+  return null;
+}
+
+function buildReplayPayload(task: Task, detail?: TaskDetailView | null): string {
+  const sourceLink = getTaskSourceLink(task, detail);
+  return JSON.stringify(
+    {
+      task: {
+        id: task.id,
+        type: task.type,
+        status: task.status,
+        createdAt: task.createdAt,
+        relatedId: task.relatedId,
+        relatedMeta: task.relatedMeta,
+      },
+      prompts: {
+        draft: getDraftPrompt(task),
+        effective: getEffectivePrompt(task, detail),
+      },
+      run: detail?.run || null,
+      artifacts: detail?.artifacts || [],
+      timeline: detail?.timeline || [],
+      recoveryContext: detail?.recoveryContext || null,
+      sourceLink: sourceLink || null,
+      missingFields: detail?.missingFields || [],
+      error: {
+        taskError: task.error || null,
+        runError: detail?.run?.error || null,
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function extractRunErrorMessage(detail?: TaskDetailView | null): string | null {
+  if (!detail?.run?.error) return null;
+  const message = safeString(detail.run.error.message);
+  if (message) return message;
+  return JSON.stringify(detail.run.error);
+}
+
+function getArtifactPreviewUrl(artifact: TaskDetailArtifact): string | null {
+  const filePath = safeString(artifact.filePath);
+  if (!filePath) return null;
+
+  if (filePath.startsWith('data:') || filePath.startsWith('http://') || filePath.startsWith('https://')) {
+    return filePath;
+  }
+
+  const normalized = filePath.startsWith('/') ? filePath : `/${filePath}`;
+  return apiUrl(normalized);
+}
+
+function getImageParams(
+  task: Task,
+  detail?: TaskDetailView | null,
+): {
+  owner: { type: string | null; id: string | null; slot: string | null };
+  referenceImages: string[];
+  editInstruction: string | null;
+  parentArtifactId: string | null;
+  options: Record<string, unknown> | null;
+} {
+  let owner: { type: string | null; id: string | null; slot: string | null } = {
+    type: null,
+    id: null,
+    slot: null,
+  };
+
+  let referenceImages: string[] = [];
+  let editInstruction: string | null = null;
+  let parentArtifactId: string | null = null;
+  let options: Record<string, unknown> | null = null;
+
+  if (isRecord(task.input)) {
+    if (isRecord(task.input.owner)) {
+      owner = {
+        type: safeString(task.input.owner.type),
+        id: safeString(task.input.owner.id),
+        slot: safeString(task.input.owner.slot),
+      };
+    }
+
+    if (Array.isArray(task.input.referenceImages)) {
+      referenceImages = task.input.referenceImages
+        .filter((img): img is string => typeof img === 'string' && img.trim().length > 0)
+        .map((img) => img.trim());
+    }
+
+    editInstruction = safeString(task.input.editInstruction);
+    parentArtifactId = safeString(task.input.parentArtifactId);
+
+    if (isRecord(task.input.options)) {
+      options = task.input.options;
+    }
+  }
+
+  if (detail?.artifacts?.length) {
+    const fromArtifacts = detail.artifacts
+      .flatMap((artifact) => artifact.referenceImages)
+      .filter((img): img is string => typeof img === 'string' && img.trim().length > 0)
+      .map((img) => img.trim());
+
+    if (fromArtifacts.length > 0) {
+      referenceImages = Array.from(new Set(fromArtifacts));
+    }
+
+    const latestArtifact = detail.artifacts[0];
+    if (!editInstruction) editInstruction = safeString(latestArtifact.editInstruction);
+    if (!parentArtifactId) parentArtifactId = safeString(latestArtifact.parentArtifactId);
+  }
+
+  return {
+    owner,
+    referenceImages,
+    editInstruction,
+    parentArtifactId,
+    options,
+  };
+}
+
+function formatTime(value: string | undefined | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString();
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (!navigator?.clipboard?.writeText) {
+    throw new Error('当前环境不支持剪贴板写入');
+  }
+  await navigator.clipboard.writeText(text);
+}
 
 export function TaskQueueDrawer() {
   const { allTasks, isDrawerOpen, closeDrawer, refresh } = useTaskQueue();
   const queryClient = useQueryClient();
+  const replayMutation = useReplayTask();
 
-  const handleDelete = async (task: Task) => {
-    if (task.status === 'running') {
-      alert('无法删除正在运行的任务');
+  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const activeTasks = useMemo(
+    () => allTasks.filter((t) => t.status === 'pending' || t.status === 'running'),
+    [allTasks],
+  );
+  const historyTasks = useMemo(
+    () => allTasks.filter((t) => t.status === 'completed' || t.status === 'failed'),
+    [allTasks],
+  );
+
+  const selectedTask = useMemo(
+    () => allTasks.find((t) => t.id === selectedTaskId) || null,
+    [allTasks, selectedTaskId],
+  );
+
+  const detailQuery = useTaskDetail(selectedTaskId, {
+    refetchInterval:
+      selectedTask && (selectedTask.status === 'pending' || selectedTask.status === 'running')
+        ? 1000
+        : false,
+  });
+
+  useEffect(() => {
+    if (!isDrawerOpen) return;
+
+    if (selectedTaskId && allTasks.some((t) => t.id === selectedTaskId)) {
       return;
     }
+
+    const next = activeTasks[0] || historyTasks[0] || null;
+    setSelectedTaskId(next?.id || null);
+  }, [allTasks, activeTasks, historyTasks, isDrawerOpen, selectedTaskId]);
+
+  const filteredTasks = useMemo(() => {
+    if (filter === 'active') return activeTasks;
+    if (filter === 'history') return historyTasks;
+    return allTasks;
+  }, [allTasks, activeTasks, filter, historyTasks]);
+
+  const handleDelete = async (task: Task) => {
+    setActionError(null);
+    if (task.status === 'running') {
+      setActionError('无法删除正在运行的任务');
+      return;
+    }
+
     try {
       await deleteTask(task.id);
-      refresh();
+      await refresh();
+      if (selectedTaskId === task.id) {
+        setSelectedTaskId(null);
+      }
     } catch (error) {
-      alert(error instanceof Error ? error.message : '删除失败');
+      setActionError(error instanceof Error ? error.message : '删除失败');
     }
   };
 
   const handleRetry = async (task: Task) => {
+    setActionError(null);
     try {
       await retryTask(task.id);
-      refresh();
+      await refresh();
     } catch (error) {
-      alert(error instanceof Error ? error.message : '重试失败');
+      setActionError(error instanceof Error ? error.message : '重试失败');
     }
   };
 
-  const handleTaskClick = (task: Task) => {
-    // 如果任务已完成且有关联 ID，刷新相关数据
+  const handleReplay = async (task: Task) => {
+    setActionError(null);
+    try {
+      const result = await replayMutation.mutateAsync({ taskId: task.id });
+      await refresh();
+      setSelectedTaskId(result.task.id);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '重放失败');
+    }
+  };
+
+  const handleCopyReplayInfo = async (task: Task, detail?: TaskDetailView | null) => {
+    setActionError(null);
+    try {
+      await copyToClipboard(buildReplayPayload(task, detail));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '复制失败');
+    }
+  };
+
+  const handleTaskJumpPrepare = (task: Task) => {
     if (task.status === 'completed' && task.relatedId) {
       queryClient.invalidateQueries({ queryKey: ['project', task.relatedId] });
     }
@@ -53,13 +404,8 @@ export function TaskQueueDrawer() {
 
   if (!isDrawerOpen) return null;
 
-  // 按状态分组：活跃任务在前，历史任务在后
-  const activeTasks = allTasks.filter(t => t.status === 'pending' || t.status === 'running');
-  const historyTasks = allTasks.filter(t => t.status === 'completed' || t.status === 'failed');
-
   return (
     <>
-      {/* 遮罩 */}
       <button
         type="button"
         aria-label="Close task drawer"
@@ -67,11 +413,14 @@ export function TaskQueueDrawer() {
         onClick={closeDrawer}
       />
 
-      {/* 抽屉 */}
-      <div className="fixed right-0 top-0 bottom-0 z-50 flex w-96 flex-col border-l bg-popover text-popover-foreground shadow-lg/10">
-        {/* 头部 */}
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[1160px] flex-col border-l bg-popover text-popover-foreground shadow-lg/10">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-base font-semibold">任务队列</h2>
+          <div>
+            <h2 className="text-base font-semibold">任务复盘中心</h2>
+            <p className="text-xs text-muted-foreground">
+              共 {allTasks.length} 条，进行中 {activeTasks.length} 条
+            </p>
+          </div>
           <button
             type="button"
             onClick={closeDrawer}
@@ -81,327 +430,528 @@ export function TaskQueueDrawer() {
           </button>
         </div>
 
-        {/* 任务列表 */}
-        <div className="flex-1 overflow-y-auto">
-          {allTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <ListTodo className="mb-3 h-12 w-12 text-muted-foreground/70" />
-              <p className="text-muted-foreground">暂无任务记录</p>
+        <div className="min-h-0 flex-1 md:flex">
+          <aside className="flex w-full flex-col border-b md:w-[360px] md:shrink-0 md:border-b-0 md:border-r">
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+              {(['all', 'active', 'history'] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-xs transition',
+                    filter === item
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+                  )}
+                  onClick={() => setFilter(item)}
+                >
+                  {item === 'all' ? '全部' : item === 'active' ? '进行中' : '历史'}
+                </button>
+              ))}
             </div>
-          ) : (
-            <div>
-              {/* 活跃任务 */}
-              {activeTasks.length > 0 && (
-                <div>
-                  <div className="bg-blue-500/10 px-4 py-2 text-xs font-medium text-blue-700 dark:text-blue-300">
-                    进行中 ({activeTasks.length})
-                  </div>
-                  <div className="divide-y divide-border">
-                    {activeTasks.map((task) => (
-                      <TaskItem
-                        key={task.id}
-                        task={task}
-                        onDelete={() => handleDelete(task)}
-                        onRetry={() => handleRetry(task)}
-                        onClick={() => handleTaskClick(task)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {/* 历史任务 */}
-              {historyTasks.length > 0 && (
-                <div>
-                  <div className="bg-muted/60 px-4 py-2 text-xs font-medium text-muted-foreground">
-                    历史记录 ({historyTasks.length})
-                  </div>
-                  <div className="divide-y divide-border">
-                    {historyTasks.map((task) => (
-                      <TaskItem
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {filteredTasks.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
+                  <ListTodo className="h-10 w-10 text-muted-foreground/70" />
+                  <p className="text-sm text-muted-foreground">当前筛选下暂无任务</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {filteredTasks.map((task) => {
+                    const StatusIcon = STATUS_ICON[task.status];
+                    const statusColor = STATUS_COLOR[task.status];
+                    const isSelected = task.id === selectedTaskId;
+                    const promptPreview = getEffectivePrompt(task, undefined) || getDraftPrompt(task);
+
+                    return (
+                      <button
                         key={task.id}
-                        task={task}
-                        onDelete={() => handleDelete(task)}
-                        onRetry={() => handleRetry(task)}
-                        onClick={() => handleTaskClick(task)}
-                      />
-                    ))}
-                  </div>
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setSelectedTaskId(task.id);
+                        }}
+                        className={cn(
+                          'w-full px-3 py-3 text-left transition hover:bg-accent/60',
+                          isSelected && 'bg-accent/70',
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <StatusIcon
+                            className={cn(
+                              'mt-0.5 h-4 w-4 shrink-0',
+                              statusColor,
+                              task.status === 'running' && 'animate-spin',
+                            )}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium">
+                                {TASK_TYPE_LABELS[task.type] || task.type}
+                              </span>
+                              <span className={cn('text-xs', statusColor)}>
+                                {TASK_STATUS_LABELS[task.status]}
+                              </span>
+                            </div>
+
+                            {task.relatedMeta && (
+                              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                                {task.relatedMeta}
+                              </p>
+                            )}
+
+                            {promptPreview && (
+                              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                                {promptPreview}
+                              </p>
+                            )}
+
+                            <p className="mt-1 text-[11px] text-muted-foreground/70">
+                              {formatTime(task.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
-          )}
+          </aside>
+
+          <section className="min-h-0 flex-1 overflow-y-auto p-4">
+            {!selectedTask ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                <ListTodo className="h-12 w-12 text-muted-foreground/70" />
+                <p className="text-sm text-muted-foreground">选择左侧任务查看完整复盘信息</p>
+              </div>
+            ) : (
+              <TaskDetailPane
+                task={selectedTask}
+                detail={detailQuery.data}
+                isLoading={detailQuery.isLoading}
+                loadError={detailQuery.error instanceof Error ? detailQuery.error : null}
+                actionError={actionError}
+                onDelete={handleDelete}
+                onRetry={handleRetry}
+                onReplay={handleReplay}
+                onCopyReplay={handleCopyReplayInfo}
+                onJumpPrepare={handleTaskJumpPrepare}
+                isReplaying={replayMutation.isPending}
+              />
+            )}
+          </section>
         </div>
       </div>
     </>
   );
 }
 
-interface TaskItemProps {
+interface TaskDetailPaneProps {
   task: Task;
-  onDelete: () => void;
-  onRetry: () => void;
-  onClick: () => void;
+  detail?: TaskDetailView;
+  isLoading: boolean;
+  loadError: Error | null;
+  actionError: string | null;
+  onDelete: (task: Task) => Promise<void>;
+  onRetry: (task: Task) => Promise<void>;
+  onReplay: (task: Task) => Promise<void>;
+  onCopyReplay: (task: Task, detail?: TaskDetailView | null) => Promise<void>;
+  onJumpPrepare: (task: Task) => void;
+  isReplaying: boolean;
 }
 
-function TaskItem({ task, onDelete, onRetry, onClick }: TaskItemProps) {
+function TaskDetailPane({
+  task,
+  detail,
+  isLoading,
+  loadError,
+  actionError,
+  onDelete,
+  onRetry,
+  onReplay,
+  onCopyReplay,
+  onJumpPrepare,
+  isReplaying,
+}: TaskDetailPaneProps) {
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
-  const typeLabel = TASK_TYPE_LABELS[task.type] || task.type;
-  const statusLabel = TASK_STATUS_LABELS[task.status];
-  const imagePreview = getImagePreview(task);
-  const sourceLink = getTaskSourceLink(task);
-  const promptPreview = getPromptPreview(task);
+  const [copyState, setCopyState] = useState<string | null>(null);
 
-  const StatusIcon = {
-    pending: Clock,
-    running: Loader2,
-    completed: CheckCircle,
-    failed: XCircle,
-  }[task.status];
+  const sourceLink = getTaskSourceLink(task, detail);
+  const draftPrompt = getDraftPrompt(task);
+  const effectivePrompt = getEffectivePrompt(task, detail);
+  const imageParams = getImageParams(task, detail);
+  const runError = extractRunErrorMessage(detail);
 
-  const statusColor = {
-    pending: 'text-yellow-500',
-    running: 'text-blue-500',
-    completed: 'text-green-500',
-    failed: 'text-red-500',
-  }[task.status];
+  const runStatusLabel =
+    detail?.run?.status === 'succeeded'
+      ? '成功'
+      : detail?.run?.status === 'failed'
+        ? '失败'
+        : detail?.run?.status === 'running'
+          ? '执行中'
+          : detail?.run?.status || '-';
 
-  const handleRetryClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsRetrying(true);
+  const handleCopyText = async (label: string, content: string | null) => {
+    if (!content) return;
     try {
-      await onRetry();
-    } finally {
-      setIsRetrying(false);
+      await copyToClipboard(content);
+      setCopyState(`${label}已复制`);
+      window.setTimeout(() => setCopyState(null), 1200);
+    } catch {
+      setCopyState('复制失败');
+      window.setTimeout(() => setCopyState(null), 1200);
     }
   };
 
   return (
-    <div className="px-4 py-3 transition hover:bg-accent/60">
-      <div className="flex items-start gap-3">
-        {/* 状态图标 */}
-        <div className={cn('mt-0.5', statusColor)}>
-          <StatusIcon className={cn('w-5 h-5', task.status === 'running' && 'animate-spin')} />
-        </div>
-
-        {/* 内容 */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">{typeLabel}</span>
-            <span className={cn('text-xs', statusColor)}>{statusLabel}</span>
+    <div className="space-y-4">
+      <div className="rounded-xl border p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">
+              {TASK_TYPE_LABELS[task.type] || task.type}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              任务 ID: <code>{task.id}</code>
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              状态: {TASK_STATUS_LABELS[task.status]}
+              {detail?.run ? ` / Run: ${runStatusLabel}` : ''}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              创建时间: {formatTime(task.createdAt)}
+            </p>
           </div>
 
-          {task.relatedMeta && (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {task.relatedMeta}
-            </p>
-          )}
-
-          {promptPreview && (
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-              {promptPreview}
-            </p>
-          )}
-
-          {task.error && (
-            <p className="mt-1 text-xs text-red-500 line-clamp-2">
-              {task.error}
-            </p>
-          )}
-
-          {/* 关联链接 */}
-          {task.status === 'completed' && task.relatedId && task.type === 'plan-generation' && (
-            <Link
-              to="/project/$id/result"
-              params={{ id: task.relatedId }}
-              search={{}}
-              onClick={onClick}
-              className="mt-1 inline-block text-xs text-primary hover:underline"
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onCopyReplay(task, detail || null)}
+              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
             >
-              查看结果 →
-            </Link>
-          )}
+              <Copy className="h-3.5 w-3.5" />
+              复制复盘信息
+            </button>
 
-          {/* 图片任务：查看图片 + 跳转来源 */}
-          {task.type === 'image-generation' && imagePreview?.url && (
-            <div className="mt-2 flex items-center gap-2">
-              <Dialog>
-                <DialogTrigger className="shrink-0">
-                  <div className="size-10 rounded-md bg-muted overflow-hidden border">
-                    <img
-                      src={imagePreview.url}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </DialogTrigger>
-                <DialogPopup className="max-w-3xl">
-                  <DialogHeader>
-                    <DialogTitle>生成结果</DialogTitle>
-                    {sourceLink?.label && (
-                      <DialogDescription>{sourceLink.label}</DialogDescription>
-                    )}
-                  </DialogHeader>
-                  <DialogPanel className="space-y-3">
-                    <div className="rounded-xl overflow-hidden border bg-muted">
-                      <img
-                        src={imagePreview.url}
-                        alt=""
-                        className="w-full h-auto object-contain"
-                      />
-                    </div>
-                    {sourceLink && (
-                      <Link
-                        to={sourceLink.to}
-                        params={sourceLink.params}
-                        search={sourceLink.search}
-                        onClick={onClick}
-                        className="inline-block text-sm text-primary hover:underline"
-                      >
-                        跳转到请求来源 →
-                      </Link>
-                    )}
-                  </DialogPanel>
-                </DialogPopup>
-              </Dialog>
+            {sourceLink && <SourceLinkButton link={sourceLink} onClick={() => onJumpPrepare(task)} />}
 
-              {sourceLink && (
-                <Link
-                  to={sourceLink.to}
-                  params={sourceLink.params}
-                  search={sourceLink.search}
-                  onClick={onClick}
-                  className="text-xs text-primary hover:underline"
-                >
-                  来源 →
-                </Link>
-              )}
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={() => onReplay(task)}
+              disabled={isReplaying}
+              className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {isReplaying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              按原参数再生成
+            </button>
 
-          {/* 时间 */}
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            {new Date(task.createdAt || '').toLocaleTimeString()}
-          </p>
+            {task.status === 'failed' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsRetrying(true);
+                  try {
+                    await onRetry(task);
+                  } finally {
+                    setIsRetrying(false);
+                  }
+                }}
+                disabled={isRetrying}
+                className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60"
+              >
+                {isRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                重试任务
+              </button>
+            )}
+
+            {task.status !== 'running' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await onDelete(task);
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60"
+              >
+                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                删除任务
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* 操作按钮 */}
-        <div className="flex items-center gap-1">
-          {/* 重试按钮（仅失败任务） */}
-          {task.status === 'failed' && (
-            <button
-              type="button"
-              onClick={handleRetryClick}
-              disabled={isRetrying}
-              className="rounded p-1 text-muted-foreground transition hover:bg-blue-500/10 hover:text-blue-600 disabled:opacity-50 dark:hover:text-blue-300"
-              title="重试"
-            >
-              <RefreshCw className={cn('w-4 h-4', isRetrying && 'animate-spin')} />
-            </button>
-          )}
+        {(actionError || copyState) && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {actionError || copyState}
+          </div>
+        )}
+      </div>
 
-          {/* 删除按钮 */}
-          {task.status !== 'running' && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="rounded p-1 text-muted-foreground transition hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
-              title="删除"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+      <div className="rounded-xl border p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-medium">Prompt 复盘</h3>
+          {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </div>
+
+        {loadError && (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            详情加载失败：{loadError.message}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <PromptBlock
+            label="Draft Prompt（用户输入）"
+            content={draftPrompt}
+            onCopy={() => handleCopyText('Draft Prompt', draftPrompt)}
+          />
+          <PromptBlock
+            label="Effective Prompt（服务端实际执行）"
+            content={effectivePrompt}
+            onCopy={() => handleCopyText('Effective Prompt', effectivePrompt)}
+          />
         </div>
       </div>
+
+      {task.type === 'image-generation' && (
+        <div className="rounded-xl border p-3">
+          <h3 className="mb-2 text-sm font-medium">图片参数（文+图场景）</h3>
+
+          <div className="grid gap-2 text-xs md:grid-cols-2">
+            <KV label="owner.type" value={imageParams.owner.type} />
+            <KV label="owner.id" value={imageParams.owner.id} />
+            <KV label="owner.slot" value={imageParams.owner.slot} />
+            <KV label="parentArtifactId" value={imageParams.parentArtifactId} />
+            <KV label="editInstruction" value={imageParams.editInstruction} />
+            <KV label="referenceImages" value={String(imageParams.referenceImages.length)} />
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {imageParams.referenceImages.length === 0 ? (
+              <p className="text-xs text-muted-foreground">未携带参考图</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                {imageParams.referenceImages.map((img, idx) => {
+                  const preview = img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:')
+                    ? img
+                    : apiUrl(img.startsWith('/') ? img : `/${img}`);
+
+                  return (
+                    <a
+                      key={`${img}-${idx}`}
+                      href={preview}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group rounded-md border bg-muted p-1"
+                    >
+                      <div className="aspect-square overflow-hidden rounded">
+                        <img
+                          src={preview}
+                          alt={`reference-${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-muted-foreground group-hover:text-foreground">
+                        {img}
+                      </p>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {imageParams.options && (
+            <details className="mt-3 rounded-md border p-2">
+              <summary className="cursor-pointer text-xs font-medium">高级参数 options（展开查看）</summary>
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">
+                {JSON.stringify(imageParams.options, null, 2)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border p-3">
+        <h3 className="mb-2 text-sm font-medium">执行结果与时间线</h3>
+
+        <div className="space-y-2 text-xs">
+          <KV label="Run ID" value={detail?.run?.id || '-'} />
+          <KV label="Run 状态" value={runStatusLabel} />
+          <KV label="Run 绑定 taskId" value={detail?.run?.taskId || '-'} />
+          <KV label="Artifact 数量" value={String(detail?.artifacts?.length || 0)} />
+        </div>
+
+        {(task.error || runError) && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <p className="font-medium">错误信息</p>
+            {task.error && <p className="mt-1">Task: {task.error}</p>}
+            {runError && <p className="mt-1">Run: {runError}</p>}
+          </div>
+        )}
+
+        {detail?.artifacts && detail.artifacts.length > 0 && (
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {detail.artifacts.map((artifact) => {
+              const url = getArtifactPreviewUrl(artifact);
+              return (
+                <div key={artifact.id} className="rounded-md border p-2">
+                  <div className="mb-1 flex items-center justify-between">
+                    <p className="truncate text-xs font-medium">{artifact.id}</p>
+                    {url && (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        打开
+                      </a>
+                    )}
+                  </div>
+
+                  {url ? (
+                    <div className="mb-2 aspect-video overflow-hidden rounded border bg-muted">
+                      <img src={url} alt={artifact.id} className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="mb-2 flex aspect-video items-center justify-center rounded border bg-muted text-[11px] text-muted-foreground">
+                      <ImageIcon className="mr-1 h-3.5 w-3.5" /> 无预览
+                    </div>
+                  )}
+
+                  <div className="space-y-1 text-[11px] text-muted-foreground">
+                    <p>filePath: {artifact.filePath || '-'}</p>
+                    <p>mime: {artifact.mimeType || '-'}</p>
+                    <p>createdAt: {formatTime(artifact.createdAt)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {detail?.timeline && detail.timeline.length > 0 ? (
+          <ol className="mt-3 space-y-1 text-xs text-muted-foreground">
+            {detail.timeline.map((item, idx) => (
+              <li key={`${item.status}-${item.at}-${idx}`} className="flex items-center justify-between rounded bg-muted px-2 py-1">
+                <span>{item.status}</span>
+                <span>{formatTime(item.at)}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-xs text-muted-foreground">暂无时间线数据</p>
+        )}
+      </div>
+
+      {!!detail?.missingFields?.length && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          该任务来自旧版本，缺少字段：{detail.missingFields.join(', ')}。
+        </div>
+      )}
     </div>
   );
 }
 
-function getPromptPreview(task: Task): string | null {
-  // 优先使用服务端回显的 effectivePrompt（更准确、可追溯）
-  if (task.type === 'image-generation' && task.output && typeof (task.output as any).effectivePrompt === 'string') {
-    const ep = ((task.output as any).effectivePrompt as string).trim();
-    if (ep) return ep;
-  }
-
-  const input = task.input as { prompt?: unknown } | null;
-  if (!input || typeof input !== 'object') return null;
-  if (typeof input.prompt === 'string' && input.prompt.trim()) {
-    return input.prompt.trim();
-  }
-  return null;
+function PromptBlock({
+  label,
+  content,
+  onCopy,
+}: {
+  label: string;
+  content: string | null;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="rounded-md border p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-xs font-medium">{label}</p>
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!content}
+          className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] hover:bg-accent disabled:opacity-50"
+        >
+          <Copy className="h-3 w-3" />
+          复制
+        </button>
+      </div>
+      {content ? (
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">
+          {content}
+        </pre>
+      ) : (
+        <p className="text-xs text-muted-foreground">暂无内容</p>
+      )}
+    </div>
+  );
 }
 
-function getImagePreview(task: Task): { url: string } | null {
-  if (task.type !== 'image-generation') return null;
-  if (task.status !== 'completed' || !task.output) return null;
-
-  const output = task.output as {
-    filePath?: unknown;
-    mimeType?: unknown;
-    imageBase64?: unknown;
-  };
-
-  if (typeof output.filePath === 'string' && output.filePath) {
-    const normalized = output.filePath.startsWith('/') ? output.filePath : `/${output.filePath}`;
-    return { url: apiUrl(normalized) };
-  }
-
-  if (typeof output.imageBase64 === 'string' && output.imageBase64) {
-    const mimeType = typeof output.mimeType === 'string' && output.mimeType ? output.mimeType : 'image/png';
-    return { url: `data:${mimeType};base64,${output.imageBase64}` };
-  }
-
-  return null;
+function KV({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded bg-muted px-2 py-1">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="truncate text-xs">{value || '-'}</p>
+    </div>
+  );
 }
 
-function getTaskSourceLink(task: Task): {
-  to: '/project/$id/result' | '/assets/scenes' | '/';
-  params?: Record<string, string>;
-  search?: Record<string, unknown>;
-  label?: string;
-} | null {
-  const input = task.input as {
-    owner?: { type?: unknown; id?: unknown; slot?: unknown };
-    prompt?: unknown;
-  } | null;
-
-  const owner = input && typeof input === 'object' ? input.owner : null;
-  const ownerType = owner && typeof owner.type === 'string' ? owner.type : null;
-  const ownerId = owner && typeof owner.id === 'string' ? owner.id : null;
-  const ownerSlot = owner && typeof owner.slot === 'string' ? owner.slot : null;
-
-  // planScene：跳到分镜结果页，并打开对应场景的编辑抽屉
-  if (ownerType === 'planScene' && ownerId) {
-    const sceneIndex =
-      ownerSlot?.startsWith('scene:')
-        ? Number.parseInt(ownerSlot.split(':')[1] || '', 10)
-        : null;
-    if (sceneIndex !== null && !Number.isNaN(sceneIndex)) {
-      return {
-        to: '/project/$id/result',
-        params: { id: ownerId },
-        search: { scene: String(sceneIndex), openEdit: '1' },
-        label: `场景 ${sceneIndex + 1}`,
-      };
-    }
-    return { to: '/project/$id/result', params: { id: ownerId }, search: {} };
+function SourceLinkButton({
+  link,
+  onClick,
+}: {
+  link: TaskSourceLink;
+  onClick: () => void;
+}) {
+  if (link.to === '/project/$id/result') {
+    return (
+      <Link
+        to={link.to}
+        params={link.params}
+        search={link.search || {}}
+        onClick={onClick}
+        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+        跳转来源
+      </Link>
+    );
   }
 
-  // asset：目前没有细粒度深链，先跳资产页
-  if (ownerType === 'asset') {
-    return { to: '/assets/scenes', label: '场景资产' };
+  if (link.to === '/assets/scenes') {
+    return (
+      <Link
+        to={link.to}
+        onClick={onClick}
+        className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+        跳转来源
+      </Link>
+    );
   }
 
-  // 兜底：如果 relatedId 是项目，就跳项目页
-  if (task.relatedId) {
-    return { to: '/', search: { project: task.relatedId } };
-  }
-
-  return null;
+  return (
+    <Link
+      to={link.to}
+      search={link.search || {}}
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+      跳转来源
+    </Link>
+  );
 }
 
 /** 任务队列指示器（始终显示在导航栏） */
@@ -418,7 +968,7 @@ export function TaskQueueIndicator() {
         'relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition text-sm font-medium',
         hasActiveTasks
           ? 'bg-blue-500/10 text-blue-700 hover:bg-blue-500/15 dark:text-blue-300'
-          : 'bg-secondary text-secondary-foreground hover:bg-secondary/90'
+          : 'bg-secondary text-secondary-foreground hover:bg-secondary/90',
       )}
     >
       {hasActiveTasks ? (

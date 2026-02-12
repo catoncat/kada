@@ -4,7 +4,7 @@
  *
  * Features:
  * - 显示当前图片版本
- * - 编辑 effective prompt
+ * - 编辑 draft prompt（服务端拼接为 effectivePrompt）
  * - 生成新版本
  * - 版本列表和切换
  * - 自动轮询任务状态
@@ -12,13 +12,16 @@
 
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
   History,
   Image as ImageIcon,
   Loader2,
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -34,9 +37,11 @@ import {
   useDeleteArtifact,
   useSetCurrentArtifact,
 } from '@/hooks/useArtifacts';
+import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useImageGeneration, useTasksPolling } from '@/hooks/useTasks';
 import { apiUrl } from '@/lib/api-config';
 import { type ArtifactOwnerType, getArtifactUrl } from '@/lib/artifacts-api';
+import { previewImagePrompt, type RenderedPromptBlock } from '@/lib/prompts-api';
 import { cn } from '@/lib/utils';
 
 export interface ImageStudioLiteProps {
@@ -48,6 +53,8 @@ export interface ImageStudioLiteProps {
   };
   /** 当前图片路径（如已有图片） */
   currentImagePath?: string | null;
+  /** 参考图（用于文+图生图 / 风格一致性）；会与 currentImagePath 去重合并 */
+  referenceImages?: string[];
   /** 默认提示词 */
   defaultPrompt?: string;
   /** 图片变更回调 */
@@ -63,6 +70,7 @@ export interface ImageStudioLiteProps {
 export function ImageStudioLite({
   owner,
   currentImagePath,
+  referenceImages,
   defaultPrompt = '',
   onImageChange,
   readonly = false,
@@ -73,6 +81,12 @@ export function ImageStudioLite({
   const [isGenerating, setIsGenerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
+  const [effectivePromptPreview, setEffectivePromptPreview] = useState('');
+  const [previewBlocks, setPreviewBlocks] = useState<RenderedPromptBlock[]>([]);
+  const [previewRule, setPreviewRule] = useState<{ key: string; id: string } | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [showPromptBreakdown, setShowPromptBreakdown] = useState(false);
 
   // 获取版本列表
   const {
@@ -87,6 +101,7 @@ export function ImageStudioLite({
   const setCurrentMutation = useSetCurrentArtifact();
   const deleteMutation = useDeleteArtifact();
   const { createTask } = useImageGeneration();
+  const ownerKey = `${owner.type}:${owner.id}:${owner.slot || ''}`;
 
   // 轮询任务状态
   useTasksPolling(pendingTaskIds, {
@@ -98,10 +113,48 @@ export function ImageStudioLite({
       console.log('[ImageStudioLite] All tasks completed:', tasks.length);
       setPendingTaskIds([]);
       setIsGenerating(false);
+
+      let latestArtifactId: string | null = null;
+      let latestFilePath: string | null = null;
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        const t = tasks[i];
+        if (t?.status !== 'completed') continue;
+        const output = t.output as
+          | { artifactId?: unknown; filePath?: unknown }
+          | null
+          | undefined;
+        const artifactId =
+          output && typeof output.artifactId === 'string'
+            ? output.artifactId.trim()
+            : '';
+        const filePathRaw =
+          output && typeof output.filePath === 'string'
+            ? output.filePath.trim()
+            : '';
+        if (!filePathRaw) continue;
+        latestArtifactId = artifactId || null;
+        latestFilePath = filePathRaw.startsWith('/') ? filePathRaw : `/${filePathRaw}`;
+        break;
+      }
+
+      // 以服务端回显的 effectivePrompt 为准（用于确认上下文拼接是否生效）
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        const output = tasks[i]?.output as { effectivePrompt?: unknown } | null;
+        if (
+          output &&
+          typeof output.effectivePrompt === 'string' &&
+          output.effectivePrompt.trim()
+        ) {
+          setEffectivePromptPreview(output.effectivePrompt.trim());
+          break;
+        }
+      }
       // 刷新 artifacts 以获取新生成的图片
       refetchArtifacts();
-      // 通知外部刷新
-      onImageChange?.(null, null);
+      // 通知外部刷新（对话框/抽屉外的 UI 需要依赖它回显）
+      if (latestFilePath) {
+        onImageChange?.(latestFilePath, latestArtifactId);
+      }
     },
   });
 
@@ -112,9 +165,57 @@ export function ImageStudioLite({
     }
   }, [defaultPrompt, prompt]);
 
+  const prevOwnerKeyRef = useRef(ownerKey);
+
+  // owner 变化时（例如切换不同场景/slot），重置为默认提示词
+  useEffect(() => {
+    if (prevOwnerKeyRef.current === ownerKey) return;
+    prevOwnerKeyRef.current = ownerKey;
+    setPrompt(defaultPrompt);
+    setShowPromptBreakdown(false);
+  }, [ownerKey, defaultPrompt]);
+
+  const previewEffectivePrompt = useDebouncedCallback(async (draft: string) => {
+    if (readonly) return;
+
+    const draftPrompt = draft.trim();
+    if (!draftPrompt) {
+      setPreviewRule(null);
+      setPreviewBlocks([]);
+      setEffectivePromptPreview('');
+      setPreviewError(null);
+      return;
+    }
+
+    setIsPreviewing(true);
+    setPreviewError(null);
+    try {
+      const res = await previewImagePrompt({ prompt: draftPrompt, owner });
+      setEffectivePromptPreview(res.effectivePrompt || '');
+      setPreviewBlocks(res.renderedBlocks || []);
+      setPreviewRule(res.rule || null);
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : '预览失败');
+    } finally {
+      setIsPreviewing(false);
+    }
+  }, 350);
+
+  useEffect(() => {
+    previewEffectivePrompt(prompt);
+  }, [prompt, ownerKey, readonly, previewEffectivePrompt]);
+
   // 生成图片
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
+
+    const refs = [
+      ...(Array.isArray(referenceImages) ? referenceImages : []),
+      ...(currentImagePath ? [currentImagePath] : []),
+    ]
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean);
+    const uniqueRefs = Array.from(new Set(refs));
 
     console.log(
       '[ImageStudioLite] Creating image task with prompt:',
@@ -126,6 +227,7 @@ export function ImageStudioLite({
         prompt: prompt.trim(),
         relatedId: owner.id,
         relatedMeta: JSON.stringify({ type: owner.type, slot: owner.slot }),
+        referenceImages: uniqueRefs.length > 0 ? uniqueRefs : undefined,
         owner,
       });
       console.log('[ImageStudioLite] Task created:', task.id);
@@ -135,7 +237,7 @@ export function ImageStudioLite({
       console.error('[ImageStudioLite] Failed to create image task:', error);
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, createTask, owner]);
+  }, [prompt, isGenerating, createTask, owner, referenceImages, currentImagePath]);
 
   // 切换版本
   const handleSwitchVersion = useCallback(
@@ -165,9 +267,9 @@ export function ImageStudioLite({
   );
 
   // 计算图片 URL - 优先使用当前 artifact
-  const currentArtifact = artifactsData?.artifacts.find(
-    (a) => a.id === artifactsData.currentArtifactId,
-  );
+  const currentArtifact =
+    artifactsData?.artifacts.find((a) => a.id === artifactsData.currentArtifactId) ||
+    artifactsData?.artifacts[0];
   const displayPath = currentArtifact?.filePath || currentImagePath;
   const imageUrl = displayPath
     ? displayPath.startsWith('/')
@@ -260,14 +362,23 @@ export function ImageStudioLite({
 
       {/* 提示词编辑区 */}
       {!readonly && (
-        <div className="space-y-2">
-          <Textarea
-            placeholder="描述你想要的图片效果..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={3}
-            className="resize-none"
-          />
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">出图提示词（draft）</div>
+              <div className="text-xs text-muted-foreground">
+                会参与服务端上下文拼接
+              </div>
+            </div>
+            <Textarea
+              placeholder="描述你想要的图片效果..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              className="resize-none"
+            />
+          </div>
+
           <Button
             onClick={handleGenerate}
             disabled={!prompt.trim() || isGenerating}
@@ -285,6 +396,88 @@ export function ImageStudioLite({
               </>
             )}
           </Button>
+
+          <div className="rounded-xl border bg-muted/40 p-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">effectivePrompt（服务端）</div>
+                {previewRule ? (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    规则：{previewRule.key} · {previewRule.id}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    按「设置 → 提示词编排」规则拼接后的最终提示词
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  disabled={!effectivePromptPreview}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(effectivePromptPreview);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  title="复制"
+                >
+                  <Copy className="size-4" />
+                </Button>
+
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  disabled={previewBlocks.length === 0}
+                  onClick={() => setShowPromptBreakdown((v) => !v)}
+                  title="查看分段"
+                >
+                  {showPromptBreakdown ? (
+                    <ChevronUp className="size-4" />
+                  ) : (
+                    <ChevronDown className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {isPreviewing && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                <span>正在生成预览…</span>
+              </div>
+            )}
+            {previewError && (
+              <div className="text-xs text-red-500">{previewError}</div>
+            )}
+
+            <Textarea
+              value={effectivePromptPreview}
+              readOnly
+              rows={6}
+              className="resize-none font-mono text-xs"
+              placeholder="（将显示服务端拼接后的最终提示词）"
+            />
+
+            {showPromptBreakdown && previewBlocks.length > 0 && (
+              <div className="space-y-2">
+                {previewBlocks.map((b) => (
+                  <div key={b.id} className="rounded-lg border bg-background/60 p-2">
+                    <div className="text-xs font-medium">{b.label}</div>
+                    <div className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {b.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

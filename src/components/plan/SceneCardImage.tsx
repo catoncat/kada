@@ -34,7 +34,7 @@ export function SceneCardImage({
   onOpenEdit,
 }: SceneCardImageProps) {
   // 确定显示的图片
-  const displayImage = sceneAssetImage || currentImage;
+  const displayImage = currentImage || sceneAssetImage;
   const imageUrl = displayImage ? getImageUrl(displayImage) : null;
 
   return (

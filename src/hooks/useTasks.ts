@@ -10,12 +10,15 @@ import {
   createTask,
   deleteTask,
   fetchTask,
+  fetchTaskDetail,
   fetchTasks,
   fetchTasksBatch,
   type ImageGenerationTask,
+  replayTask,
   type Task,
   type TaskStatus,
 } from '@/lib/tasks-api';
+import type { ReplayTaskResponse, TaskDetailView } from '@/types/task-detail';
 
 export const taskKeys = {
   all: ['tasks'] as const,
@@ -24,6 +27,8 @@ export const taskKeys = {
     [...taskKeys.lists(), filters] as const,
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (id: string) => [...taskKeys.details(), id] as const,
+  detailViews: () => [...taskKeys.all, 'detail-view'] as const,
+  detailView: (id: string) => [...taskKeys.detailViews(), id] as const,
 };
 
 /**
@@ -36,6 +41,21 @@ export function useTask<TInput = unknown, TOutput = unknown>(
   return useQuery({
     queryKey: taskKeys.detail(id || ''),
     queryFn: () => fetchTask<TInput, TOutput>(id!),
+    enabled: !!id,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+/**
+ * 获取任务详情聚合视图
+ */
+export function useTaskDetail<TInput = unknown, TOutput = unknown>(
+  id: string | null,
+  options?: { refetchInterval?: number | false },
+) {
+  return useQuery<TaskDetailView<TInput, TOutput>>({
+    queryKey: taskKeys.detailView(id || ''),
+    queryFn: () => fetchTaskDetail<TInput, TOutput>(id!),
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
   });
@@ -82,6 +102,32 @@ export function useDeleteTask() {
     mutationFn: (id: string) => deleteTask(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.all });
+    },
+  });
+}
+
+/**
+ * 重放任务（按原参数创建新任务）
+ */
+export function useReplayTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      requestId,
+    }: {
+      taskId: string;
+      requestId?: string;
+    }) => replayTask(taskId, requestId),
+    onSuccess: (result: ReplayTaskResponse, variables) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: taskKeys.detailView(variables.taskId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: taskKeys.detail(result.task.id),
+      });
     },
   });
 }

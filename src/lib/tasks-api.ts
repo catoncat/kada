@@ -4,6 +4,7 @@
  */
 
 import { apiUrl } from './api-config';
+import type { TaskDetailView, ReplayTaskResponse } from '@/types/task-detail';
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -58,6 +59,20 @@ export async function fetchTask<TInput = unknown, TOutput = unknown>(
     throw new Error(data.error || '获取任务失败');
   }
   return data.task;
+}
+
+/**
+ * 获取任务详情聚合视图
+ */
+export async function fetchTaskDetail<TInput = unknown, TOutput = unknown>(
+  id: string
+): Promise<TaskDetailView<TInput, TOutput>> {
+  const response = await fetch(apiUrl(`/api/tasks/${id}/detail`));
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || '获取任务详情失败');
+  }
+  return data.detail;
 }
 
 /**
@@ -234,6 +249,30 @@ export async function retryTask(id: string): Promise<Task> {
     throw new Error(data.error || '重试任务失败');
   }
   return data.task;
+}
+
+/**
+ * 按原参数重放任务（创建新任务）
+ */
+export async function replayTask(
+  id: string,
+  requestId?: string
+): Promise<ReplayTaskResponse> {
+  const payload = {
+    requestId: requestId || crypto.randomUUID(),
+  };
+
+  const response = await fetch(apiUrl(`/api/tasks/${id}/replay`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || '重放任务失败');
+  }
+  return data;
 }
 
 /** 任务类型显示名称 */

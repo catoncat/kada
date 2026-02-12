@@ -90,9 +90,17 @@ function ProjectResultPage() {
     async (sceneIndex: number, visualPrompt: string) => {
       setGeneratingScenes((prev) => new Set(prev).add(sceneIndex));
       try {
+        const plan = project?.generatedPlan as GeneratedPlan | null;
+        const scene = plan?.scenes?.[sceneIndex] as GeneratedScene | undefined;
+        const referenceImages = [
+          scene?.previewArtifactPath,
+          scene?.sceneAssetImage,
+        ].filter(Boolean) as string[];
+
         const task = await createImageTask(visualPrompt, {
           relatedId: id,
           relatedMeta: JSON.stringify({ sceneIndex }),
+          referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
           owner: {
             type: 'planScene',
             id: id,
@@ -109,7 +117,7 @@ function ProjectResultPage() {
         });
       }
     },
-    [id],
+    [id, project?.generatedPlan],
   );
 
   // 批量生成所有场景预览图
@@ -119,7 +127,6 @@ function ProjectResultPage() {
         .map((scene, index) => ({ scene, index }))
         .filter(
           ({ scene }) =>
-            !scene.sceneAssetImage &&
             !scene.previewArtifactPath &&
             scene.visualPrompt,
         );
@@ -132,9 +139,11 @@ function ProjectResultPage() {
       for (const { scene, index } of indices) {
         newGenerating.add(index);
         try {
+          const referenceImages = [scene.sceneAssetImage].filter(Boolean) as string[];
           const task = await createImageTask(scene.visualPrompt, {
             relatedId: id,
             relatedMeta: JSON.stringify({ sceneIndex: index }),
+            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
             owner: {
               type: 'planScene',
               id: id,
@@ -169,9 +178,7 @@ function ProjectResultPage() {
     if (!plan?.scenes) return { done: 0, total: 0 };
 
     const total = plan.scenes.length;
-    const done = plan.scenes.filter(
-      (scene) => scene.sceneAssetImage || scene.previewArtifactPath,
-    ).length;
+    const done = plan.scenes.filter((scene) => scene.previewArtifactPath).length;
 
     return { done, total };
   }, [project?.generatedPlan]);

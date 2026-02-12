@@ -5,12 +5,18 @@
 
 import { getDb } from '../db';
 import { tasks } from '../db/schema';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { imageGenerationHandler } from './handlers/image-generation';
 import { planGenerationHandler } from './handlers/plan-generation';
 
+interface TaskHandlerContext {
+  taskId: string;
+  taskType: string;
+  relatedId?: string | null;
+}
+
 // 任务处理器注册表
-type TaskHandler = (input: any) => Promise<any>;
+type TaskHandler = (input: any, context: TaskHandlerContext) => Promise<any>;
 
 const DEBUG_WORKER = process.env.SIDECAR_DEBUG_WORKER === '1';
 
@@ -47,7 +53,7 @@ async function cleanupStaleTasks() {
   const db = getDb();
 
   // 将所有 running 状态的任务标记为失败（服务器重启导致中断）
-  const result = await db
+  await db
     .update(tasks)
     .set({
       status: 'failed',
@@ -118,7 +124,11 @@ async function processNextTask() {
 
   try {
     const input = JSON.parse(task.input);
-    const output = await handler(input);
+    const output = await handler(input, {
+      taskId: task.id,
+      taskType: task.type,
+      relatedId: task.relatedId,
+    });
 
     // 标记为 completed
     await db

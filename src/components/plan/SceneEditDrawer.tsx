@@ -56,6 +56,7 @@ export function SceneEditDrawer({
             <ImageStudioLite
               owner={owner}
               currentImagePath={scene.previewArtifactPath}
+              referenceImages={scene.sceneAssetImage ? [scene.sceneAssetImage] : undefined}
               defaultPrompt={scene.visualPrompt}
               onImageChange={handleImageChange}
               aspectRatio="square"
