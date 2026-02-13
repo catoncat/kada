@@ -665,7 +665,7 @@ export function TaskQueueDrawer() {
                   {allTasks.length === 0 ? (
                     <>
                       <p className="text-sm text-muted-foreground">
-                        还没有任务记录。先生成一次预案或参考图。
+                        还没有任务记录。先生成一次方案或参考图。
                       </p>
                       <Link
                         to="/"

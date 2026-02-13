@@ -1,29 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  ImageIcon,
-  Sparkles,
-  Loader2,
-  FolderOpen,
   FileText,
+  FolderOpen,
+  ImageIcon,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
-import { getProject, generatePlan, updateProject } from '@/lib/projects-api';
-import { getSceneAsset, getImageUrl } from '@/lib/scene-assets-api';
-import { fetchTasks, type Task } from '@/lib/tasks-api';
-import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import { GenerateButton } from '@/components/GenerateButton';
+import { useEffect, useState } from 'react';
 import { CustomerInfoForm } from '@/components/CustomerInfoForm';
+import { GenerateButton } from '@/components/GenerateButton';
 import { ModelConfigSection } from '@/components/ModelConfigSection';
 import { PhotoFrame } from '@/components/PhotoFrame';
-import type { CustomerInfo } from '@/types/project';
-import type { ProjectModelConfig } from '@/types/model-asset';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
+import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
+import { getImageUrl, getSceneAsset } from '@/lib/scene-assets-api';
+import { fetchTasks, type Task } from '@/lib/tasks-api';
+import type { ProjectModelConfig } from '@/types/model-asset';
+import type { CustomerInfo } from '@/types/project';
 
 interface ProjectWorkspaceProps {
   projectId: string | null;
@@ -52,15 +52,22 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   const [projectPromptDraft, setProjectPromptDraft] = useState('');
 
   // 获取项目数据
-  const { data: project, isLoading, error } = useQuery({
+  const {
+    data: project,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
   });
 
   // 更新项目的 mutation
   const updateProjectMutation = useMutation({
-    mutationFn: (data: { customer?: CustomerInfo; projectPrompt?: string | null; selectedModels?: string }) =>
-      updateProject(projectId, data),
+    mutationFn: (data: {
+      customer?: CustomerInfo;
+      projectPrompt?: string | null;
+      selectedModels?: string;
+    }) => updateProject(projectId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
     },
@@ -176,8 +183,11 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
       {/* 顶部标题栏 */}
       <header className="shrink-0 px-6 py-4 border-b bg-background">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0">
             <h1 className="text-xl font-semibold truncate">{project.title}</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Kada 咔哒 · 可控的分镜执行系统
+            </p>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -185,9 +195,15 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
               <Button
                 size="sm"
                 variant="outline"
-                render={<Link to="/project/$id/result" params={{ id: projectId }} search={{}} />}
+                render={
+                  <Link
+                    to="/project/$id/result"
+                    params={{ id: projectId }}
+                    search={{}}
+                  />
+                }
               >
-                查看预案
+                查看方案
               </Button>
             ) : null}
             <GenerateButton
@@ -207,7 +223,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
             <div className="flex min-w-0 items-center gap-2">
               <Sparkles className="w-4 h-4 text-success" />
               <span className="text-sm font-medium text-success-foreground truncate">
-                预案已生成
+                分镜方案已生成
               </span>
             </div>
             <Link
@@ -255,7 +271,9 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
 
                   {selectedScene ? (
                     <div className="mt-1.5">
-                      <p className="truncate text-sm font-medium">{selectedScene.name}</p>
+                      <p className="truncate text-sm font-medium">
+                        {selectedScene.name}
+                      </p>
                       {selectedScene.description && (
                         <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
                           {selectedScene.description}
@@ -274,7 +292,9 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
                 size="sm"
                 variant="outline"
                 className="shrink-0"
-                render={<Link to="/project/$id/scenes" params={{ id: projectId }} />}
+                render={
+                  <Link to="/project/$id/scenes" params={{ id: projectId }} />
+                }
               >
                 配置场景
               </Button>

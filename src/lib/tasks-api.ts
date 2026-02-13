@@ -3,8 +3,8 @@
  * 与 Sidecar 的 /api/tasks 交互
  */
 
+import type { ReplayTaskResponse, TaskDetailView } from '@/types/task-detail';
 import { apiUrl } from './api-config';
-import type { TaskDetailView, ReplayTaskResponse } from '@/types/task-detail';
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -99,7 +99,7 @@ function toApiError(
  * 创建任务
  */
 export async function createTask<TInput, TOutput = unknown>(
-  input: CreateTaskInput<TInput>
+  input: CreateTaskInput<TInput>,
 ): Promise<Task<TInput, TOutput>> {
   const response = await fetch(apiUrl('/api/tasks'), {
     method: 'POST',
@@ -123,7 +123,7 @@ export async function createTask<TInput, TOutput = unknown>(
  * 获取任务状态
  */
 export async function fetchTask<TInput = unknown, TOutput = unknown>(
-  id: string
+  id: string,
 ): Promise<Task<TInput, TOutput>> {
   const response = await fetch(apiUrl(`/api/tasks/${id}`));
   const data = await readResponseJson(response);
@@ -142,7 +142,7 @@ export async function fetchTask<TInput = unknown, TOutput = unknown>(
  * 获取任务详情聚合视图
  */
 export async function fetchTaskDetail<TInput = unknown, TOutput = unknown>(
-  id: string
+  id: string,
 ): Promise<TaskDetailView<TInput, TOutput>> {
   const response = await fetch(apiUrl(`/api/tasks/${id}/detail`));
   const data = await readResponseJson(response);
@@ -168,7 +168,10 @@ export async function fetchTasks(options?: {
 }): Promise<Task[]> {
   const params = new URLSearchParams();
   if (options?.status) {
-    params.set('status', Array.isArray(options.status) ? options.status.join(',') : options.status);
+    params.set(
+      'status',
+      Array.isArray(options.status) ? options.status.join(',') : options.status,
+    );
   }
   if (options?.type) params.set('type', options.type);
   if (options?.relatedId) params.set('relatedId', options.relatedId);
@@ -254,7 +257,10 @@ export interface ImageGenerationOutput {
   imageBase64?: string;
 }
 
-export type ImageGenerationTask = Task<ImageGenerationInput, ImageGenerationOutput>;
+export type ImageGenerationTask = Task<
+  ImageGenerationInput,
+  ImageGenerationOutput
+>;
 
 /**
  * 创建图片生成任务
@@ -269,7 +275,7 @@ export async function createImageTask(
     owner?: ImageGenerationInput['owner'];
     parentArtifactId?: string;
     editInstruction?: string;
-  }
+  },
 ): Promise<ImageGenerationTask> {
   return createTask<ImageGenerationInput, ImageGenerationOutput>({
     type: 'image-generation',
@@ -314,7 +320,10 @@ export interface PlanGenerationOutput {
   plan: GeneratedPlan;
 }
 
-export type PlanGenerationTask = Task<PlanGenerationInput, PlanGenerationOutput>;
+export type PlanGenerationTask = Task<
+  PlanGenerationInput,
+  PlanGenerationOutput
+>;
 
 /**
  * 获取活跃任务（pending 或 running）
@@ -355,7 +364,7 @@ export async function retryTask(id: string): Promise<Task> {
  */
 export async function replayTask(
   id: string,
-  requestId?: string
+  requestId?: string,
 ): Promise<ReplayTaskResponse> {
   const payload = {
     requestId: requestId || crypto.randomUUID(),
@@ -386,7 +395,7 @@ export async function replayTask(
 
 /** 任务类型显示名称 */
 export const TASK_TYPE_LABELS: Record<string, string> = {
-  'plan-generation': '预案生成',
+  'plan-generation': '方案生成',
   'image-generation': '图片生成',
 };
 

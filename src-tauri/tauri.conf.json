@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "shooting-planner",
+  "productName": "Kada",
   "version": "0.1.0",
   "identifier": "com.shooting-planner.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "拍摄预案助手",
+        "title": "Kada 咔哒",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "width": 1280,

@@ -2,19 +2,19 @@
  * Command Search 搜索逻辑 Hook
  */
 
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FolderKanban, Image, Clock } from 'lucide-react';
+import { Clock, FolderKanban, Image } from 'lucide-react';
+import { useMemo } from 'react';
+import {
+  getQuickActions,
+  getRecents,
+  navigationItems,
+  type SearchItem,
+  type SearchResultGroup,
+  type SearchScope,
+} from '@/lib/command-search';
 import { getProjects } from '@/lib/projects-api';
 import { getSceneAssets } from '@/lib/scene-assets-api';
-import {
-  type SearchItem,
-  type SearchScope,
-  type SearchResultGroup,
-  getQuickActions,
-  navigationItems,
-  getRecents,
-} from '@/lib/command-search';
 
 const MAX_RESULTS_PER_GROUP = 5;
 
@@ -77,17 +77,17 @@ export function useCommandSearch({
     if (!hasQuery) {
       const recents = getRecents();
       if (recents.length > 0) {
-          const recentItems: SearchItem[] = recents.map((r) => ({
-            id: `recent:${r.type}:${r.id}`,
-            type: 'recent' as const,
-            title: r.title,
-            subtitle: r.type === 'project' ? '项目' : '场景',
-            icon: Clock,
-            action: {
-              type: 'navigate' as const,
-              to: r.type === 'project' ? `/?project=${r.id}` : `/assets/scenes`,
-            },
-          }));
+        const recentItems: SearchItem[] = recents.map((r) => ({
+          id: `recent:${r.type}:${r.id}`,
+          type: 'recent' as const,
+          title: r.title,
+          subtitle: r.type === 'project' ? '项目' : '场景',
+          icon: Clock,
+          action: {
+            type: 'navigate' as const,
+            to: r.type === 'project' ? `/?project=${r.id}` : `/assets/scenes`,
+          },
+        }));
 
         groups.push({
           id: 'recents',
@@ -117,7 +117,12 @@ export function useCommandSearch({
           id: `project:${p.id}`,
           type: 'project' as const,
           title: p.title,
-          subtitle: p.status === 'generated' ? '已生成预案' : p.status === 'configured' ? '已配置' : '草稿',
+          subtitle:
+            p.status === 'generated'
+              ? '已生成方案'
+              : p.status === 'configured'
+                ? '已配置'
+                : '草稿',
           icon: FolderKanban,
           action: { type: 'navigate' as const, to: `/?project=${p.id}` },
         }));
@@ -165,7 +170,7 @@ export function useCommandSearch({
     // Navigation - 有输入时显示
     if (hasQuery) {
       const filteredNav = navigationItems.filter((n) =>
-        matchesQuery(n, trimmedQuery)
+        matchesQuery(n, trimmedQuery),
       );
 
       if (filteredNav.length > 0) {

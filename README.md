@@ -1,6 +1,6 @@
-# 拍摄预案助手 v2
+# Kada 咔哒
 
-基于 Tauri 2.0 + Sidecar Node.js 的桌面应用。
+Kada 咔哒是一款基于 Tauri 2.0 + Sidecar Node.js 的桌面应用，定位为可控的分镜执行系统。
 
 ## 技术栈
 

@@ -71,7 +71,7 @@ export function PromptTemplatesSection() {
     <div>
       <h2 className="mb-1 text-lg font-semibold text-foreground">系统提示词</h2>
       <p className="text-sm text-muted-foreground">
-        管理全局工作室提示词。它会作为固定编排的第一段输入，参与出图预览、实际出图与预案生成。
+        管理全局工作室提示词。它会作为固定编排的第一段输入，参与出图预览、实际出图与方案生成。
       </p>
     </div>
   );
@@ -256,7 +256,10 @@ export function PromptTemplatesSection() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={() => void handleSaveEdit()} disabled={isSaving}>
+                  <Button
+                    onClick={() => void handleSaveEdit()}
+                    disabled={isSaving}
+                  >
                     {isSaving ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}

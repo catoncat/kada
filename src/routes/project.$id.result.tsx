@@ -13,11 +13,11 @@ import {
 } from '@/components/plan';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { useTasksPolling } from '@/hooks/useTasks';
 import { generatePlan, getProject } from '@/lib/projects-api';
-import { createImageTask, fetchTasks } from '@/lib/tasks-api';
 import { parseSceneIndexFromTask } from '@/lib/task-recovery';
-import { useTaskQueue } from '@/contexts/TaskQueueContext';
+import { createImageTask, fetchTasks } from '@/lib/tasks-api';
 
 interface ResultSearchParams {
   scene?: number;
@@ -28,9 +28,12 @@ export const Route = createFileRoute('/project/$id/result')({
   component: ProjectResultPage,
   validateSearch: (search: Record<string, unknown>): ResultSearchParams => {
     const scene =
-      typeof search.scene === 'string' ? Number.parseInt(search.scene, 10) : undefined;
+      typeof search.scene === 'string'
+        ? Number.parseInt(search.scene, 10)
+        : undefined;
     return {
-      scene: typeof scene === 'number' && Number.isFinite(scene) ? scene : undefined,
+      scene:
+        typeof scene === 'number' && Number.isFinite(scene) ? scene : undefined,
       openEdit: search.openEdit === '1' ? '1' : undefined,
     };
   },
@@ -94,7 +97,8 @@ function ProjectResultPage() {
     });
 
     for (const task of sorted) {
-      if (task.type !== 'image-generation' && task.type !== 'plan-generation') continue;
+      if (task.type !== 'image-generation' && task.type !== 'plan-generation')
+        continue;
       const sceneIndex = parseSceneIndexFromTask(task);
       if (sceneIndex === null) continue;
       if (!map.has(sceneIndex)) {
@@ -147,14 +151,15 @@ function ProjectResultPage() {
       try {
         const plan = project?.generatedPlan as GeneratedPlan | null;
         const scene = plan?.scenes?.[sceneIndex] as GeneratedScene | undefined;
-        const referenceImages = [
-          scene?.sceneAssetImage,
-        ].filter(Boolean) as string[];
+        const referenceImages = [scene?.sceneAssetImage].filter(
+          Boolean,
+        ) as string[];
 
         const task = await createImageTask(visualPrompt, {
           relatedId: id,
           relatedMeta: JSON.stringify({ sceneIndex }),
-          referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+          referenceImages:
+            referenceImages.length > 0 ? referenceImages : undefined,
           owner: {
             type: 'planScene',
             id: id,
@@ -180,9 +185,7 @@ function ProjectResultPage() {
       const indices = scenes
         .map((scene, index) => ({ scene, index }))
         .filter(
-          ({ scene }) =>
-            !scene.previewArtifactPath &&
-            scene.visualPrompt,
+          ({ scene }) => !scene.previewArtifactPath && scene.visualPrompt,
         );
 
       if (indices.length === 0) return;
@@ -193,11 +196,14 @@ function ProjectResultPage() {
       for (const { scene, index } of indices) {
         newGenerating.add(index);
         try {
-          const referenceImages = [scene.sceneAssetImage].filter(Boolean) as string[];
+          const referenceImages = [scene.sceneAssetImage].filter(
+            Boolean,
+          ) as string[];
           const task = await createImageTask(scene.visualPrompt, {
             relatedId: id,
             relatedMeta: JSON.stringify({ sceneIndex: index }),
-            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+            referenceImages:
+              referenceImages.length > 0 ? referenceImages : undefined,
             owner: {
               type: 'planScene',
               id: id,
@@ -232,7 +238,9 @@ function ProjectResultPage() {
     if (!plan?.scenes) return { done: 0, total: 0 };
 
     const total = plan.scenes.length;
-    const done = plan.scenes.filter((scene) => scene.previewArtifactPath).length;
+    const done = plan.scenes.filter(
+      (scene) => scene.previewArtifactPath,
+    ).length;
 
     return { done, total };
   }, [project?.generatedPlan]);
@@ -280,7 +288,7 @@ function ProjectResultPage() {
     );
   }
 
-  // 未生成预案
+  // 未生成方案
   if (!plan) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -294,7 +302,7 @@ function ProjectResultPage() {
             >
               返回项目
             </Link>
-            <h1 className="text-2xl font-semibold text-foreground">生成结果</h1>
+            <h1 className="text-2xl font-semibold text-foreground">方案结果</h1>
           </div>
         </div>
 
@@ -305,10 +313,10 @@ function ProjectResultPage() {
               <ImageIcon className="w-8 h-8 text-muted-foreground" />
             </div>
             <h3 className="text-lg font-medium text-foreground">
-              尚未生成预案
+              尚未生成方案
             </h3>
             <p className="mt-1 text-sm text-muted-foreground max-w-sm">
-              请先完成项目配置，然后点击「生成预案」按钮
+              请先完成项目配置，然后点击「生成方案」按钮
             </p>
             <Button
               className="mt-6"

@@ -16,7 +16,6 @@ import { useCommandSearchContext } from '@/components/CommandSearch';
 import { TaskQueueIndicator } from '@/components/TaskQueueDrawer';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
-import { openSettingsWindow } from '@/lib/open-settings-window';
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +31,7 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
+import { openSettingsWindow } from '@/lib/open-settings-window';
 import { cn } from '@/lib/utils';
 
 type AppShellProps = {
@@ -135,10 +135,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={handleOpenSettings}
-                tooltip="设置"
-              >
+              <SidebarMenuButton onClick={handleOpenSettings} tooltip="设置">
                 <Settings2 />
                 <span>设置</span>
               </SidebarMenuButton>
@@ -153,6 +150,10 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           className="flex h-14 select-none items-center gap-2 border-b bg-background px-3"
         >
           <SidebarTrigger className="shrink-0" />
+          <div className="hidden items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs font-medium text-foreground md:inline-flex">
+            <span>Kada</span>
+            <span className="text-muted-foreground">咔哒</span>
+          </div>
 
           <button
             type="button"

@@ -26,7 +26,7 @@
 
 ## 关键数据流
 
-### A. 生成预案（文本）
+### A. 生成分镜方案（文本）
 1. UI 组装 prompt（单主题内置 prompt；项目模式用 `buildProjectPrompt`）
 2. 若配置了在线 Provider：前端 `POST /api/ai/generate { prompt, provider }`
 3. 否则：走本地/降级实现 `src/lib/gemini-nano.ts`
