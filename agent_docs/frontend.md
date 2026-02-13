@@ -3,8 +3,13 @@
 ## UI 框架与设计方向
 
 - **组件库**：[coss ui](agent_docs/coss-ui.llm.md) — 基于 Base UI + Tailwind CSS 的组件集，通过 shadcn CLI 以 `@coss` registry 安装到 `src/components/ui/`。
-- **设计方向**：目标是接近 **macOS 桌面端**的视觉与交互风格（紧凑间距、原生感控件、精致阴影/圆角），而非典型 Web 页面风格。
-- **shadcn 注意事项**：从 `@coss` registry 添加组件后，检查生成文件的 import 路径 — 如出现 `@coss/ui/components/...` 需手动改为项目约定的 `@/components/ui/...`（详见「路径别名」一节）。
+- **设计方向**：目标是接近 **macOS 桌面端**的视觉与交互风格（紧凑间距、原生感控件、精致阴影/圆角），而非典型 Web 页面风格。详见 [macOS HIG 设计规范速查](macos-hig-reference.md)。
+- **shadcn 重装注意事项**：
+  1. **路径替换**：从 `@coss` registry 添加组件后，检查 import 路径 — `@coss/ui/components/...` 改为 `@/components/ui/...`，`@coss/ui/lib/utils` 改为 `@/lib/utils`，`@coss/ui/hooks/...` 改为 `@/hooks/...`。
+  2. **sidebar.tsx 桌面端补丁**（官方模板为 web 设计，桌面端需以下改动，重装后必须重新应用）：
+     - `SidebarProvider` wrapper：加 `h-svh overflow-hidden`（锁死视口高度，阻止 body 滚动）
+     - `SidebarInset` main：加 `min-h-0 overflow-hidden`（flex 子项可缩 + 防溢出）
+     - `SidebarGroupLabel`：`text-sidebar-foreground` → `text-sidebar-foreground/70`（分组标签降低对比度）
 
 ## 目录与路由
 
