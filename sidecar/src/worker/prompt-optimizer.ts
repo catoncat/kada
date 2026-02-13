@@ -63,26 +63,70 @@ export interface OptimizeImagePromptResult {
   meta: PromptOptimizationMeta;
 }
 
-function buildReferenceBindingDeclaration(referencePlan?: ReferencePlanSummary | null): string {
+function formatIdentityMapping(
+  referencePlan?: ReferencePlanSummary | null,
+): string | null {
+  if (!referencePlan || !Array.isArray(referencePlan.identityBindings))
+    return null;
+  const bindings = referencePlan.identityBindings
+    .filter((item) => item && typeof item.index === 'number')
+    .sort((a, b) => a.index - b.index);
+  if (bindings.length === 0) return null;
+
+  const mappingText = bindings
+    .map((item) => {
+      const role =
+        typeof item.role === 'string' && item.role.trim()
+          ? item.role.trim()
+          : `角色${item.index}`;
+      return `#${item.index}=${role}`;
+    })
+    .join('，');
+  return mappingText || null;
+}
+
+function buildReferenceBindingDeclaration(
+  referencePlan?: ReferencePlanSummary | null,
+): string {
   if (!referencePlan || referencePlan.totalCount <= 0) return '';
 
   const sceneCount = referencePlan.counts.scene;
   const identityCount = referencePlan.counts.identity;
+  const identityBindings = Array.isArray(referencePlan.identityBindings)
+    ? referencePlan.identityBindings
+    : [];
   const lines: string[] = ['【参考图绑定声明】'];
 
   if (sceneCount > 0) {
     lines.push(
       `- 已注入场景主题参考图（${sceneCount}张）：优先锁定布景主题、道具关系、色彩与光影氛围。`,
     );
+    if (referencePlan.sceneSanitizedCount > 0) {
+      lines.push(
+        `- 场景参考图已做去脸预处理（${referencePlan.sceneSanitizedCount}张），仅允许提取环境与光影信息。`,
+      );
+    }
   }
 
   if (identityCount > 0) {
-    lines.push(
-      `- 已注入人物身份参考图（${identityCount}张）：仅用于锁定人物身份，不继承其背景与构图。`,
-    );
+    if (referencePlan.identityCollageImage && identityBindings.length > 1) {
+      lines.push(
+        '- 已注入人物身份参考图（1张拼接图，含红框编号）：仅用于锁定人物身份，不继承其背景与构图。',
+      );
+    } else {
+      lines.push(
+        `- 已注入人物身份参考图（${identityCount}张）：仅用于锁定人物身份，不继承其背景与构图。`,
+      );
+    }
+    const mapping = formatIdentityMapping(referencePlan);
+    if (mapping) {
+      lines.push(`- 人物编号映射（硬约束，不可交换）：${mapping}。`);
+    }
   }
 
-  lines.push('- 优先级：人物数量与身份一致性（硬约束） > 场景主题一致性 > 文本补充细节。');
+  lines.push(
+    '- 优先级：人物数量与身份一致性（硬约束） > 场景主题一致性 > 文本补充细节。',
+  );
   lines.push('- 禁止退化为普通生活抓拍照，需保持影楼专业成片质感。');
   lines.push('- 仅允许单张单帧完整画面，禁止拼图、分屏、多宫格、连环画排版。');
   return lines.join('\n');
@@ -142,7 +186,9 @@ function parseOptimizerOutput(raw: string): {
   negativePrompt: string | null;
 } {
   const candidate = extractJsonCandidate(raw);
-  const parsed = candidate ? parseJsonSafely<Record<string, unknown>>(candidate) : null;
+  const parsed = candidate
+    ? parseJsonSafely<Record<string, unknown>>(candidate)
+    : null;
   if (!parsed) {
     return {
       renderPrompt: null,
@@ -235,15 +281,21 @@ async function loadOptimizerTemplate(db: any): Promise<{
   }
 
   const parsedObj = parseJsonSafely<OptimizerTemplateConfig>(setting.value);
-  if (parsedObj && typeof parsedObj.template === 'string' && parsedObj.template.trim()) {
+  if (
+    parsedObj &&
+    typeof parsedObj.template === 'string' &&
+    parsedObj.template.trim()
+  ) {
     return {
       version:
-        typeof parsedObj.version === 'number' && Number.isFinite(parsedObj.version)
+        typeof parsedObj.version === 'number' &&
+        Number.isFinite(parsedObj.version)
           ? parsedObj.version
           : 1,
       template: parsedObj.template.trim(),
       outputSchema:
-        typeof parsedObj.outputSchema === 'string' && parsedObj.outputSchema.trim()
+        typeof parsedObj.outputSchema === 'string' &&
+        parsedObj.outputSchema.trim()
           ? parsedObj.outputSchema.trim()
           : DEFAULT_OUTPUT_SCHEMA,
     };
@@ -277,15 +329,37 @@ function pickPromptContextForOptimizer(
   return Object.keys(picked).length > 0 ? picked : null;
 }
 
-function buildReferenceSummaryText(referencePlan?: ReferencePlanSummary | null): string {
+function buildReferenceSummaryText(
+  referencePlan?: ReferencePlanSummary | null,
+): string {
   if (!referencePlan) return '无';
+  const identitySourceImages = Array.isArray(referencePlan.identitySourceImages)
+    ? referencePlan.identitySourceImages
+    : [];
   const lines: string[] = [
     `总数: ${referencePlan.totalCount}`,
     `identity(${referencePlan.counts.identity}): ${referencePlan.byRole.identity.join(' | ') || '无'}`,
     `scene(${referencePlan.counts.scene}): ${referencePlan.byRole.scene.join(' | ') || '无'}`,
   ];
+  if (identitySourceImages.length > 0) {
+    lines.push(
+      `identity-source(${identitySourceImages.length}): ${identitySourceImages.join(' | ')}`,
+    );
+  }
+  if (referencePlan.identityCollageImage) {
+    lines.push(`identity-collage: ${referencePlan.identityCollageImage}`);
+  }
+  const mapping = formatIdentityMapping(referencePlan);
+  if (mapping) {
+    lines.push(`identity-mapping: ${mapping}`);
+  }
+  if (referencePlan.sceneSanitizedCount > 0) {
+    lines.push(`scene-sanitized: ${referencePlan.sceneSanitizedCount}`);
+  }
   if (referencePlan.droppedGeneratedImages.length > 0) {
-    lines.push(`已过滤历史生成图: ${referencePlan.droppedGeneratedImages.join(' | ')}`);
+    lines.push(
+      `已过滤历史生成图: ${referencePlan.droppedGeneratedImages.join(' | ')}`,
+    );
   }
   return lines.join('\n');
 }
@@ -324,7 +398,10 @@ ${input.outputSchema}
 仅输出一个 JSON 对象。`;
 }
 
-async function callTextModel(provider: TextProvider, prompt: string): Promise<string> {
+async function callTextModel(
+  provider: TextProvider,
+  prompt: string,
+): Promise<string> {
   if (provider.format === 'gemini') {
     const url = `${provider.baseUrl}/models/${provider.textModel}:generateContent?key=${provider.apiKey}`;
     const res = await fetch(url, {
@@ -415,9 +492,13 @@ export async function optimizeImagePrompt(
     };
   }
 
-  const provider = input.provider || (await resolveTextProvider(input.db, input.providerId));
+  const provider =
+    input.provider || (await resolveTextProvider(input.db, input.providerId));
   if (!provider || !hasTextCapability(provider)) {
-    const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
+    const finalPrompt = appendReferenceBindingDeclaration(
+      sourcePrompt,
+      input.referencePlan,
+    );
     return {
       renderPrompt: finalPrompt,
       meta: {
@@ -445,7 +526,10 @@ export async function optimizeImagePrompt(
     const raw = await callTextModel(provider, optimizerPrompt);
     const parsed = parseOptimizerOutput(raw);
     if (!parsed.renderPrompt) {
-      const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
+      const finalPrompt = appendReferenceBindingDeclaration(
+        sourcePrompt,
+        input.referencePlan,
+      );
       return {
         renderPrompt: finalPrompt,
         meta: {
@@ -460,7 +544,10 @@ export async function optimizeImagePrompt(
       };
     }
 
-    const finalPrompt = appendReferenceBindingDeclaration(parsed.renderPrompt, input.referencePlan);
+    const finalPrompt = appendReferenceBindingDeclaration(
+      parsed.renderPrompt,
+      input.referencePlan,
+    );
     return {
       renderPrompt: finalPrompt,
       meta: {
@@ -475,8 +562,12 @@ export async function optimizeImagePrompt(
       },
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'PROMPT_OPTIMIZER_ERROR';
-    const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
+    const message =
+      error instanceof Error ? error.message : 'PROMPT_OPTIMIZER_ERROR';
+    const finalPrompt = appendReferenceBindingDeclaration(
+      sourcePrompt,
+      input.referencePlan,
+    );
     return {
       renderPrompt: finalPrompt,
       meta: {

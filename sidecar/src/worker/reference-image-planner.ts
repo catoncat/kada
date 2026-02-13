@@ -1,10 +1,11 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { generationArtifacts } from '../db/schema';
+import { getOrCreateIdentityReferenceCollage } from '../services/identity-reference-collage';
 import { sanitizeSceneReferenceImages } from '../services/scene-face-sanitizer';
 
 const MAX_TOTAL_REFERENCE_IMAGES = 8;
 const MAX_IDENTITY_REFERENCE_IMAGES = 4;
-const MAX_SCENE_REFERENCE_IMAGES = 4;
+const MAX_SCENE_REFERENCE_IMAGES = 1;
 
 export interface ReferenceImageOwner {
   type: 'asset' | 'projectPlanVersion' | 'planScene';
@@ -14,9 +15,19 @@ export interface ReferenceImageOwner {
 
 export interface ResolvedReferenceImages {
   modelIdentityImages: string[];
+  modelIdentitySourceImages: string[];
+  identityCollageImage: string | null;
+  identityBindings: IdentityBinding[];
   sceneContextImages: string[];
   allImages: string[];
   droppedGeneratedImages: string[];
+}
+
+export interface IdentityBinding {
+  index: number;
+  image: string;
+  role?: string;
+  subjectId?: string;
 }
 
 export interface ReferencePlanSummary {
@@ -26,7 +37,11 @@ export interface ReferencePlanSummary {
     identity: string[];
     scene: string[];
   };
+  identitySourceImages: string[];
+  identityCollageImage: string | null;
+  identityBindings: IdentityBinding[];
   droppedGeneratedImages: string[];
+  sceneSanitizedCount: number;
   counts: {
     identity: number;
     scene: number;
@@ -47,6 +62,12 @@ export interface ModelReferenceSubject {
   role?: string;
   modelId?: string;
   images: string[];
+}
+
+interface SelectedIdentityItem {
+  image: string;
+  role?: string;
+  subjectId?: string;
 }
 
 export interface PreviewReferenceInput {
@@ -93,7 +114,9 @@ export function dedupeReferenceImages(values?: string[]): string[] {
   return output;
 }
 
-function normalizeModelReferenceSubjects(subjects?: ModelReferenceSubject[]): ModelReferenceSubject[] {
+function normalizeModelReferenceSubjects(
+  subjects?: ModelReferenceSubject[],
+): ModelReferenceSubject[] {
   if (!Array.isArray(subjects) || subjects.length === 0) return [];
   const output: ModelReferenceSubject[] = [];
   for (const subject of subjects) {
@@ -119,12 +142,14 @@ function isChildRole(role?: string): boolean {
   return /宝宝|宝贝|小孩|儿童|孩子|幼儿|baby|child|kid/.test(normalized);
 }
 
-function selectBalancedIdentityImages(
+function selectBalancedIdentityItems(
   subjects: ModelReferenceSubject[],
   fallbackModelRefs: string[],
-): string[] {
+): SelectedIdentityItem[] {
   if (subjects.length === 0) {
-    return fallbackModelRefs.slice(0, MAX_IDENTITY_REFERENCE_IMAGES);
+    return fallbackModelRefs
+      .slice(0, MAX_IDENTITY_REFERENCE_IMAGES)
+      .map((image) => ({ image }));
   }
 
   // 儿童摄影默认优先保障孩子主体在参考图中出现，随后按输入顺序轮询补位。
@@ -136,8 +161,18 @@ function selectBalancedIdentityImages(
   });
 
   // 多角色场景：每个角色仅保留 1 张身份图，减少身份锚点互相竞争。
+  const subjectByImageKey = new Map<string, ModelReferenceSubject>();
+  for (const subject of prioritizedSubjects) {
+    for (const image of subject.images) {
+      const key = normalizeReferenceKey(image);
+      if (!subjectByImageKey.has(key)) {
+        subjectByImageKey.set(key, subject);
+      }
+    }
+  }
+
   if (prioritizedSubjects.length > 1) {
-    const selected: string[] = [];
+    const selected: SelectedIdentityItem[] = [];
     const seen = new Set<string>();
     for (const subject of prioritizedSubjects) {
       if (selected.length >= MAX_IDENTITY_REFERENCE_IMAGES) break;
@@ -146,24 +181,36 @@ function selectBalancedIdentityImages(
       const key = normalizeReferenceKey(first);
       if (seen.has(key)) continue;
       seen.add(key);
-      selected.push(first);
+      selected.push({
+        image: first,
+        role: subject.role,
+        subjectId: subject.subjectId,
+      });
     }
 
     // 兜底：若首图重复导致名额不足，最多补到“角色数量上限”，但仍不超过每角色一张。
-    const targetCount = Math.min(prioritizedSubjects.length, MAX_IDENTITY_REFERENCE_IMAGES);
+    const targetCount = Math.min(
+      prioritizedSubjects.length,
+      MAX_IDENTITY_REFERENCE_IMAGES,
+    );
     if (selected.length < targetCount) {
       for (const ref of fallbackModelRefs) {
         if (selected.length >= targetCount) break;
         const key = normalizeReferenceKey(ref);
         if (seen.has(key)) continue;
         seen.add(key);
-        selected.push(ref);
+        const subject = subjectByImageKey.get(key);
+        selected.push({
+          image: ref,
+          role: subject?.role,
+          subjectId: subject?.subjectId,
+        });
       }
     }
     return selected;
   }
 
-  const selected: string[] = [];
+  const selected: SelectedIdentityItem[] = [];
   const seen = new Set<string>();
   const cursors = new Map<string, number>(
     prioritizedSubjects.map((subject) => [subject.subjectId, 0]),
@@ -177,7 +224,11 @@ function selectBalancedIdentityImages(
       const key = normalizeReferenceKey(candidate);
       if (seen.has(key)) continue;
       seen.add(key);
-      selected.push(candidate);
+      selected.push({
+        image: candidate,
+        role: subject.role,
+        subjectId: subject.subjectId,
+      });
       cursors.set(subject.subjectId, cursor);
       return true;
     }
@@ -209,17 +260,26 @@ function selectBalancedIdentityImages(
     const key = normalizeReferenceKey(ref);
     if (seen.has(key)) continue;
     seen.add(key);
-    selected.push(ref);
+    const subject = subjectByImageKey.get(key);
+    selected.push({
+      image: ref,
+      role: subject?.role,
+      subjectId: subject?.subjectId,
+    });
   }
 
   return selected;
 }
 
-export function buildPreviewReferenceInputs(input: PreviewReferenceInput): string[] {
+export function buildPreviewReferenceInputs(
+  input: PreviewReferenceInput,
+): string[] {
   const includeCurrent = input.includeCurrentImageAsReference ?? true;
   const refs = [
     ...(Array.isArray(input.referenceImages) ? input.referenceImages : []),
-    ...(includeCurrent && input.currentImagePath ? [input.currentImagePath] : []),
+    ...(includeCurrent && input.currentImagePath
+      ? [input.currentImagePath]
+      : []),
   ];
   return refs;
 }
@@ -230,7 +290,12 @@ async function filterOutOwnerGeneratedReferences(
   editInstruction: string | undefined,
   refs: string[],
 ): Promise<{ filtered: string[]; dropped: string[] }> {
-  if (!owner || owner.type !== 'planScene' || editInstruction || refs.length === 0) {
+  if (
+    !owner ||
+    owner.type !== 'planScene' ||
+    editInstruction ||
+    refs.length === 0
+  ) {
     return { filtered: refs, dropped: [] };
   }
 
@@ -257,7 +322,9 @@ async function filterOutOwnerGeneratedReferences(
     .select({ filePath: generationArtifacts.filePath })
     .from(generationArtifacts)
     .where(and(...whereParts));
-  const ownerArtifactPaths = new Set(ownerArtifacts.map((row) => row.filePath).filter(Boolean));
+  const ownerArtifactPaths = new Set(
+    ownerArtifacts.map((row) => row.filePath).filter(Boolean),
+  );
 
   const filtered: string[] = [];
   const dropped: string[] = [];
@@ -273,34 +340,87 @@ async function filterOutOwnerGeneratedReferences(
   return { filtered, dropped };
 }
 
-export async function resolveReferenceImages(input: ResolveReferenceImagesInput): Promise<ResolvedReferenceImages> {
+export async function resolveReferenceImages(
+  input: ResolveReferenceImagesInput,
+): Promise<ResolvedReferenceImages> {
   const modelRefs = dedupeReferenceImages(input.modelReferenceImages);
-  const modelSubjects = normalizeModelReferenceSubjects(input.modelReferenceSubjects);
+  const modelSubjects = normalizeModelReferenceSubjects(
+    input.modelReferenceSubjects,
+  );
   const externalRefs = dedupeReferenceImages(input.inputReferenceImages);
   const modelKeys = new Set(modelRefs.map((v) => normalizeReferenceKey(v)));
-  const sceneCandidates = externalRefs.filter((v) => !modelKeys.has(normalizeReferenceKey(v)));
+  const sceneCandidates = externalRefs.filter(
+    (v) => !modelKeys.has(normalizeReferenceKey(v)),
+  );
 
   const { filtered: filteredSceneCandidates, dropped: droppedGeneratedImages } =
-    await filterOutOwnerGeneratedReferences(input.db, input.owner, input.editInstruction, sceneCandidates);
-  const sanitizedSceneCandidates = await sanitizeSceneReferenceImages(filteredSceneCandidates);
+    await filterOutOwnerGeneratedReferences(
+      input.db,
+      input.owner,
+      input.editInstruction,
+      sceneCandidates,
+    );
+  const sanitizedSceneCandidates = await sanitizeSceneReferenceImages(
+    filteredSceneCandidates,
+  );
 
-  const modelIdentityImages = selectBalancedIdentityImages(modelSubjects, modelRefs);
+  const selectedIdentityItems = selectBalancedIdentityItems(
+    modelSubjects,
+    modelRefs,
+  );
+  const modelIdentitySourceImages = selectedIdentityItems.map(
+    (item) => item.image,
+  );
+  const identityBindings: IdentityBinding[] = selectedIdentityItems.map(
+    (item, index) => ({
+      index: index + 1,
+      image: item.image,
+      role: item.role,
+      subjectId: item.subjectId,
+    }),
+  );
+
+  let identityCollageImage: string | null = null;
+  let modelIdentityImages = [...modelIdentitySourceImages];
+  if (identityBindings.length > 1) {
+    identityCollageImage = await getOrCreateIdentityReferenceCollage(
+      identityBindings.map((binding) => ({
+        index: binding.index,
+        role: binding.role,
+        image: binding.image,
+      })),
+    );
+    if (identityCollageImage) {
+      modelIdentityImages = [identityCollageImage];
+    }
+  }
   const sceneMax = Math.max(
     0,
-    Math.min(MAX_SCENE_REFERENCE_IMAGES, MAX_TOTAL_REFERENCE_IMAGES - modelIdentityImages.length),
+    Math.min(
+      MAX_SCENE_REFERENCE_IMAGES,
+      MAX_TOTAL_REFERENCE_IMAGES - modelIdentityImages.length,
+    ),
   );
   const sceneContextImages = sanitizedSceneCandidates.slice(0, sceneMax);
   const allImages = [...sceneContextImages, ...modelIdentityImages];
 
   return {
     modelIdentityImages,
+    modelIdentitySourceImages,
+    identityCollageImage,
+    identityBindings,
     sceneContextImages,
     allImages,
     droppedGeneratedImages,
   };
 }
 
-export function buildReferencePlanSummary(resolved: ResolvedReferenceImages): ReferencePlanSummary {
+export function buildReferencePlanSummary(
+  resolved: ResolvedReferenceImages,
+): ReferencePlanSummary {
+  const sceneSanitizedCount = resolved.sceneContextImages.filter((image) =>
+    image.includes('.scene-noface.'),
+  ).length;
   return {
     totalCount: resolved.allImages.length,
     order: [...resolved.allImages],
@@ -308,7 +428,11 @@ export function buildReferencePlanSummary(resolved: ResolvedReferenceImages): Re
       identity: [...resolved.modelIdentityImages],
       scene: [...resolved.sceneContextImages],
     },
+    identitySourceImages: [...resolved.modelIdentitySourceImages],
+    identityCollageImage: resolved.identityCollageImage,
+    identityBindings: [...resolved.identityBindings],
     droppedGeneratedImages: [...resolved.droppedGeneratedImages],
+    sceneSanitizedCount,
     counts: {
       identity: resolved.modelIdentityImages.length,
       scene: resolved.sceneContextImages.length,

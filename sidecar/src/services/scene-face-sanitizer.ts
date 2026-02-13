@@ -1,6 +1,4 @@
 import { execFile } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, extname, join, parse } from 'node:path';
 import {
   copyFileSync,
   existsSync,
@@ -9,6 +7,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { dirname, extname, join, parse } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 interface FaceBox {
@@ -31,7 +31,11 @@ const SWIFT_TIMEOUT_MS = 7000;
 const thisFilePath = fileURLToPath(import.meta.url);
 const thisDir = dirname(thisFilePath);
 const sidecarRoot = join(thisDir, '..', '..');
-const detectFacesScriptPath = join(sidecarRoot, 'scripts', 'detect-faces.swift');
+const detectFacesScriptPath = join(
+  sidecarRoot,
+  'scripts',
+  'detect-faces.swift',
+);
 
 function normalizeLocalUploadPath(value: string): string | null {
   const raw = value.trim();
@@ -53,7 +57,9 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function detectFacesLocal(imagePath: string): Promise<DetectFacesResult | null> {
+function detectFacesLocal(
+  imagePath: string,
+): Promise<DetectFacesResult | null> {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') {
       resolve(null);
@@ -97,7 +103,12 @@ async function buildFaceBlurComposite(
   faces: FaceBox[],
 ): Promise<Buffer> {
   const overlays: Array<{ input: Buffer; top: number; left: number }> = [];
-  const annotationRects: Array<{ left: number; top: number; width: number; height: number }> = [];
+  const annotationRects: Array<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }> = [];
 
   for (const face of faces) {
     const paddingX = face.width * DEFAULT_FACE_PADDING_RATIO;
@@ -146,8 +157,8 @@ async function buildFaceBlurComposite(
     .map(
       (rect, index) => `
       <rect x="${rect.left}" y="${rect.top}" width="${rect.width}" height="${rect.height}" fill="none" stroke="#ef4444" stroke-width="4" />
-      <rect x="${rect.left}" y="${Math.max(0, rect.top - 30)}" width="34" height="30" fill="#ef4444" />
-      <text x="${rect.left + 17}" y="${Math.max(18, rect.top - 10)}" text-anchor="middle" fill="#ffffff" font-size="18" font-family="Arial, sans-serif" font-weight="700">${index + 1}</text>
+      <rect x="${rect.left}" y="${Math.max(0, rect.top - 30)}" width="48" height="30" fill="#ef4444" />
+      <text x="${rect.left + 24}" y="${Math.max(18, rect.top - 10)}" text-anchor="middle" fill="#ffffff" font-size="16" font-family="Arial, sans-serif" font-weight="700">S${index + 1}</text>
     `,
     )
     .join('\n');
@@ -207,7 +218,11 @@ export async function getOrCreateSanitizedSceneReferenceImage(
   }
 
   const detectResult = await detectFacesLocal(sourceFullPath);
-  if (!detectResult || !Array.isArray(detectResult.faces) || detectResult.faces.length === 0) {
+  if (
+    !detectResult ||
+    !Array.isArray(detectResult.faces) ||
+    detectResult.faces.length === 0
+  ) {
     // 没检测到人脸时也产出缓存副本，避免后续重复检测。
     copyFileSync(sourceFullPath, sanitizedFullPath);
     return toPublicUploadPath(sanitizedLocalPath);
@@ -234,7 +249,9 @@ export async function warmSceneReferenceSanitization(
   }
 }
 
-export async function sanitizeSceneReferenceImages(values: string[]): Promise<string[]> {
+export async function sanitizeSceneReferenceImages(
+  values: string[],
+): Promise<string[]> {
   const output: string[] = [];
   for (const value of values) {
     try {

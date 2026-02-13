@@ -5,6 +5,28 @@ export interface TaskPromptReferenceByRole {
   scene: string[];
 }
 
+export interface TaskPromptReferenceIdentityBinding {
+  index: number;
+  image: string;
+  role?: string;
+  subjectId?: string;
+}
+
+export interface TaskPromptReferencePlan {
+  totalCount?: number;
+  order?: string[];
+  byRole?: TaskPromptReferenceByRole;
+  identitySourceImages?: string[];
+  identityCollageImage?: string | null;
+  identityBindings?: TaskPromptReferenceIdentityBinding[];
+  droppedGeneratedImages?: string[];
+  sceneSanitizedCount?: number;
+  counts?: {
+    identity?: number;
+    scene?: number;
+  };
+}
+
 export interface TaskPromptOptimization {
   status?: 'optimized' | 'fallback' | 'skipped' | string;
   reason?: string | null;
@@ -21,6 +43,7 @@ export interface TaskPromptOptimization {
 export interface TaskPromptContext {
   referenceImagesCount?: number;
   referenceImagesByRole?: TaskPromptReferenceByRole;
+  referencePlan?: TaskPromptReferencePlan;
   droppedReferenceImages?: string[];
   promptOptimization?: TaskPromptOptimization;
   [key: string]: unknown;

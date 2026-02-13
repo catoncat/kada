@@ -23,6 +23,15 @@ export interface PromptComposerMeta {
 }
 
 export interface ReferencePlanSummary {
+  identityBindings: Array<{
+    index: number;
+    image: string;
+    role?: string;
+    subjectId?: string;
+  }>;
+  identitySourceImages: string[];
+  identityCollageImage: string | null;
+  sceneSanitizedCount: number;
   totalCount: number;
   order: string[];
   byRole: {
@@ -63,7 +72,10 @@ interface PreviewPromptCacheEntry {
 }
 
 const previewPromptCache = new Map<string, PreviewPromptCacheEntry>();
-const previewPromptInflight = new Map<string, Promise<PreviewImagePromptResponse>>();
+const previewPromptInflight = new Map<
+  string,
+  Promise<PreviewImagePromptResponse>
+>();
 let previewPromptCacheHydrated = false;
 
 function toTrimmedString(value: unknown): string | null {
@@ -111,7 +123,8 @@ function buildPreviewPromptCacheKey(input: {
     providerId: toTrimmedString(input.providerId || ''),
     referenceImages: normalizeStringArray(input.referenceImages),
     currentImagePath: toTrimmedString(input.currentImagePath || ''),
-    includeCurrentImageAsReference: input.includeCurrentImageAsReference !== false,
+    includeCurrentImageAsReference:
+      input.includeCurrentImageAsReference !== false,
   };
   const signature = stableStringify(normalized);
   const key = `sig:${hashString(signature)}`;
@@ -143,17 +156,15 @@ function hashString(input: string): string {
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
     hash +=
-      (hash << 1) +
-      (hash << 4) +
-      (hash << 7) +
-      (hash << 8) +
-      (hash << 24);
+      (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
   }
   return (hash >>> 0).toString(16);
 }
 
 function canUseLocalStorage(): boolean {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  return (
+    typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+  );
 }
 
 function hydratePreviewPromptCache() {
@@ -221,15 +232,18 @@ export function clearPreviewImagePromptCache() {
   }
 }
 
-export async function previewImagePrompt(input: {
-  prompt: string;
-  owner?: PromptOwner;
-  editInstruction?: string;
-  providerId?: string;
-  referenceImages?: string[];
-  currentImagePath?: string | null;
-  includeCurrentImageAsReference?: boolean;
-}, options?: { forceRefresh?: boolean }): Promise<PreviewImagePromptResponse> {
+export async function previewImagePrompt(
+  input: {
+    prompt: string;
+    owner?: PromptOwner;
+    editInstruction?: string;
+    providerId?: string;
+    referenceImages?: string[];
+    currentImagePath?: string | null;
+    includeCurrentImageAsReference?: boolean;
+  },
+  options?: { forceRefresh?: boolean },
+): Promise<PreviewImagePromptResponse> {
   const { key: cacheKey, signature } = buildPreviewPromptCacheKey(input);
   if (!options?.forceRefresh) {
     const cached = getPreviewPromptCachedValue(cacheKey, signature);

@@ -5,24 +5,24 @@
  * - 创建 GenerationRun 和 GenerationArtifact 记录
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { getDb } from '../../db';
 import {
-  providers,
-  generationRuns,
   generationArtifacts,
+  generationRuns,
+  providers,
 } from '../../db/schema';
-import { eq } from 'drizzle-orm';
 import { buildImageEffectivePrompt } from '../prompt-engine';
+import { optimizeImagePrompt } from '../prompt-optimizer';
 import {
   buildReferencePlanSummary,
   normalizeLocalUploadPath,
   resolveReferenceImages,
 } from '../reference-image-planner';
-import { optimizeImagePrompt } from '../prompt-optimizer';
 
 const DEBUG_IMAGEGEN = process.env.SIDECAR_DEBUG_IMAGEGEN === '1';
 const REFERENCE_IMAGE_MAX_EDGE = 1024;
@@ -63,6 +63,8 @@ export interface ImageGenerationOutput {
 interface GeminiReferenceImages {
   identity?: string[];
   scene?: string[];
+  identityBindings?: Array<{ index: number; role?: string }>;
+  identityCollageUsed?: boolean;
 }
 
 // 获取上传目录
@@ -76,7 +78,10 @@ function getUploadDir(): string {
 }
 
 // 从 base64 解析图片信息
-function parseBase64Image(base64: string): { buffer: Buffer; sizeBytes: number } {
+function parseBase64Image(base64: string): {
+  buffer: Buffer;
+  sizeBytes: number;
+} {
   const buffer = Buffer.from(base64, 'base64');
   return { buffer, sizeBytes: buffer.length };
 }
@@ -92,12 +97,12 @@ function getExtension(mimeType: string): string {
   return map[mimeType] || 'png';
 }
 
-
 export async function imageGenerationHandler(
   input: ImageGenerationInput,
   context?: { taskId?: string },
 ): Promise<ImageGenerationOutput> {
-  const { prompt, providerId, owner, parentArtifactId, editInstruction } = input;
+  const { prompt, providerId, owner, parentArtifactId, editInstruction } =
+    input;
   const taskId = input.taskId || context?.taskId;
 
   if (DEBUG_IMAGEGEN) {
@@ -128,10 +133,14 @@ export async function imageGenerationHandler(
   };
 
   // 参考图分组：场景主题（最高优先级）+ 人物身份（次优先级）
-  const modelRefImages: string[] = Array.isArray((composed.promptContext as any).modelReferenceImages)
+  const modelRefImages: string[] = Array.isArray(
+    (composed.promptContext as any).modelReferenceImages,
+  )
     ? (composed.promptContext as any).modelReferenceImages
     : [];
-  const modelReferenceSubjects = Array.isArray((composed.promptContext as any).modelReferenceSubjects)
+  const modelReferenceSubjects = Array.isArray(
+    (composed.promptContext as any).modelReferenceSubjects,
+  )
     ? (composed.promptContext as any).modelReferenceSubjects
     : [];
   const resolvedReferences = await resolveReferenceImages({
@@ -156,7 +165,8 @@ export async function imageGenerationHandler(
   };
   (promptContext as any).referencePlan = referencePlan;
   if (resolvedReferences.droppedGeneratedImages.length > 0) {
-    (promptContext as any).droppedReferenceImages = resolvedReferences.droppedGeneratedImages;
+    (promptContext as any).droppedReferenceImages =
+      resolvedReferences.droppedGeneratedImages;
   }
   (promptContext as any).options = resolvedGenerationOptions ?? null;
 
@@ -239,6 +249,13 @@ export async function imageGenerationHandler(
       {
         identity: resolvedReferences.modelIdentityImages,
         scene: resolvedReferences.sceneContextImages,
+        identityBindings: resolvedReferences.identityBindings.map(
+          (binding) => ({
+            index: binding.index,
+            role: binding.role,
+          }),
+        ),
+        identityCollageUsed: Boolean(resolvedReferences.identityCollageImage),
       },
       resolvedGenerationOptions || undefined,
     );
@@ -261,8 +278,10 @@ export async function imageGenerationHandler(
     if ((!outputWidth || !outputHeight) && buffer.length > 0) {
       try {
         const metadata = await sharp(buffer, { failOn: 'none' }).metadata();
-        if (!outputWidth && typeof metadata.width === 'number') outputWidth = metadata.width;
-        if (!outputHeight && typeof metadata.height === 'number') outputHeight = metadata.height;
+        if (!outputWidth && typeof metadata.width === 'number')
+          outputWidth = metadata.width;
+        if (!outputHeight && typeof metadata.height === 'number')
+          outputHeight = metadata.height;
       } catch {
         // ignore metadata errors and keep nullable width/height
       }
@@ -291,9 +310,10 @@ export async function imageGenerationHandler(
       ownerSlot: owner?.slot || null,
       effectivePrompt,
       promptContext: JSON.stringify(promptContext),
-      referenceImages: allReferenceImages.length > 0
-        ? JSON.stringify(allReferenceImages)
-        : null,
+      referenceImages:
+        allReferenceImages.length > 0
+          ? JSON.stringify(allReferenceImages)
+          : null,
       editInstruction: editInstruction || null,
       parentArtifactId: parentArtifactId || null,
       createdAt: now,
@@ -326,7 +346,8 @@ export async function imageGenerationHandler(
     };
   } catch (error: unknown) {
     // 更新 Run 状态为失败
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
     await db
       .update(generationRuns)
       .set({
@@ -401,7 +422,9 @@ function pickClosestGeminiAspectRatio(width: number, height: number): string {
   return best.label;
 }
 
-async function inferAspectRatioFromSceneReferences(sceneImages: string[]): Promise<string | undefined> {
+async function inferAspectRatioFromSceneReferences(
+  sceneImages: string[],
+): Promise<string | null> {
   for (const image of sceneImages) {
     const localUploadPath = normalizeLocalUploadPath(image);
     if (!localUploadPath) continue;
@@ -421,7 +444,7 @@ async function inferAspectRatioFromSceneReferences(sceneImages: string[]): Promi
       // ignore metadata errors and try next scene reference
     }
   }
-  return undefined;
+  return null;
 }
 
 async function resolveImageGenerationOptions(
@@ -433,7 +456,8 @@ async function resolveImageGenerationOptions(
       ? (rawOptions as ImageGenerationOptions)
       : null;
   const explicitAspectRatio =
-    typeof baseOptions?.aspectRatio === 'string' && baseOptions.aspectRatio.trim()
+    typeof baseOptions?.aspectRatio === 'string' &&
+    baseOptions.aspectRatio.trim()
       ? baseOptions.aspectRatio.trim()
       : null;
 
@@ -443,8 +467,12 @@ async function resolveImageGenerationOptions(
   }
 
   const resolved: ImageGenerationOptions = {
-    ...(typeof baseOptions?.width === 'number' ? { width: baseOptions.width } : null),
-    ...(typeof baseOptions?.height === 'number' ? { height: baseOptions.height } : null),
+    ...(typeof baseOptions?.width === 'number'
+      ? { width: baseOptions.width }
+      : null),
+    ...(typeof baseOptions?.height === 'number'
+      ? { height: baseOptions.height }
+      : null),
     ...(aspectRatio ? { aspectRatio } : null),
   };
 
@@ -471,7 +499,10 @@ async function optimizeReferenceImageBuffer(
     };
   } catch (e) {
     if (DEBUG_IMAGEGEN) {
-      console.warn('[ImageGen] Failed to optimize reference image, use original buffer:', e);
+      console.warn(
+        '[ImageGen] Failed to optimize reference image, use original buffer:',
+        e,
+      );
     }
     return {
       data: buffer.toString('base64'),
@@ -480,7 +511,9 @@ async function optimizeReferenceImageBuffer(
   }
 }
 
-async function buildGeminiInlineDataPart(rawImage: string): Promise<any | null> {
+async function buildGeminiInlineDataPart(
+  rawImage: string,
+): Promise<any | null> {
   const raw = rawImage.trim();
   if (!raw) return null;
 
@@ -533,10 +566,17 @@ async function buildGeminiInlineDataPart(rawImage: string): Promise<any | null> 
   }
 }
 
-async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages): Promise<any[]> {
+async function buildGeminiReferenceParts(
+  referenceImages?: GeminiReferenceImages,
+): Promise<any[]> {
   const parts: any[] = [];
   const identityImages = referenceImages?.identity || [];
   const sceneImages = referenceImages?.scene || [];
+  const identityBindings = Array.isArray(referenceImages?.identityBindings)
+    ? referenceImages.identityBindings
+        .filter((item) => item && typeof item.index === 'number')
+        .sort((a, b) => a.index - b.index)
+    : [];
 
   parts.push({
     text: '最终输出必须是单张单帧的完整摄影画面。禁止拼图、分屏、左右对比、多宫格、连环画排版、文字水印与边框版式。',
@@ -559,6 +599,22 @@ async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages
     parts.push({
       text: '以下是人物身份参考图（硬约束）：只用于锁定人物身份特征（脸型、五官、年龄感、发型、肤色），不得继承参考图里的背景、服装和构图。',
     });
+    if (identityBindings.length > 0) {
+      const mappingText = identityBindings
+        .map((item) => {
+          const role = item.role?.trim() || `角色${item.index}`;
+          return `#${item.index}=${role}`;
+        })
+        .join('，');
+      parts.push({
+        text: `人物编号映射（硬约束，不可交换）：${mappingText}。`,
+      });
+    }
+    if (referenceImages?.identityCollageUsed) {
+      parts.push({
+        text: '人物身份参考图为单张拼接图，红框编号与上述映射一一对应。',
+      });
+    }
     for (const image of identityImages) {
       const part = await buildGeminiInlineDataPart(image);
       if (part) parts.push(part);
@@ -610,7 +666,7 @@ async function generateImage(
   provider: Provider,
   prompt: string,
   referenceImages?: GeminiReferenceImages,
-  options?: Record<string, unknown>
+  options?: ImageGenerationOptions,
 ): Promise<GenerateImageResult> {
   if (DEBUG_IMAGEGEN) {
     console.log(
@@ -628,7 +684,7 @@ async function generateImage(
         model: provider.imageModel,
       });
     }
-    const parsedOptions = (options && typeof options === 'object' ? options : null) as ImageGenerationOptions | null;
+    const parsedOptions = options || null;
     const requestParts = await buildGeminiReferenceParts(referenceImages);
     const requestedAspectRatio = buildAspectRatioInstruction(
       parsedOptions?.aspectRatio,
@@ -664,7 +720,8 @@ async function generateImage(
 
     let res = await doGenerateRequest(true);
 
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response status:', res.status);
+    if (DEBUG_IMAGEGEN)
+      console.log('[ImageGen] Gemini response status:', res.status);
 
     if (!res.ok) {
       let errorData = await res.json().catch(() => ({}));
@@ -701,16 +758,31 @@ async function generateImage(
     }
 
     const data = await res.json();
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response keys:', Object.keys(data));
+    if (DEBUG_IMAGEGEN)
+      console.log('[ImageGen] Gemini response keys:', Object.keys(data));
     const responseParts =
-      (data as { candidates?: { content?: { parts?: Array<{ inlineData?: { data: string; mimeType?: string } }> } }[] })
-        .candidates?.[0]?.content?.parts || [];
+      (
+        data as {
+          candidates?: {
+            content?: {
+              parts?: Array<{
+                inlineData?: { data: string; mimeType?: string };
+              }>;
+            };
+          }[];
+        }
+      ).candidates?.[0]?.content?.parts || [];
 
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] Parts count:', responseParts.length);
+    if (DEBUG_IMAGEGEN)
+      console.log('[ImageGen] Parts count:', responseParts.length);
 
     for (const part of responseParts) {
       if (part.inlineData) {
-        if (DEBUG_IMAGEGEN) console.log('[ImageGen] Found inlineData, mimeType:', part.inlineData.mimeType);
+        if (DEBUG_IMAGEGEN)
+          console.log(
+            '[ImageGen] Found inlineData, mimeType:',
+            part.inlineData.mimeType,
+          );
         return {
           imageBase64: part.inlineData.data,
           mimeType: part.inlineData.mimeType || 'image/png',
@@ -743,14 +815,16 @@ async function generateImage(
       }),
     });
 
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI response status:', res.status);
+    if (DEBUG_IMAGEGEN)
+      console.log('[ImageGen] OpenAI response status:', res.status);
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI error:', JSON.stringify(errorData));
+      if (DEBUG_IMAGEGEN)
+        console.log('[ImageGen] OpenAI error:', JSON.stringify(errorData));
       throw new Error(
         (errorData as { error?: { message?: string } }).error?.message ||
-          `HTTP ${res.status}`
+          `HTTP ${res.status}`,
       );
     }
 

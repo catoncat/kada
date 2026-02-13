@@ -31,7 +31,12 @@ import {
   TASK_TYPE_LABELS,
   type Task,
 } from '@/lib/tasks-api';
-import type { TaskPromptContext, TaskPromptOptimization } from '@/types/task-detail';
+import type {
+  TaskPromptContext,
+  TaskPromptOptimization,
+  TaskPromptReferenceIdentityBinding,
+  TaskPromptReferencePlan,
+} from '@/types/task-detail';
 
 export const Route = createFileRoute('/tasks/$id')({
   component: TaskDeepLinkPage,
@@ -44,6 +49,10 @@ interface TaskReferenceSummary {
   identity: string[];
   scene: string[];
   dropped: string[];
+  order: string[];
+  identityCollageImage: string | null;
+  identityBindings: TaskPromptReferenceIdentityBinding[];
+  sceneSanitizedCount: number;
 }
 
 interface TaskPromptOptimizationSummary {
@@ -74,11 +83,15 @@ function getPromptOptimizationSummary(
   promptContext?: TaskPromptContext | null,
 ): TaskPromptOptimizationSummary | null {
   if (!promptContext || typeof promptContext !== 'object') return null;
-  const raw = promptContext.promptOptimization as TaskPromptOptimization | undefined;
+  const raw = promptContext.promptOptimization as
+    | TaskPromptOptimization
+    | undefined;
   if (!raw || typeof raw !== 'object') return null;
 
   const status =
-    raw.status === 'optimized' || raw.status === 'fallback' || raw.status === 'skipped'
+    raw.status === 'optimized' ||
+    raw.status === 'fallback' ||
+    raw.status === 'skipped'
       ? raw.status
       : 'skipped';
 
@@ -114,19 +127,59 @@ function getReferenceSummary(
 ): TaskReferenceSummary | null {
   if (!promptContext || typeof promptContext !== 'object') return null;
 
-  const identity = toStringArray(promptContext.referenceImagesByRole?.identity);
-  const scene = toStringArray(promptContext.referenceImagesByRole?.scene);
-  const dropped = toStringArray(promptContext.droppedReferenceImages);
-  if (identity.length === 0 && scene.length === 0 && dropped.length === 0)
+  const plan = promptContext.referencePlan as
+    | TaskPromptReferencePlan
+    | undefined;
+  const byRole = plan?.byRole || promptContext.referenceImagesByRole;
+  const identity = toStringArray(byRole?.identity);
+  const scene = toStringArray(byRole?.scene);
+  const dropped = toStringArray(
+    plan?.droppedGeneratedImages || promptContext.droppedReferenceImages,
+  );
+  const order = toStringArray(plan?.order);
+  const identityCollageImage = toText(plan?.identityCollageImage);
+  const identityBindings = Array.isArray(plan?.identityBindings)
+    ? plan.identityBindings
+        .filter((item): item is TaskPromptReferenceIdentityBinding =>
+          Boolean(
+            item &&
+              typeof item.index === 'number' &&
+              typeof item.image === 'string',
+          ),
+        )
+        .sort((a, b) => a.index - b.index)
+    : [];
+  if (
+    identity.length === 0 &&
+    scene.length === 0 &&
+    dropped.length === 0 &&
+    identityBindings.length === 0
+  ) {
     return null;
+  }
 
   const totalCountRaw = promptContext.referenceImagesCount;
   const totalCount =
     typeof totalCountRaw === 'number' && Number.isFinite(totalCountRaw)
       ? totalCountRaw
       : identity.length + scene.length;
+  const sceneSanitizedCount =
+    typeof plan?.sceneSanitizedCount === 'number' &&
+    Number.isFinite(plan.sceneSanitizedCount)
+      ? plan.sceneSanitizedCount
+      : scene.filter((item) => item.includes('.scene-noface.')).length;
+  const normalizedOrder = order.length > 0 ? order : [...scene, ...identity];
 
-  return { totalCount, identity, scene, dropped };
+  return {
+    totalCount,
+    identity,
+    scene,
+    dropped,
+    order: normalizedOrder,
+    identityCollageImage,
+    identityBindings,
+    sceneSanitizedCount,
+  };
 }
 
 function getReferencePreviewUrl(pathValue: string): string {
@@ -144,9 +197,11 @@ function getReferencePreviewUrl(pathValue: string): string {
 function ReferenceImageList({
   items,
   keyPrefix,
+  identityCollageImage,
 }: {
   items: string[];
   keyPrefix: string;
+  identityCollageImage?: string | null;
 }) {
   if (items.length === 0) {
     return <div className="text-muted-foreground">无</div>;
@@ -175,6 +230,9 @@ function ReferenceImageList({
               </div>
               {item.includes('.scene-noface.') ? (
                 <div className="text-emerald-600">场景去脸缓存</div>
+              ) : null}
+              {identityCollageImage && item === identityCollageImage ? (
+                <div className="text-blue-600">人物拼接参考图（编号）</div>
               ) : null}
             </div>
           </a>
@@ -368,7 +426,9 @@ function TaskDeepLinkPage() {
 
   const detail = detailQuery.data;
   const referenceSummary = getReferenceSummary(detail.run?.promptContext);
-  const optimizationSummary = getPromptOptimizationSummary(detail.run?.promptContext);
+  const optimizationSummary = getPromptOptimizationSummary(
+    detail.run?.promptContext,
+  );
   const sourceComposedPrompt =
     optimizationSummary?.sourcePrompt &&
     optimizationSummary.sourcePrompt !== detail.run?.effectivePrompt
@@ -526,6 +586,7 @@ function TaskDeepLinkPage() {
                   <ReferenceImageList
                     items={referenceSummary.identity}
                     keyPrefix="identity"
+                    identityCollageImage={referenceSummary.identityCollageImage}
                   />
                 </div>
                 <div>
@@ -535,9 +596,62 @@ function TaskDeepLinkPage() {
                   <ReferenceImageList
                     items={referenceSummary.scene}
                     keyPrefix="scene"
+                    identityCollageImage={referenceSummary.identityCollageImage}
                   />
+                  {referenceSummary.sceneSanitizedCount > 0 ? (
+                    <div className="mt-1 text-[11px] text-emerald-700">
+                      其中 {referenceSummary.sceneSanitizedCount}{' '}
+                      张为去脸预处理图
+                    </div>
+                  ) : null}
                 </div>
               </div>
+
+              {referenceSummary.identityBindings.length > 0 && (
+                <div>
+                  <div className="font-medium text-muted-foreground">
+                    人物编号映射（硬约束）
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    {referenceSummary.identityBindings.map((binding) => (
+                      <div
+                        key={`binding-${binding.index}-${binding.image}`}
+                        className="flex items-center gap-2 rounded border bg-background px-2 py-1"
+                      >
+                        <div className="text-[10px] font-mono text-muted-foreground shrink-0">
+                          #{binding.index}
+                        </div>
+                        <PhotoFrame
+                          src={getReferencePreviewUrl(binding.image)}
+                          alt={`binding-${binding.index}`}
+                          className="h-8 w-8 rounded border"
+                        />
+                        <div className="min-w-0 text-2xs">
+                          <div className="truncate font-medium">
+                            {binding.role || `角色${binding.index}`}
+                          </div>
+                          <div className="truncate text-muted-foreground">
+                            {binding.image}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {referenceSummary.order.length > 0 && (
+                <div>
+                  <div className="font-medium text-muted-foreground">
+                    注入顺序
+                  </div>
+                  <ReferenceImageList
+                    items={referenceSummary.order}
+                    keyPrefix="order"
+                    identityCollageImage={referenceSummary.identityCollageImage}
+                  />
+                </div>
+              )}
 
               {referenceSummary.dropped.length > 0 && (
                 <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
@@ -546,6 +660,9 @@ function TaskDeepLinkPage() {
                     <ReferenceImageList
                       items={referenceSummary.dropped}
                       keyPrefix="dropped"
+                      identityCollageImage={
+                        referenceSummary.identityCollageImage
+                      }
                     />
                   </div>
                 </div>

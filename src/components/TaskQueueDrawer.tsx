@@ -52,6 +52,8 @@ import type {
   TaskPromptContext,
   TaskPromptOptimization,
   TaskPromptReferenceByRole,
+  TaskPromptReferenceIdentityBinding,
+  TaskPromptReferencePlan,
 } from '@/types/task-detail';
 
 type TaskFilter = 'all' | 'active' | 'history';
@@ -230,7 +232,6 @@ function getImageParams(
 
     editInstruction = safeString(task.input.editInstruction);
     parentArtifactId = safeString(task.input.parentArtifactId);
-
   }
 
   if (detail?.artifacts?.length) {
@@ -266,6 +267,10 @@ interface ReferenceSummaryView {
   byRole: TaskPromptReferenceByRole;
   dropped: string[];
   order: string[];
+  identitySourceImages: string[];
+  identityCollageImage: string | null;
+  identityBindings: TaskPromptReferenceIdentityBinding[];
+  sceneSanitizedCount: number;
 }
 
 interface PromptOptimizationView {
@@ -334,18 +339,48 @@ function getReferenceSummary(
   promptContext?: TaskPromptContext | null,
 ): ReferenceSummaryView | null {
   if (!promptContext || typeof promptContext !== 'object') return null;
-  const rawByRole = promptContext.referenceImagesByRole;
+  const plan = promptContext.referencePlan as
+    | TaskPromptReferencePlan
+    | undefined;
+  const rawByRole = plan?.byRole || promptContext.referenceImagesByRole;
   const identity = toStringArray(rawByRole?.identity);
   const scene = toStringArray(rawByRole?.scene);
-  const dropped = toStringArray(promptContext.droppedReferenceImages);
-  const order = [...identity, ...scene];
+  const dropped = toStringArray(
+    plan?.droppedGeneratedImages || promptContext.droppedReferenceImages,
+  );
+  const order = toStringArray(plan?.order);
+  const identitySourceImages = toStringArray(plan?.identitySourceImages);
+  const identityCollageImage = safeString(plan?.identityCollageImage);
+  const identityBindings = Array.isArray(plan?.identityBindings)
+    ? plan.identityBindings
+        .filter((item): item is TaskPromptReferenceIdentityBinding =>
+          Boolean(
+            item &&
+              typeof item.index === 'number' &&
+              typeof item.image === 'string',
+          ),
+        )
+        .sort((a, b) => a.index - b.index)
+    : [];
+  const sceneSanitizedCount =
+    typeof plan?.sceneSanitizedCount === 'number' &&
+    Number.isFinite(plan.sceneSanitizedCount)
+      ? plan.sceneSanitizedCount
+      : scene.filter((item) => item.includes('.scene-noface.')).length;
+
+  const normalizedOrder = order.length > 0 ? order : [...scene, ...identity];
   const totalCountRaw = promptContext.referenceImagesCount;
   const totalCount =
     typeof totalCountRaw === 'number' && Number.isFinite(totalCountRaw)
       ? totalCountRaw
-      : order.length;
+      : normalizedOrder.length;
 
-  if (identity.length === 0 && scene.length === 0 && dropped.length === 0) {
+  if (
+    identity.length === 0 &&
+    scene.length === 0 &&
+    dropped.length === 0 &&
+    identityBindings.length === 0
+  ) {
     return null;
   }
 
@@ -353,7 +388,11 @@ function getReferenceSummary(
     totalCount,
     byRole: { identity, scene },
     dropped,
-    order,
+    order: normalizedOrder,
+    identitySourceImages,
+    identityCollageImage,
+    identityBindings,
+    sceneSanitizedCount,
   };
 }
 
@@ -1102,7 +1141,6 @@ function TaskDetailPane({
               </div>
             )}
           </div>
-
         </div>
       )}
 
@@ -1344,6 +1382,10 @@ function ReferenceSummaryBlock({
                 {item.includes('.scene-noface.') ? (
                   <div className="text-emerald-600">场景去脸缓存</div>
                 ) : null}
+                {summary.identityCollageImage &&
+                item === summary.identityCollageImage ? (
+                  <div className="text-blue-600">人物拼接参考图（编号）</div>
+                ) : null}
               </div>
             </a>
           );
@@ -1374,22 +1416,64 @@ function ReferenceSummaryBlock({
             scene（{summary.byRole.scene.length}）
           </div>
           {renderImageList(summary.byRole.scene, 'ref-scene')}
+          {summary.sceneSanitizedCount > 0 ? (
+            <div className="mt-1 text-[11px] text-emerald-700">
+              其中 {summary.sceneSanitizedCount} 张为去脸预处理图
+            </div>
+          ) : null}
         </div>
       </div>
+
+      {summary.identityBindings.length > 0 && (
+        <div>
+          <div className="text-2xs font-medium text-muted-foreground">
+            人物编号映射（硬约束）
+          </div>
+          <div className="mt-1 space-y-1">
+            {summary.identityBindings.map((binding) => (
+              <div
+                key={`binding-${binding.index}-${binding.image}`}
+                className="flex items-center gap-2 rounded border bg-background px-2 py-1"
+              >
+                <div className="text-[10px] font-mono text-muted-foreground shrink-0">
+                  #{binding.index}
+                </div>
+                <PhotoFrame
+                  src={getReferencePreviewUrl(binding.image)}
+                  alt={`binding-${binding.index}`}
+                  className="h-8 w-8 rounded border"
+                />
+                <div className="min-w-0 text-2xs">
+                  <div className="truncate font-medium">
+                    {binding.role || `角色${binding.index}`}
+                  </div>
+                  <div className="truncate text-muted-foreground">
+                    {binding.image}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {summary.order.length > 0 && (
         <div>
           <div className="text-2xs font-medium text-muted-foreground">
             注入顺序
           </div>
-          <div className="mt-1">{renderImageList(summary.order, 'ref-order')}</div>
+          <div className="mt-1">
+            {renderImageList(summary.order, 'ref-order')}
+          </div>
         </div>
       )}
 
       {summary.dropped.length > 0 && (
         <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-2xs text-amber-700">
           已自动过滤 {summary.dropped.length} 张历史生成图：
-          <div className="mt-1">{renderImageList(summary.dropped, 'ref-dropped')}</div>
+          <div className="mt-1">
+            {renderImageList(summary.dropped, 'ref-dropped')}
+          </div>
         </div>
       )}
     </div>

@@ -119,3 +119,46 @@ test('optimizeImagePrompt skips when no text-capable provider', async () => {
   assert.equal(result.renderPrompt, '拼接后的提示词');
   assert.equal(result.meta.status, 'skipped');
 });
+
+test('optimizeImagePrompt appends identity mapping declaration from reference plan', async () => {
+  const result = await optimizeImagePrompt({
+    db: createDbStub({ providerRows: [] }),
+    providerId: 'missing-provider',
+    effectivePrompt: '基础提示词',
+    referencePlan: {
+      totalCount: 2,
+      order: [
+        '/uploads/scene.scene-noface.jpg',
+        '/uploads/identity-collage.jpg',
+      ],
+      byRole: {
+        identity: ['/uploads/identity-collage.jpg'],
+        scene: ['/uploads/scene.scene-noface.jpg'],
+      },
+      identitySourceImages: [
+        '/uploads/dad.jpg',
+        '/uploads/mom.jpg',
+        '/uploads/baby.jpg',
+      ],
+      identityCollageImage: '/uploads/identity-collage.jpg',
+      identityBindings: [
+        { index: 1, image: '/uploads/dad.jpg', role: '爸爸' },
+        { index: 2, image: '/uploads/mom.jpg', role: '妈妈' },
+        { index: 3, image: '/uploads/baby.jpg', role: '宝宝' },
+      ],
+      droppedGeneratedImages: [],
+      sceneSanitizedCount: 1,
+      counts: {
+        identity: 1,
+        scene: 1,
+      },
+    },
+  });
+
+  assert.equal(result.meta.status, 'skipped');
+  assert.match(
+    result.renderPrompt,
+    /人物编号映射（硬约束，不可交换）：#1=爸爸，#2=妈妈，#3=宝宝。/,
+  );
+  assert.match(result.renderPrompt, /仅允许单张单帧完整画面/);
+});

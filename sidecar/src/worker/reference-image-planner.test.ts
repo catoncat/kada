@@ -20,7 +20,11 @@ test('resolveReferenceImages splits identity and scene with dedupe/limit', async
   const db = createDbStub([]);
   const result = await resolveReferenceImages({
     db,
-    modelReferenceImages: ['/uploads/model-a.jpg', 'uploads/model-b.jpg', 'https://img/model-c.jpg'],
+    modelReferenceImages: [
+      '/uploads/model-a.jpg',
+      'uploads/model-b.jpg',
+      'https://img/model-c.jpg',
+    ],
     inputReferenceImages: [
       'uploads/model-a.jpg',
       '/uploads/scene-1.jpg',
@@ -36,18 +40,10 @@ test('resolveReferenceImages splits identity and scene with dedupe/limit', async
     '/uploads/model-b.jpg',
     'https://img/model-c.jpg',
   ]);
-  assert.deepEqual(result.sceneContextImages, [
-    '/uploads/scene-1.jpg',
-    '/uploads/scene-2.jpg',
-    '/uploads/scene-3.jpg',
-    '/uploads/scene-4.jpg',
-  ]);
-  assert.equal(result.allImages.length, 7);
+  assert.deepEqual(result.sceneContextImages, ['/uploads/scene-1.jpg']);
+  assert.equal(result.allImages.length, 4);
   assert.deepEqual(result.allImages, [
     '/uploads/scene-1.jpg',
-    '/uploads/scene-2.jpg',
-    '/uploads/scene-3.jpg',
-    '/uploads/scene-4.jpg',
     '/uploads/model-a.jpg',
     '/uploads/model-b.jpg',
     'https://img/model-c.jpg',
@@ -78,13 +74,21 @@ test('resolveReferenceImages keeps at least one identity image per subject when 
         subjectId: 'mom',
         role: '妈妈',
         modelId: 'model-mom',
-        images: ['/uploads/mom-1.jpg', '/uploads/mom-2.jpg', '/uploads/mom-3.jpg'],
+        images: [
+          '/uploads/mom-1.jpg',
+          '/uploads/mom-2.jpg',
+          '/uploads/mom-3.jpg',
+        ],
       },
       {
         subjectId: 'baby',
         role: '宝宝',
         modelId: 'model-baby',
-        images: ['/uploads/baby-1.jpg', '/uploads/baby-2.jpg', '/uploads/baby-3.jpg'],
+        images: [
+          '/uploads/baby-1.jpg',
+          '/uploads/baby-2.jpg',
+          '/uploads/baby-3.jpg',
+        ],
       },
     ],
     inputReferenceImages: ['/uploads/scene-1.jpg'],
@@ -102,7 +106,10 @@ test('resolveReferenceImages drops generated image from same owner slot', async 
   const result = await resolveReferenceImages({
     db,
     owner: { type: 'planScene', id: 'project-1', slot: 'scene:0' },
-    inputReferenceImages: ['/uploads/generated-1.jpg', '/uploads/scene-keep.jpg'],
+    inputReferenceImages: [
+      '/uploads/generated-1.jpg',
+      '/uploads/scene-keep.jpg',
+    ],
   });
 
   assert.deepEqual(result.sceneContextImages, ['/uploads/scene-keep.jpg']);
@@ -128,8 +135,18 @@ test('buildPreviewReferenceInputs honors includeCurrentImageAsReference flag', (
 test('buildReferencePlanSummary returns grouped counts and order', () => {
   const summary = buildReferencePlanSummary({
     modelIdentityImages: ['/uploads/model-a.jpg', '/uploads/model-b.jpg'],
+    modelIdentitySourceImages: ['/uploads/model-a.jpg', '/uploads/model-b.jpg'],
+    identityCollageImage: null,
+    identityBindings: [
+      { index: 1, image: '/uploads/model-a.jpg', role: '爸爸' },
+      { index: 2, image: '/uploads/model-b.jpg', role: '妈妈' },
+    ],
     sceneContextImages: ['/uploads/scene-1.jpg'],
-    allImages: ['/uploads/scene-1.jpg', '/uploads/model-a.jpg', '/uploads/model-b.jpg'],
+    allImages: [
+      '/uploads/scene-1.jpg',
+      '/uploads/model-a.jpg',
+      '/uploads/model-b.jpg',
+    ],
     droppedGeneratedImages: ['/uploads/generated-1.jpg'],
   });
 
@@ -139,8 +156,23 @@ test('buildReferencePlanSummary returns grouped counts and order', () => {
     '/uploads/model-a.jpg',
     '/uploads/model-b.jpg',
   ]);
-  assert.deepEqual(summary.byRole.identity, ['/uploads/model-a.jpg', '/uploads/model-b.jpg']);
+  assert.deepEqual(summary.byRole.identity, [
+    '/uploads/model-a.jpg',
+    '/uploads/model-b.jpg',
+  ]);
   assert.deepEqual(summary.byRole.scene, ['/uploads/scene-1.jpg']);
   assert.deepEqual(summary.counts, { identity: 2, scene: 1 });
-  assert.deepEqual(summary.droppedGeneratedImages, ['/uploads/generated-1.jpg']);
+  assert.deepEqual(summary.identitySourceImages, [
+    '/uploads/model-a.jpg',
+    '/uploads/model-b.jpg',
+  ]);
+  assert.equal(summary.identityCollageImage, null);
+  assert.deepEqual(summary.identityBindings, [
+    { index: 1, image: '/uploads/model-a.jpg', role: '爸爸' },
+    { index: 2, image: '/uploads/model-b.jpg', role: '妈妈' },
+  ]);
+  assert.equal(summary.sceneSanitizedCount, 0);
+  assert.deepEqual(summary.droppedGeneratedImages, [
+    '/uploads/generated-1.jpg',
+  ]);
 });
