@@ -15,8 +15,6 @@ interface ModelFormProps {
   onSubmit: (data: CreateModelAssetInput) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
-  /** 预填的项目 ID（项目内快速创建时使用） */
-  defaultProjectId?: string | null;
 }
 
 const GENDER_OPTIONS = [
@@ -61,7 +59,6 @@ export function ModelForm({
   onSubmit,
   onCancel,
   loading = false,
-  defaultProjectId,
 }: ModelFormProps) {
   const [name, setName] = useState(initialData?.name || '');
   const [gender, setGender] = useState(initialData?.gender || '');
@@ -117,7 +114,6 @@ export function ModelForm({
       primaryImage: primaryImage || undefined,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       tags: tags.length > 0 ? tags : undefined,
-      projectId: defaultProjectId ?? initialData?.projectId ?? null,
     };
 
     await onSubmit(data);

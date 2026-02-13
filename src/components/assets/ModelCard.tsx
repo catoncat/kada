@@ -44,14 +44,6 @@ export function ModelCard({ model, onEdit, onDelete }: ModelCardProps) {
           </div>
         }
       >
-
-        {/* 项目专属标签 */}
-        {model.projectId && (
-          <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-muted/90 text-xs font-medium text-muted-foreground">
-            项目专属
-          </div>
-        )}
-
         {/* 参考图数量 */}
         {refCount > 0 && (
           <div className="absolute bottom-3 right-3 px-2 py-1 rounded-full bg-black/60 text-white text-xs flex items-center gap-1">

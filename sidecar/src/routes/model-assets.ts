@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, or, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
 import { modelAssets, type ModelAsset } from '../db/schema';
@@ -10,6 +10,8 @@ export const modelAssetsRoutes = new Hono();
 function parseModelAsset(m: typeof modelAssets.$inferSelect) {
   return {
     ...m,
+    // 兼容历史字段：统一按全局资产语义返回
+    projectId: null,
     referenceImages: m.referenceImages ? JSON.parse(m.referenceImages) : [],
     tags: m.tags ? JSON.parse(m.tags) : [],
   };
@@ -19,24 +21,10 @@ function parseModelAsset(m: typeof modelAssets.$inferSelect) {
 modelAssetsRoutes.get('/', async (c) => {
   try {
     const db = getDb();
-    const projectId = c.req.query('projectId');
-
-    let models: ModelAsset[];
-    if (projectId) {
-      // 返回全局 + 项目专属
-      models = await db
-        .select()
-        .from(modelAssets)
-        .where(or(isNull(modelAssets.projectId), eq(modelAssets.projectId, projectId)))
-        .orderBy(modelAssets.createdAt);
-    } else {
-      // 只返回全局模特
-      models = await db
-        .select()
-        .from(modelAssets)
-        .where(isNull(modelAssets.projectId))
-        .orderBy(modelAssets.createdAt);
-    }
+    const models: ModelAsset[] = await db
+      .select()
+      .from(modelAssets)
+      .orderBy(modelAssets.createdAt);
 
     const parsed = models.map(parseModelAsset);
     return c.json({ data: parsed, total: parsed.length });
@@ -51,22 +39,18 @@ modelAssetsRoutes.get('/', async (c) => {
 modelAssetsRoutes.post('/auto-match', async (c) => {
   try {
     const body = await c.req.json();
-    const { projectId, people } = body as {
-      projectId: string;
+    const { people } = body as {
       people: Array<{ id: string; role: string; gender?: string; age?: number }>;
     };
 
-    if (!projectId || !Array.isArray(people)) {
-      return c.json({ error: '缺少 projectId 或 people 参数' }, 400);
+    if (!Array.isArray(people)) {
+      return c.json({ error: '缺少 people 参数' }, 400);
     }
 
     const db = getDb();
 
-    // 查询所有可用模特（全局 + 项目专属）
-    const allModels = await db
-      .select()
-      .from(modelAssets)
-      .where(or(isNull(modelAssets.projectId), eq(modelAssets.projectId, projectId)));
+    // 查询所有可用模特（统一为全局语义）
+    const allModels = await db.select().from(modelAssets);
 
     const matches: Record<string, Array<{ modelId: string; name: string; score: number }>> = {};
 
@@ -88,11 +72,6 @@ modelAssetsRoutes.post('/auto-match', async (c) => {
           if (person.age >= min && person.age <= max) {
             score += 40;
           }
-        }
-
-        // 同项目专属模特加分
-        if (model.projectId === projectId) {
-          score += 10;
         }
 
         if (score > 0) {
@@ -157,7 +136,7 @@ modelAssetsRoutes.post('/', async (c) => {
       primaryImage: body.primaryImage || null,
       referenceImages: body.referenceImages ? JSON.stringify(body.referenceImages) : null,
       tags: body.tags ? JSON.stringify(body.tags) : null,
-      projectId: body.projectId || null,
+      projectId: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -203,7 +182,7 @@ modelAssetsRoutes.put('/:id', async (c) => {
     if (body.primaryImage !== undefined) updates.primaryImage = body.primaryImage;
     if (body.referenceImages !== undefined) updates.referenceImages = JSON.stringify(body.referenceImages);
     if (body.tags !== undefined) updates.tags = JSON.stringify(body.tags);
-    if (body.projectId !== undefined) updates.projectId = body.projectId;
+    updates.projectId = null;
 
     await db.update(modelAssets).set(updates).where(eq(modelAssets.id, id));
 

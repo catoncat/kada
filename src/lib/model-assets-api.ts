@@ -12,11 +12,8 @@ import type {
 import { apiUrl } from './api-config';
 
 /** 获取模特列表 */
-export async function getModelAssets(projectId?: string): Promise<ModelAssetListResponse> {
-  const url = projectId
-    ? apiUrl(`/api/assets/models?projectId=${encodeURIComponent(projectId)}`)
-    : apiUrl('/api/assets/models');
-  const res = await fetch(url);
+export async function getModelAssets(): Promise<ModelAssetListResponse> {
+  const res = await fetch(apiUrl('/api/assets/models'));
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: '网络错误' }));
     throw new Error(error.error || '获取模特列表失败');
@@ -75,13 +72,12 @@ export async function deleteModelAsset(id: string): Promise<void> {
 
 /** 自动匹配模特 */
 export async function autoMatchModels(
-  projectId: string,
   people: Array<{ id: string; role: string; gender?: string; age?: number }>,
 ): Promise<AutoMatchResult> {
   const res = await fetch(apiUrl('/api/assets/models/auto-match'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId, people }),
+    body: JSON.stringify({ people }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: '网络错误' }));

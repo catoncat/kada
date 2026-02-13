@@ -36,7 +36,6 @@ import type { CreateModelAssetInput, ModelAsset } from '@/types/model-asset';
 
 interface ModelsSearchParams {
   action?: 'create';
-  projectId?: string;
   modelId?: string;
 }
 
@@ -44,10 +43,6 @@ export const Route = createFileRoute('/assets/models')({
   component: ModelsAssetPage,
   validateSearch: (search: Record<string, unknown>): ModelsSearchParams => ({
     action: search.action === 'create' ? 'create' : undefined,
-    projectId:
-      typeof search.projectId === 'string' && search.projectId.trim()
-        ? search.projectId
-        : undefined,
     modelId:
       typeof search.modelId === 'string' && search.modelId.trim()
         ? search.modelId
@@ -66,22 +61,15 @@ type PanelMode = 'empty' | 'detail' | 'create';
 function ModelsAssetPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { action, projectId: searchProjectId, modelId: searchModelId } =
-    Route.useSearch();
+  const { action, modelId: searchModelId } = Route.useSearch();
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>('empty');
-  const [scopeProjectId, setScopeProjectId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ModelAsset | null>(null);
   const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
     let shouldClearSearch = false;
-
-    if (searchProjectId) {
-      setScopeProjectId(searchProjectId);
-      shouldClearSearch = true;
-    }
 
     if (action === 'create') {
       setSelectedModelId(null);
@@ -98,11 +86,11 @@ function ModelsAssetPage() {
     if (shouldClearSearch) {
       navigate({ to: '/assets/models', search: {}, replace: true });
     }
-  }, [action, navigate, searchModelId, searchProjectId]);
+  }, [action, navigate, searchModelId]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['modelAssets', scopeProjectId ?? '__global__'],
-    queryFn: () => getModelAssets(scopeProjectId || undefined),
+    queryKey: ['modelAssets'],
+    queryFn: () => getModelAssets(),
   });
 
   const models = data?.data || [];
@@ -208,19 +196,6 @@ function ModelsAssetPage() {
           </div>
         )}
 
-        {scopeProjectId && (
-          <div className="flex items-center justify-between px-3 pb-2 text-xs text-muted-foreground">
-            <span>范围：全局 + 当前项目专属</span>
-            <button
-              type="button"
-              className="text-primary hover:underline"
-              onClick={() => setScopeProjectId(null)}
-            >
-              仅看全局
-            </button>
-          </div>
-        )}
-
         {models.length > 0 && <div className="mx-3 border-t" />}
 
         <div
@@ -275,7 +250,6 @@ function ModelsAssetPage() {
           <ModelPropertyPanel
             key="__create__"
             model={null}
-            defaultProjectId={scopeProjectId}
             onSave={handleSubmitCreate}
             onCancel={() => setPanelMode(selectedModelId ? 'detail' : 'empty')}
             loading={createMutation.isPending}
@@ -384,12 +358,6 @@ function ModelListItem({
             <div className="text-xs text-muted-foreground truncate">{meta}</div>
           )}
         </div>
-
-        {model.projectId && (
-          <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
-            专属
-          </span>
-        )}
       </ContextMenuTrigger>
 
       <ContextMenuPopup>
@@ -420,14 +388,12 @@ const noSpinCls =
 
 function ModelPropertyPanel({
   model,
-  defaultProjectId,
   onSave,
   onDelete,
   onCancel,
   loading,
 }: {
   model: ModelAsset | null;
-  defaultProjectId?: string | null;
   onSave: (data: CreateModelAssetInput) => Promise<void>;
   onDelete?: () => void;
   onCancel?: () => void;
@@ -511,7 +477,6 @@ function ModelPropertyPanel({
       primaryImage: primaryImage || undefined,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       tags: tags.length > 0 ? tags : undefined,
-      projectId: model ? (model.projectId ?? null) : (defaultProjectId ?? null),
     });
   };
 

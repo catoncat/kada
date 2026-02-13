@@ -316,7 +316,6 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
 
           {/* 模特配置区块 */}
           <ModelConfigSection
-            projectId={projectId}
             customer={project.customer}
             selectedModels={project.selectedModels}
             onUpdate={(config: ProjectModelConfig) => {

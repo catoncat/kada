@@ -18,7 +18,9 @@ export interface ModelAsset {
   referenceImages?: string[];
   /** 标签 */
   tags?: string[];
-  /** null=全局, 非null=项目专属 */
+  /**
+   * @deprecated 兼容历史数据字段，不再用于“项目专属”语义。
+   */
   projectId?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -35,7 +37,6 @@ export interface CreateModelAssetInput {
   primaryImage?: string;
   referenceImages?: string[];
   tags?: string[];
-  projectId?: string | null;
 }
 
 /** 更新模特资产的输入 */

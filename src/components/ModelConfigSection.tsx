@@ -18,7 +18,6 @@ import {
 import { cn } from '@/lib/utils';
 
 interface ModelConfigSectionProps {
-  projectId: string;
   customer?: CustomerInfo;
   selectedModels?: string;
   onUpdate: (config: ProjectModelConfig) => void;
@@ -53,7 +52,6 @@ function parseProjectModelConfig(
 }
 
 export function ModelConfigSection({
-  projectId,
   customer,
   selectedModels,
   onUpdate,
@@ -83,8 +81,8 @@ export function ModelConfigSection({
 
   // 获取模特列表
   const { data: modelsData } = useQuery({
-    queryKey: ['modelAssets', projectId],
-    queryFn: () => getModelAssets(projectId),
+    queryKey: ['modelAssets'],
+    queryFn: () => getModelAssets(),
   });
 
   const allModels = modelsData?.data || [];
@@ -123,7 +121,6 @@ export function ModelConfigSection({
     setIsMatching(true);
     try {
       const result = await autoMatchModels(
-        projectId,
         people.map((p) => ({
           id: p.id,
           role: p.role,
@@ -244,7 +241,7 @@ export function ModelConfigSection({
               onClick={() => {
                 navigate({
                   to: '/assets/models',
-                  search: { action: 'create', projectId },
+                  search: { action: 'create' },
                 });
               }}
             >
@@ -384,7 +381,6 @@ export function ModelConfigSection({
               setFormTargetPersonId(null);
             }}
             loading={createMutation.isPending}
-            defaultProjectId={projectId}
           />
         </DialogPopup>
       </Dialog>
