@@ -1,9 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Plus, Search, Trash2, User, Users, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { PhotoFrame } from '@/components/PhotoFrame';
 import {
@@ -34,8 +34,25 @@ import { getImageUrl } from '@/lib/scene-assets-api';
 import { cn } from '@/lib/utils';
 import type { CreateModelAssetInput, ModelAsset } from '@/types/model-asset';
 
+interface ModelsSearchParams {
+  action?: 'create';
+  projectId?: string;
+  modelId?: string;
+}
+
 export const Route = createFileRoute('/assets/models')({
   component: ModelsAssetPage,
+  validateSearch: (search: Record<string, unknown>): ModelsSearchParams => ({
+    action: search.action === 'create' ? 'create' : undefined,
+    projectId:
+      typeof search.projectId === 'string' && search.projectId.trim()
+        ? search.projectId
+        : undefined,
+    modelId:
+      typeof search.modelId === 'string' && search.modelId.trim()
+        ? search.modelId
+        : undefined,
+  }),
 });
 
 const GENDER_LABELS: Record<string, string> = {
@@ -48,15 +65,44 @@ type PanelMode = 'empty' | 'detail' | 'create';
 
 function ModelsAssetPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { action, projectId: searchProjectId, modelId: searchModelId } =
+    Route.useSearch();
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>('empty');
+  const [scopeProjectId, setScopeProjectId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ModelAsset | null>(null);
   const [resetKey, setResetKey] = useState(0);
 
+  useEffect(() => {
+    let shouldClearSearch = false;
+
+    if (searchProjectId) {
+      setScopeProjectId(searchProjectId);
+      shouldClearSearch = true;
+    }
+
+    if (action === 'create') {
+      setSelectedModelId(null);
+      setPanelMode('create');
+      shouldClearSearch = true;
+    }
+
+    if (searchModelId) {
+      setSelectedModelId(searchModelId);
+      setPanelMode('detail');
+      shouldClearSearch = true;
+    }
+
+    if (shouldClearSearch) {
+      navigate({ to: '/assets/models', search: {}, replace: true });
+    }
+  }, [action, navigate, searchModelId, searchProjectId]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['modelAssets'],
-    queryFn: () => getModelAssets(),
+    queryKey: ['modelAssets', scopeProjectId ?? '__global__'],
+    queryFn: () => getModelAssets(scopeProjectId || undefined),
   });
 
   const models = data?.data || [];
@@ -135,7 +181,12 @@ function ModelsAssetPage() {
       {/* 左侧：模特列表 */}
       <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-background">
         <div className="p-3">
-          <Button onClick={handleCreate} className="w-full" size="sm">
+          <Button
+            onClick={handleCreate}
+            className="w-full justify-center"
+            size="sm"
+            variant="outline"
+          >
             <Plus className="w-4 h-4" />
             新建模特
           </Button>
@@ -154,6 +205,19 @@ function ModelsAssetPage() {
                 size="sm"
               />
             </div>
+          </div>
+        )}
+
+        {scopeProjectId && (
+          <div className="flex items-center justify-between px-3 pb-2 text-xs text-muted-foreground">
+            <span>范围：全局 + 当前项目专属</span>
+            <button
+              type="button"
+              className="text-primary hover:underline"
+              onClick={() => setScopeProjectId(null)}
+            >
+              仅看全局
+            </button>
           </div>
         )}
 
@@ -198,7 +262,7 @@ function ModelsAssetPage() {
       </aside>
 
       {/* 右侧面板 */}
-      <main className="flex-1 min-w-0 min-h-0">
+      <main className="flex-1 min-w-0 min-h-0 bg-[#F5F5F7] dark:bg-[#1C1C1E]">
         {panelMode === 'empty' && (
           <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
             <Users className="w-16 h-16 mb-4 opacity-30" />
@@ -211,6 +275,7 @@ function ModelsAssetPage() {
           <ModelPropertyPanel
             key="__create__"
             model={null}
+            defaultProjectId={scopeProjectId}
             onSave={handleSubmitCreate}
             onCancel={() => setPanelMode(selectedModelId ? 'detail' : 'empty')}
             loading={createMutation.isPending}
@@ -342,19 +407,27 @@ function ModelListItem({
 // ── 属性面板（统一创建/编辑，始终可编辑） ──────────────────
 
 const fieldCls =
-  'h-7 w-full rounded-md border border-input bg-transparent px-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
+  'h-8 w-full rounded-lg border border-transparent bg-background/92 px-2.5 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70';
 
 const textareaCls =
-  'w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm text-foreground leading-relaxed placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 resize-none';
+  'w-full rounded-lg border border-transparent bg-background/92 px-3 py-2 text-sm text-foreground leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70 resize-none';
+
+const macImageUploaderCls =
+  '[&>button]:rounded-xl [&>button]:border [&>button]:border-input/70 [&>button]:border-solid [&>button]:bg-muted/35 [&>button]:p-6 [&>button]:hover:bg-muted/55 [&>button]:transition-colors';
+
+const noSpinCls =
+  '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
 
 function ModelPropertyPanel({
   model,
+  defaultProjectId,
   onSave,
   onDelete,
   onCancel,
   loading,
 }: {
   model: ModelAsset | null;
+  defaultProjectId?: string | null;
   onSave: (data: CreateModelAssetInput) => Promise<void>;
   onDelete?: () => void;
   onCancel?: () => void;
@@ -438,7 +511,7 @@ function ModelPropertyPanel({
       primaryImage: primaryImage || undefined,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       tags: tags.length > 0 ? tags : undefined,
-      projectId: model?.projectId ?? null,
+      projectId: model ? (model.projectId ?? null) : (defaultProjectId ?? null),
     });
   };
 
@@ -473,78 +546,86 @@ function ModelPropertyPanel({
       {/* 可滚动内容区 */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
-          {/* ── 头部：照片 + 基本属性 ── */}
-          <div className="flex gap-5">
-            <div className="w-32 shrink-0">
-              <ImageUploader
-                value={primaryImage}
-                onChange={(path) => setPrimaryImage(path || '')}
-                placeholder="主照片"
-              />
-            </div>
-
-            <div className="flex-1 min-w-0 grid grid-cols-[3.5rem_1fr] gap-x-1.5 gap-y-2.5 items-center text-sm content-start">
-              <span className="text-right text-muted-foreground">名称</span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="模特名称"
-                className={fieldCls}
-              />
-
-              <span className="text-right text-muted-foreground">性别</span>
-              <SegmentedControl
-                value={gender as 'male' | 'female' | ''}
-                onValueChange={(v) => setGender(v)}
-                options={[
-                  { value: 'male' as const, label: '男' },
-                  { value: 'female' as const, label: '女' },
-                ]}
-                size="sm"
-                allowDeselect
-              />
-
-              <span className="text-right text-muted-foreground">年龄</span>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min={0}
-                  max={120}
-                  value={ageMin}
-                  onChange={(e) => setAgeMin(e.target.value)}
-                  placeholder="下限"
-                  className={cn(fieldCls, 'w-16')}
+          {/* ── 头部：对象身份 ── */}
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+            <div className="flex gap-5">
+              <div className="w-32 shrink-0">
+                <ImageUploader
+                  value={primaryImage}
+                  onChange={(path) => setPrimaryImage(path || '')}
+                  placeholder="主照片"
+                  className={macImageUploaderCls}
                 />
-                <span className="text-muted-foreground">—</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={120}
-                  value={ageMax}
-                  onChange={(e) => setAgeMax(e.target.value)}
-                  placeholder="上限"
-                  className={cn(fieldCls, 'w-16')}
-                />
-                <span className="text-xs text-muted-foreground">岁</span>
               </div>
 
-              <span className="text-right text-muted-foreground">标签</span>
-              <input
-                type="text"
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-                placeholder="逗号分隔"
-                className={fieldCls}
-              />
+              <div className="min-w-0 flex-1 space-y-3">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="模特名称"
+                  className="h-10 w-full rounded-lg border border-transparent bg-background/92 px-3 text-[1.1rem] font-semibold tracking-[-0.01em] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)]"
+                />
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">性别</span>
+                    <SegmentedControl
+                      value={gender as 'male' | 'female' | ''}
+                      onValueChange={(v) => setGender(v)}
+                      options={[
+                        { value: 'male' as const, label: '男' },
+                        { value: 'female' as const, label: '女' },
+                      ]}
+                      size="sm"
+                      allowDeselect
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">年龄</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={ageMin}
+                      onChange={(e) => setAgeMin(e.target.value)}
+                      placeholder="下限"
+                      className={cn(fieldCls, noSpinCls, 'w-[4.5rem]')}
+                    />
+                    <span className="text-muted-foreground">—</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={ageMax}
+                      onChange={(e) => setAgeMax(e.target.value)}
+                      placeholder="上限"
+                      className={cn(fieldCls, noSpinCls, 'w-[4.5rem]')}
+                    />
+                    <span className="text-xs text-muted-foreground">岁</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">标签</span>
+                  <input
+                    type="text"
+                    value={tagsInput}
+                    onChange={(e) => setTagsInput(e.target.value)}
+                    placeholder="逗号分隔"
+                    className={fieldCls}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
           {/* ── 描述 ── */}
-          <div>
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
             <label
               htmlFor="model-desc"
-              className="block text-sm font-medium text-foreground mb-1.5"
+              className="mb-1.5 block text-sm font-medium text-foreground"
             >
               描述
             </label>
@@ -559,10 +640,10 @@ function ModelPropertyPanel({
           </div>
 
           {/* ── 外观提示词 ── */}
-          <div>
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
             <label
               htmlFor="model-appearance"
-              className="block text-sm font-medium text-foreground mb-1.5"
+              className="mb-1.5 block text-sm font-medium text-foreground"
             >
               外观提示词
             </label>
@@ -580,10 +661,10 @@ function ModelPropertyPanel({
           </div>
 
           {/* ── 辅助参考照 ── */}
-          <div>
-            <div className="text-sm font-medium text-foreground mb-1.5">
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+            <div className="mb-1.5 text-sm font-medium text-foreground">
               辅助参考照
-              <span className="ml-2 font-normal text-xs text-muted-foreground">
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
                 最多 5 张
               </span>
             </div>
@@ -593,12 +674,12 @@ function ModelPropertyPanel({
                   key={img}
                   src={getImageUrl(img)}
                   alt={`参考照 ${i + 1}`}
-                  className="rounded-lg border border-input"
+                  className="rounded-lg border border-input/80 bg-muted/20"
                 >
                   <button
                     type="button"
                     onClick={() => handleRemoveRef(i)}
-                    className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                    className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white transition hover:bg-black/80"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -610,7 +691,8 @@ function ModelPropertyPanel({
                   onChange={(path) => {
                     if (path) handleAddRef(path);
                   }}
-                  placeholder=""
+                  placeholder="添加参考图"
+                  className={macImageUploaderCls}
                 />
               )}
             </div>

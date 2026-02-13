@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Plus, X, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import { PhotoFrame } from '@/components/PhotoFrame';
@@ -29,30 +30,56 @@ const GENDER_LABELS: Record<string, string> = {
   other: '其他',
 };
 
+function parseProjectModelConfig(
+  selectedModels?: string,
+): ProjectModelConfig {
+  if (!selectedModels) return { personModelMap: {}, autoMatch: false };
+  try {
+    const parsed = JSON.parse(selectedModels);
+    if (!parsed || typeof parsed !== 'object') {
+      return { personModelMap: {}, autoMatch: false };
+    }
+    const personModelMap =
+      typeof parsed.personModelMap === 'object' && parsed.personModelMap
+        ? parsed.personModelMap
+        : {};
+    return {
+      personModelMap,
+      autoMatch: Boolean(parsed.autoMatch),
+    };
+  } catch {
+    return { personModelMap: {}, autoMatch: false };
+  }
+}
+
 export function ModelConfigSection({
   projectId,
   customer,
   selectedModels,
   onUpdate,
 }: ModelConfigSectionProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formTargetPersonId, setFormTargetPersonId] = useState<string | null>(
+    null,
+  );
   const [isMatchDialogOpen, setIsMatchDialogOpen] = useState(false);
   const [matchResults, setMatchResults] = useState<Record<string, Array<{ modelId: string; name: string; score: number }>>>({});
   const [selectedPick, setSelectedPick] = useState<Record<string, string>>({});
-
-  // 解析当前映射
-  const config: ProjectModelConfig = selectedModels
-    ? (() => {
-        try {
-          return JSON.parse(selectedModels);
-        } catch {
-          return { personModelMap: {}, autoMatch: false };
-        }
-      })()
-    : { personModelMap: {}, autoMatch: false };
+  const [config, setConfig] = useState<ProjectModelConfig>(() =>
+    parseProjectModelConfig(selectedModels),
+  );
 
   const people = customer?.people || [];
+  const peopleMap = useMemo(
+    () => new Map(people.map((p) => [p.id, p])),
+    [people],
+  );
+
+  useEffect(() => {
+    setConfig(parseProjectModelConfig(selectedModels));
+  }, [selectedModels]);
 
   // 获取模特列表
   const { data: modelsData } = useQuery({
@@ -62,6 +89,11 @@ export function ModelConfigSection({
 
   const allModels = modelsData?.data || [];
   const modelMap = new Map(allModels.map((m) => [m.id, m]));
+
+  const commitConfig = (nextConfig: ProjectModelConfig) => {
+    setConfig(nextConfig);
+    onUpdate(nextConfig);
+  };
 
   // 计算配置状态
   const mappedCount = people.filter((p) => {
@@ -75,8 +107,14 @@ export function ModelConfigSection({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modelAssets'] });
       setIsFormOpen(false);
+      setFormTargetPersonId(null);
     },
   });
+
+  const openCreateForm = (personId?: string) => {
+    setFormTargetPersonId(personId || null);
+    setIsFormOpen(true);
+  };
 
   // 自动匹配
   const [isMatching, setIsMatching] = useState(false);
@@ -113,26 +151,33 @@ export function ModelConfigSection({
   // 应用匹配结果
   const handleApplyMatch = () => {
     const newMap = { ...config.personModelMap, ...selectedPick };
-    onUpdate({ personModelMap: newMap, autoMatch: true });
+    commitConfig({ personModelMap: newMap, autoMatch: true });
     setIsMatchDialogOpen(false);
   };
 
   // 手动选择模特
   const handleSelectModel = (personId: string, modelId: string) => {
     const newMap = { ...config.personModelMap, [personId]: modelId };
-    onUpdate({ ...config, personModelMap: newMap });
+    commitConfig({ ...config, personModelMap: newMap });
   };
 
   // 移除映射
   const handleRemoveMapping = (personId: string) => {
     const newMap = { ...config.personModelMap };
     delete newMap[personId];
-    onUpdate({ ...config, personModelMap: newMap });
+    commitConfig({ ...config, personModelMap: newMap });
   };
 
   // 创建模特
   const handleCreateModel = async (data: CreateModelAssetInput) => {
-    await createMutation.mutateAsync(data);
+    const created = await createMutation.mutateAsync(data);
+    if (formTargetPersonId && created.id) {
+      const newMap = {
+        ...config.personModelMap,
+        [formTargetPersonId]: created.id,
+      };
+      commitConfig({ ...config, personModelMap: newMap });
+    }
   };
 
   // 无客户信息
@@ -189,13 +234,21 @@ export function ModelConfigSection({
               )}
               {isMatching ? '匹配中...' : '自动匹配'}
             </Button>
+            <Button size="sm" variant="outline" onClick={() => openCreateForm()}>
+              <Plus className="w-4 h-4" />
+              新建模特
+            </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setIsFormOpen(true)}
+              onClick={() => {
+                navigate({
+                  to: '/assets/models',
+                  search: { action: 'create', projectId },
+                });
+              }}
             >
-              <Plus className="w-4 h-4" />
-              新建模特
+              打开模特库
             </Button>
           </div>
         </div>
@@ -277,11 +330,21 @@ export function ModelConfigSection({
                       </button>
                     </>
                   ) : (
-                    <ModelSelector
-                      models={allModels}
-                      onSelect={(id) => handleSelectModel(person.id, id)}
-                      label="选择模特"
-                    />
+                    <>
+                      <ModelSelector
+                        models={allModels}
+                        onSelect={(id) => handleSelectModel(person.id, id)}
+                        label="选择模特"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openCreateForm(person.id)}
+                      >
+                        新建并绑定
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -296,14 +359,30 @@ export function ModelConfigSection({
       </div>
 
       {/* 新建模特弹窗 */}
-      <Dialog open={isFormOpen} onOpenChange={() => setIsFormOpen(false)}>
+      <Dialog
+        open={isFormOpen}
+        onOpenChange={(open) => {
+          setIsFormOpen(open);
+          if (!open) setFormTargetPersonId(null);
+        }}
+      >
         <DialogPopup
-          className="w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6"
+          className="w-full max-w-[860px] h-[680px] overflow-hidden p-0"
           showCloseButton={false}
         >
+          {formTargetPersonId && (
+            <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+              创建完成后将自动绑定到「
+              {peopleMap.get(formTargetPersonId)?.role || '当前人物'}
+              」
+            </div>
+          )}
           <ModelForm
             onSubmit={handleCreateModel}
-            onCancel={() => setIsFormOpen(false)}
+            onCancel={() => {
+              setIsFormOpen(false);
+              setFormTargetPersonId(null);
+            }}
             loading={createMutation.isPending}
             defaultProjectId={projectId}
           />

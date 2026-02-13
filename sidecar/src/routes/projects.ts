@@ -261,6 +261,7 @@ projectRoutes.post('/', async (c) => {
       selectedProps: null,
       params: null,
       customer: null,
+      selectedModels: null,
       generatedPlan: null,
       createdAt: now,
       updatedAt: now,
@@ -322,6 +323,11 @@ projectRoutes.put('/:id', async (c) => {
     }
     if (body.customer !== undefined) {
       updates.customer = body.customer ? JSON.stringify(body.customer) : null;
+    }
+    if (body.selectedModels !== undefined) {
+      updates.selectedModels = body.selectedModels
+        ? String(body.selectedModels)
+        : null;
     }
     if (body.generatedPlan !== undefined) {
       updates.generatedPlan = body.generatedPlan ? JSON.stringify(body.generatedPlan) : null;

@@ -38,7 +38,7 @@ function SegmentedControl<T extends string>({
   return (
     <div
       className={cn(
-        'inline-flex w-fit rounded-md bg-muted/80 p-0.5',
+        'inline-flex w-fit items-center rounded-lg border border-border/60 bg-muted/70 p-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]',
         className,
       )}
     >
@@ -56,10 +56,10 @@ function SegmentedControl<T extends string>({
               }
             }}
             className={cn(
-              'rounded-sm font-medium transition-all',
+              'rounded-md font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
               size === 'sm' ? 'px-2.5 py-0.5 text-xs' : 'px-3 py-1 text-sm',
               isSelected
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.12)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.35)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
