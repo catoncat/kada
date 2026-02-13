@@ -148,7 +148,6 @@ function ProjectResultPage() {
         const plan = project?.generatedPlan as GeneratedPlan | null;
         const scene = plan?.scenes?.[sceneIndex] as GeneratedScene | undefined;
         const referenceImages = [
-          scene?.previewArtifactPath,
           scene?.sceneAssetImage,
         ].filter(Boolean) as string[];
 

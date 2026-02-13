@@ -8,16 +8,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { getDb } from '../../db';
 import {
   providers,
   generationRuns,
   generationArtifacts,
 } from '../../db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { buildImageEffectivePrompt } from '../prompt-engine';
 
 const DEBUG_IMAGEGEN = process.env.SIDECAR_DEBUG_IMAGEGEN === '1';
+const MAX_TOTAL_REFERENCE_IMAGES = 8;
+const MAX_IDENTITY_REFERENCE_IMAGES = 4;
+const MAX_SCENE_REFERENCE_IMAGES = 4;
+const REFERENCE_IMAGE_MAX_EDGE = 1024;
+const REFERENCE_IMAGE_JPEG_QUALITY = 78;
 
 export interface ImageGenerationInput {
   prompt: string;
@@ -49,6 +55,18 @@ export interface ImageGenerationOutput {
   imageBase64?: string;
 }
 
+interface GeminiReferenceImages {
+  identity?: string[];
+  scene?: string[];
+}
+
+interface ResolvedReferenceImages {
+  modelIdentityImages: string[];
+  sceneContextImages: string[];
+  allImages: string[];
+  droppedGeneratedImages: string[];
+}
+
 // 获取上传目录
 function getUploadDir(): string {
   const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -74,6 +92,113 @@ function getExtension(mimeType: string): string {
     'image/gif': 'gif',
   };
   return map[mimeType] || 'png';
+}
+
+function normalizeReferenceValue(value: string): string {
+  const raw = value.trim();
+  if (!raw) return '';
+  const localUploadPath = normalizeLocalUploadPath(raw);
+  if (localUploadPath) return `/${localUploadPath}`;
+  return raw;
+}
+
+function normalizeReferenceKey(value: string): string {
+  const localUploadPath = normalizeLocalUploadPath(value);
+  if (localUploadPath) return `upload:${localUploadPath}`;
+  return value.trim();
+}
+
+function dedupeReferenceImages(values?: string[]): string[] {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const normalized = normalizeReferenceValue(v);
+    if (!normalized) continue;
+    const key = normalizeReferenceKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(normalized);
+  }
+  return output;
+}
+
+async function filterOutOwnerGeneratedReferences(
+  db: ReturnType<typeof getDb>,
+  owner: ImageGenerationInput['owner'],
+  editInstruction: string | undefined,
+  refs: string[],
+): Promise<{ filtered: string[]; dropped: string[] }> {
+  if (!owner || owner.type !== 'planScene' || editInstruction || refs.length === 0) {
+    return { filtered: refs, dropped: [] };
+  }
+
+  const uploadPaths = Array.from(
+    new Set(
+      refs
+        .map((v) => normalizeLocalUploadPath(v))
+        .filter((v): v is string => Boolean(v)),
+    ),
+  );
+  if (uploadPaths.length === 0) return { filtered: refs, dropped: [] };
+
+  const whereParts = [
+    eq(generationArtifacts.ownerType, owner.type),
+    eq(generationArtifacts.ownerId, owner.id),
+    isNull(generationArtifacts.deletedAt),
+    inArray(generationArtifacts.filePath, uploadPaths),
+  ];
+  if (owner.slot) {
+    whereParts.push(eq(generationArtifacts.ownerSlot, owner.slot));
+  }
+
+  const ownerArtifacts = await db
+    .select({ filePath: generationArtifacts.filePath })
+    .from(generationArtifacts)
+    .where(and(...whereParts));
+  const ownerArtifactPaths = new Set(ownerArtifacts.map((row) => row.filePath).filter(Boolean));
+
+  const filtered: string[] = [];
+  const dropped: string[] = [];
+  for (const ref of refs) {
+    const localUploadPath = normalizeLocalUploadPath(ref);
+    if (localUploadPath && ownerArtifactPaths.has(localUploadPath)) {
+      dropped.push(ref);
+      continue;
+    }
+    filtered.push(ref);
+  }
+
+  return { filtered, dropped };
+}
+
+async function resolveReferenceImages(
+  db: ReturnType<typeof getDb>,
+  owner: ImageGenerationInput['owner'],
+  editInstruction: string | undefined,
+  modelReferenceImages?: string[],
+  inputReferenceImages?: string[],
+): Promise<ResolvedReferenceImages> {
+  const modelRefs = dedupeReferenceImages(modelReferenceImages);
+  const inputRefs = dedupeReferenceImages(inputReferenceImages);
+  const modelKeys = new Set(modelRefs.map((v) => normalizeReferenceKey(v)));
+  const sceneCandidates = inputRefs.filter((v) => !modelKeys.has(normalizeReferenceKey(v)));
+
+  const { filtered: filteredSceneCandidates, dropped: droppedGeneratedImages } =
+    await filterOutOwnerGeneratedReferences(db, owner, editInstruction, sceneCandidates);
+
+  const modelIdentityImages = modelRefs.slice(0, MAX_IDENTITY_REFERENCE_IMAGES);
+  const sceneMax = Math.max(0, Math.min(MAX_SCENE_REFERENCE_IMAGES, MAX_TOTAL_REFERENCE_IMAGES - modelIdentityImages.length));
+  const sceneContextImages = filteredSceneCandidates.slice(0, sceneMax);
+  const allImages = [...modelIdentityImages, ...sceneContextImages];
+
+  return {
+    modelIdentityImages,
+    sceneContextImages,
+    allImages,
+    droppedGeneratedImages,
+  };
 }
 
 export async function imageGenerationHandler(
@@ -110,16 +235,27 @@ export async function imageGenerationHandler(
     parentArtifactId: parentArtifactId || null,
   };
 
-  // 合并模特参考图到 referenceImages
+  // 参考图分组：人物身份（最高优先级）+ 场景氛围（仅环境参考）
   const modelRefImages: string[] = Array.isArray((composed.promptContext as any).modelReferenceImages)
     ? (composed.promptContext as any).modelReferenceImages
     : [];
-  const allReferenceImages = [
-    ...modelRefImages,                // 模特参考图（最高优先级）
-    ...(input.referenceImages ?? []), // 原有参考图
-  ].slice(0, 8); // 总数上限 8 张
+  const resolvedReferences = await resolveReferenceImages(
+    db,
+    owner,
+    editInstruction,
+    modelRefImages,
+    input.referenceImages,
+  );
+  const allReferenceImages = resolvedReferences.allImages;
 
   (promptContext as any).referenceImagesCount = allReferenceImages.length;
+  (promptContext as any).referenceImagesByRole = {
+    identity: resolvedReferences.modelIdentityImages,
+    scene: resolvedReferences.sceneContextImages,
+  };
+  if (resolvedReferences.droppedGeneratedImages.length > 0) {
+    (promptContext as any).droppedReferenceImages = resolvedReferences.droppedGeneratedImages;
+  }
 
   // 1. 获取 provider
   let provider;
@@ -173,7 +309,10 @@ export async function imageGenerationHandler(
     const result = await generateImage(
       provider,
       effectivePrompt,
-      allReferenceImages,
+      {
+        identity: resolvedReferences.modelIdentityImages,
+        scene: resolvedReferences.sceneContextImages,
+      },
       input.options,
     );
     if (DEBUG_IMAGEGEN) {
@@ -299,65 +438,116 @@ function normalizeLocalUploadPath(value: string): string | null {
   return null;
 }
 
-async function buildGeminiReferenceParts(referenceImages?: string[]): Promise<any[]> {
+async function optimizeReferenceImageBuffer(
+  buffer: Buffer,
+  fallbackMimeType: string,
+): Promise<{ data: string; mimeType: string }> {
+  try {
+    const optimized = await sharp(buffer, { failOn: 'none' })
+      .rotate()
+      .resize(REFERENCE_IMAGE_MAX_EDGE, REFERENCE_IMAGE_MAX_EDGE, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: REFERENCE_IMAGE_JPEG_QUALITY, mozjpeg: true })
+      .toBuffer();
+
+    return {
+      data: optimized.toString('base64'),
+      mimeType: 'image/jpeg',
+    };
+  } catch (e) {
+    if (DEBUG_IMAGEGEN) {
+      console.warn('[ImageGen] Failed to optimize reference image, use original buffer:', e);
+    }
+    return {
+      data: buffer.toString('base64'),
+      mimeType: fallbackMimeType,
+    };
+  }
+}
+
+async function buildGeminiInlineDataPart(rawImage: string): Promise<any | null> {
+  const raw = rawImage.trim();
+  if (!raw) return null;
+
+  if (raw.startsWith('data:')) {
+    const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return null;
+    const mimeType = match[1] || 'image/jpeg';
+    const buffer = Buffer.from(match[2], 'base64');
+    const optimized = await optimizeReferenceImageBuffer(buffer, mimeType);
+    return { inlineData: optimized };
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const response = await fetch(raw);
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const optimized = await optimizeReferenceImageBuffer(buffer, contentType);
+      return { inlineData: optimized };
+    } catch (e) {
+      console.warn('Failed to fetch reference image:', raw, e);
+      return null;
+    }
+  }
+
+  const localUploadPath = normalizeLocalUploadPath(raw);
+  if (localUploadPath) {
+    try {
+      const fullPath = path.join(getDataDir(), localUploadPath);
+      if (!existsSync(fullPath)) return null;
+      const buffer = readFileSync(fullPath);
+      const optimized = await optimizeReferenceImageBuffer(
+        buffer,
+        guessMimeTypeFromPath(localUploadPath),
+      );
+      return { inlineData: optimized };
+    } catch (e) {
+      console.warn('Failed to read reference image:', raw, e);
+      return null;
+    }
+  }
+
+  try {
+    const buffer = Buffer.from(raw, 'base64');
+    const optimized = await optimizeReferenceImageBuffer(buffer, 'image/jpeg');
+    return { inlineData: optimized };
+  } catch {
+    return null;
+  }
+}
+
+async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages): Promise<any[]> {
   const parts: any[] = [];
-  if (!referenceImages || referenceImages.length === 0) return parts;
+  const identityImages = dedupeReferenceImages(referenceImages?.identity);
+  const sceneImages = dedupeReferenceImages(referenceImages?.scene);
 
-  for (const img of referenceImages) {
-    if (typeof img !== 'string' || !img.trim()) continue;
-    const raw = img.trim();
-
-    if (raw.startsWith('data:')) {
-      const match = raw.match(/^data:([^;]+);base64,(.+)$/);
-      if (match) {
-        parts.push({
-          inlineData: {
-            mimeType: match[1],
-            data: match[2],
-          },
-        });
-      }
-      continue;
-    }
-
-    if (raw.startsWith('http://') || raw.startsWith('https://')) {
-      try {
-        const response = await fetch(raw);
-        if (!response.ok) continue;
-        const buffer = await response.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        parts.push({ inlineData: { mimeType: contentType, data: base64 } });
-      } catch (e) {
-        console.warn('Failed to fetch reference image:', raw, e);
-      }
-      continue;
-    }
-
-    const localUploadPath = normalizeLocalUploadPath(raw);
-    if (localUploadPath) {
-      try {
-        const fullPath = path.join(getDataDir(), localUploadPath);
-        if (!existsSync(fullPath)) continue;
-        const buffer = readFileSync(fullPath);
-        parts.push({
-          inlineData: {
-            mimeType: guessMimeTypeFromPath(localUploadPath),
-            data: buffer.toString('base64'),
-          },
-        });
-      } catch (e) {
-        console.warn('Failed to read reference image:', raw, e);
-      }
-      continue;
-    }
-
-    // 兜底：假设是纯 base64（jpeg）
+  if (identityImages.length > 0) {
     parts.push({
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: raw,
-      },
+      text: '以下是人物身份参考图（最高优先级）：只用于锁定人物身份特征（脸型、五官、年龄感、发型、肤色）。',
+    });
+    for (const image of identityImages) {
+      const part = await buildGeminiInlineDataPart(image);
+      if (part) parts.push(part);
+    }
+  }
+
+  if (sceneImages.length > 0) {
+    parts.push({
+      text: '以下是场景氛围参考图：仅用于背景、构图、光影和材质参考，不能改变人物身份和服装造型。',
+    });
+    for (const image of sceneImages) {
+      const part = await buildGeminiInlineDataPart(image);
+      if (part) parts.push(part);
+    }
+  }
+
+  if (identityImages.length > 0) {
+    parts.push({
+      text: '输出必须保持人物身份与身份参考图一致；服装与造型严格遵循文字分镜和场景描述。',
     });
   }
 
@@ -367,7 +557,7 @@ async function buildGeminiReferenceParts(referenceImages?: string[]): Promise<an
 async function generateImage(
   provider: Provider,
   prompt: string,
-  referenceImages?: string[],
+  referenceImages?: GeminiReferenceImages,
   options?: Record<string, unknown>
 ): Promise<GenerateImageResult> {
   if (DEBUG_IMAGEGEN) {

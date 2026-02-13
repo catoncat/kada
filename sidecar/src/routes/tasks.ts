@@ -221,9 +221,14 @@ taskRoutes.get('/:id/detail', async (c) => {
     : [];
 
   const missingFields: string[] = [];
+  const taskEnded = task.status === 'completed' || task.status === 'failed';
   if (!run) {
-    missingFields.push('run', 'artifacts');
-  } else if (artifacts.length === 0) {
+    // 仅对已结束任务标记缺失，避免 pending/running 阶段误报
+    if (taskEnded) {
+      missingFields.push('run', 'artifacts');
+    }
+  } else if (run.status === 'succeeded' && artifacts.length === 0) {
+    // 仅当 run 成功但没有产物时，才认为 artifacts 缺失
     missingFields.push('artifacts');
   }
 

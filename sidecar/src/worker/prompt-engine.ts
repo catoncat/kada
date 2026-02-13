@@ -143,7 +143,11 @@ function formatModelInfo(
   models: Array<{ personRole: string; name: string; appearancePrompt: string }>,
 ): string | null {
   if (!models || models.length === 0) return null;
-  const lines: string[] = ['## 人物外观描述（保持跨场景一致）'];
+  const lines: string[] = [
+    '## 人物外观描述（保持跨场景一致）',
+    '约束：模特参考仅用于锁定人物身份，不继承其服装；服装与造型以分镜/场景文字描述为准。',
+    '',
+  ];
   for (const m of models) {
     lines.push(`### ${m.personRole}（模特：${m.name}）`);
     if (m.appearancePrompt) {

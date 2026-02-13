@@ -57,6 +57,7 @@ export function SceneEditDrawer({
               owner={owner}
               currentImagePath={scene.previewArtifactPath}
               referenceImages={scene.sceneAssetImage ? [scene.sceneAssetImage] : undefined}
+              includeCurrentImageAsReference={false}
               defaultPrompt={scene.visualPrompt}
               onImageChange={handleImageChange}
               aspectRatio="photo"

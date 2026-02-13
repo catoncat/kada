@@ -55,8 +55,10 @@ export interface ImageStudioLiteProps {
   };
   /** 当前图片路径（如已有图片） */
   currentImagePath?: string | null;
-  /** 参考图（用于文+图生图 / 风格一致性）；会与 currentImagePath 去重合并 */
+  /** 参考图（用于文+图生图 / 风格一致性） */
   referenceImages?: string[];
+  /** 是否把 currentImagePath 也作为参考图参与生成（默认 true） */
+  includeCurrentImageAsReference?: boolean;
   /** 默认提示词 */
   defaultPrompt?: string;
   /** 图片变更回调 */
@@ -73,6 +75,7 @@ export function ImageStudioLite({
   owner,
   currentImagePath,
   referenceImages,
+  includeCurrentImageAsReference = true,
   defaultPrompt = '',
   onImageChange,
   readonly = false,
@@ -213,7 +216,7 @@ export function ImageStudioLite({
 
     const refs = [
       ...(Array.isArray(referenceImages) ? referenceImages : []),
-      ...(currentImagePath ? [currentImagePath] : []),
+      ...(includeCurrentImageAsReference && currentImagePath ? [currentImagePath] : []),
     ]
       .map((v) => (typeof v === 'string' ? v.trim() : ''))
       .filter(Boolean);
@@ -239,7 +242,15 @@ export function ImageStudioLite({
       console.error('[ImageStudioLite] Failed to create image task:', error);
       setIsGenerating(false);
     }
-  }, [prompt, isGenerating, createTask, owner, referenceImages, currentImagePath]);
+  }, [
+    prompt,
+    isGenerating,
+    createTask,
+    owner,
+    referenceImages,
+    currentImagePath,
+    includeCurrentImageAsReference,
+  ]);
 
   // 切换版本
   const handleSwitchVersion = useCallback(
