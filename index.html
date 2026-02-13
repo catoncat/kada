@@ -7,6 +7,11 @@
     <script>
       (() => {
         try {
+          // Tauri 环境检测：设置 data-tauri 以启用标题栏偏移
+          if (window.__TAURI_INTERNALS__) {
+            document.documentElement.dataset.tauri = "";
+          }
+
           const key = "spv2_theme_preference";
           const preference = localStorage.getItem(key) || "system";
           const prefersDark =

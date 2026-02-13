@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { useCommandSearchContext } from './CommandSearchProvider';
 import { useCommandSearch } from './use-command-search';
 import { addRecent } from '@/lib/command-search';
+import { openSettingsWindow } from '@/lib/open-settings-window';
 import type { SearchItem } from '@/lib/command-search/types';
 
 interface CommandSearchDialogProps {
@@ -69,7 +70,12 @@ export function CommandSearchDialog({
       // 执行动作
       if (item.action.type === 'navigate') {
         setOpen(false);
-        navigate({ to: item.action.to });
+        const { to } = item.action;
+        if (to === '/settings') {
+          openSettingsWindow(() => navigate({ to }));
+        } else {
+          navigate({ to });
+        }
       } else if (item.action.type === 'callback') {
         item.action.handler();
       }
@@ -219,18 +225,18 @@ export function CommandSearchDialog({
         <CommandFooter>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-2xs font-medium">
                 <CornerDownLeft className="inline-block size-3" />
               </kbd>
               <span>选择</span>
             </span>
             <span className="flex items-center gap-1.5">
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium">↑</kbd>
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium">↓</kbd>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-2xs font-medium">↑</kbd>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-2xs font-medium">↓</kbd>
               <span>导航</span>
             </span>
             <span className="flex items-center gap-1.5">
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium">Esc</kbd>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 text-2xs font-medium">Esc</kbd>
               <span>关闭</span>
             </span>
           </div>

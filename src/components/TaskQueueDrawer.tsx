@@ -36,6 +36,7 @@ import {
   useState,
 } from 'react';
 import { apiUrl } from '@/lib/api-config';
+import { openSettingsWindow } from '@/lib/open-settings-window';
 import {
   buildTaskDeepLinkSearch,
   getTaskSourceLink,
@@ -557,7 +558,7 @@ export function TaskQueueDrawer() {
                               </p>
                             )}
 
-                            <p className="mt-1 text-[11px] text-muted-foreground/70">
+                            <p className="mt-1 text-xs text-muted-foreground/70">
                               {formatTime(task.createdAt)}
                             </p>
                           </div>
@@ -788,12 +789,13 @@ function TaskDetailPane({
             <p>{actionErrorMessage}</p>
             {showProviderSetupAction && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Link
-                  to="/settings"
-                  className="inline-flex items-center rounded border border-red-300 px-2 py-1 text-[11px] text-red-700 hover:bg-red-100"
+                <button
+                  type="button"
+                  onClick={() => openSettingsWindow()}
+                  className="inline-flex items-center rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-100"
                 >
                   去设置 Provider
-                </Link>
+                </button>
               </div>
             )}
           </div>
@@ -876,7 +878,7 @@ function TaskDetailPane({
                         alt={`${task.id}-reference-${idx + 1}`}
                         className="rounded"
                       />
-                      <p className="mt-1 truncate text-[10px] text-muted-foreground group-hover:text-foreground">
+                      <p className="mt-1 truncate text-2xs text-muted-foreground group-hover:text-foreground">
                         {img}
                       </p>
                     </a>
@@ -889,7 +891,7 @@ function TaskDetailPane({
           {imageParams.options && (
             <details className="mt-3 rounded-md border p-2">
               <summary className="cursor-pointer text-xs font-medium">高级参数 options（展开查看）</summary>
-              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">
+              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
                 {JSON.stringify(imageParams.options, null, 2)}
               </pre>
             </details>
@@ -928,7 +930,7 @@ function TaskDetailPane({
                         href={url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                       >
                         <ExternalLink className="h-3 w-3" />
                         打开
@@ -943,12 +945,12 @@ function TaskDetailPane({
                       className="mb-2 rounded border"
                     />
                   ) : (
-                    <div className="mb-2 flex aspect-[3/2] items-center justify-center rounded border bg-muted text-[11px] text-muted-foreground">
+                    <div className="mb-2 flex aspect-[3/2] items-center justify-center rounded border bg-muted text-xs text-muted-foreground">
                       <ImageIcon className="mr-1 h-3.5 w-3.5" /> 无预览
                     </div>
                   )}
 
-                  <div className="space-y-1 text-[11px] text-muted-foreground">
+                  <div className="space-y-1 text-xs text-muted-foreground">
                     <p>filePath: {artifact.filePath || '-'}</p>
                     <p>mime: {artifact.mimeType || '-'}</p>
                     <p>createdAt: {formatTime(artifact.createdAt)}</p>
@@ -1000,14 +1002,14 @@ function PromptBlock({
           onClick={onCopy}
           aria-label={`复制${label}`}
           disabled={!content}
-          className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] hover:bg-accent disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50"
         >
           <Copy className="h-3 w-3" />
           复制
         </button>
       </div>
       {content ? (
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
           {content}
         </pre>
       ) : (
@@ -1020,7 +1022,7 @@ function PromptBlock({
 function KV({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="rounded bg-muted px-2 py-1">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="truncate text-xs">{value || '-'}</p>
     </div>
   );

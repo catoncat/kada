@@ -1,9 +1,10 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --titlebar-h: 0px;
   --ink: #1a1a1a;
   --ink-2: #4a4a4a;
   --ink-3: #8a8a8a;
@@ -13,7 +14,7 @@
   --accent: --alpha(var(--color-black) / 4%);
   --radius-xl: 12px;
   --radius-2xl: 16px;
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --background: var(--color-white);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
@@ -25,7 +26,11 @@
   --secondary: --alpha(var(--color-black) / 4%);
   --secondary-foreground: var(--color-neutral-800);
   --muted: --alpha(var(--color-black) / 4%);
-  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--color-neutral-500) 90%,
+    var(--color-black)
+  );
   --accent-foreground: var(--color-neutral-800);
   --destructive: var(--color-red-500);
   --border: --alpha(var(--color-black) / 8%);
@@ -36,13 +41,13 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(0.965 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent: oklch(0.94 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-border: oklch(0.915 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -54,17 +59,34 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   background: var(--paper);
   color: var(--ink);
   margin: 0;
 }
 
-/* App 采用“内滚动容器”策略：避免 body 滚动干扰各面板独立滚动 */
+/* Tauri: overlay 标题栏偏移 */
+html[data-tauri] {
+  --titlebar-h: 30px;
+}
+
+/* App 采用"内滚动容器"策略：避免 body 滚动干扰各面板独立滚动 */
 html,
 body,
 #root {
   height: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tauri: sidebar 内容向下偏移，避开红绿灯 */
+html[data-tauri] [data-slot="sidebar-content"] {
+  padding-top: calc(var(--titlebar-h) - 0.5rem);
 }
 
 body {
@@ -90,6 +112,15 @@ body {
 }
 
 @theme inline {
+  /* ── macOS HIG 字号映射 ── */
+  --font-size-2xs: 0.625rem;           /* 10px — HIG Footnote/Caption */
+  --font-size-2xs--line-height: 0.8125rem; /* 13px */
+  --font-size-xs: 0.6875rem;           /* 11px — HIG Subheadline */
+  --font-size-xs--line-height: 0.875rem; /* 14px */
+  --font-size-sm: 0.8125rem;           /* 13px — HIG Body */
+  --font-size-sm--line-height: 1rem;   /* 16px */
+
+  /* ── 圆角（基于 --radius: 0.5rem = 8px） ── */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -137,8 +168,8 @@ body {
   --color-info: var(--info);
   --color-destructive-foreground: var(--destructive-foreground);
   @keyframes skeleton {
-  to {
-    background-position: -200% 0;
+    to {
+      background-position: -200% 0;
     }
   }
 }
@@ -152,7 +183,11 @@ body {
   --ink-3: color-mix(in srgb, var(--foreground) 62%, var(--color-neutral-500));
   --line: var(--border);
 
-  --background: color-mix(in srgb, var(--color-neutral-950) 95%, var(--color-white));
+  --background: color-mix(
+    in srgb,
+    var(--color-neutral-950) 95%,
+    var(--color-white)
+  );
   --foreground: var(--color-neutral-100);
   --card: color-mix(in srgb, var(--background) 98%, var(--color-white));
   --card-foreground: var(--color-neutral-100);
@@ -163,10 +198,18 @@ body {
   --secondary: --alpha(var(--color-white) / 4%);
   --secondary-foreground: var(--color-neutral-100);
   --muted: --alpha(var(--color-white) / 4%);
-  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--color-neutral-500) 90%,
+    var(--color-white)
+  );
   --accent: --alpha(var(--color-white) / 4%);
   --accent-foreground: var(--color-neutral-100);
-  --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+  --destructive: color-mix(
+    in srgb,
+    var(--color-red-500) 90%,
+    var(--color-white)
+  );
   --border: --alpha(var(--color-white) / 6%);
   --input: --alpha(var(--color-white) / 8%);
   --ring: var(--color-neutral-500);
@@ -175,13 +218,13 @@ body {
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: oklch(0.17 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: oklch(0.235 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.556 0 0);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);

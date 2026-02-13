@@ -24,9 +24,11 @@ import { StorageManagement } from './settings/StorageManagement';
 interface SettingsPanelProps {
   /** 嵌入模式：直接渲染内容而非对话框 */
   embedded?: boolean;
+  /** 独立窗口模式：铺满窗口，无外框 */
+  standalone?: boolean;
 }
 
-export default function SettingsPanel({ embedded = false }: SettingsPanelProps) {
+export default function SettingsPanel({ embedded = false, standalone = false }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>('providers');
 
@@ -46,11 +48,11 @@ export default function SettingsPanel({ embedded = false }: SettingsPanelProps) 
     }
   };
 
-  // 嵌入模式：直接渲染左右布局
-  if (embedded) {
+  // 独立窗口 / 嵌入模式：直接渲染左右布局
+  if (embedded || standalone) {
     return (
-      <div className="overflow-hidden rounded-2xl border bg-card">
-        <div className="flex min-h-[500px]">
+      <div className={standalone ? 'flex h-full' : 'overflow-hidden rounded-2xl border bg-card'}>
+        <div className={standalone ? 'flex flex-1' : 'flex min-h-[500px]'}>
           {/* 左侧导航 */}
           <SettingsNav
             activeSection={activeSection}

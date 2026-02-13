@@ -27,7 +27,27 @@ import * as React from "react";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = "16rem";
+
+/**
+ * Tauri: sidebar 空白区域按下鼠标时启动窗口拖拽，双击切换最大化。
+ * 跳过交互元素（button/a/input 等）。浏览器环境静默忽略。
+ */
+const handleSidebarDrag = async (e: React.MouseEvent) => {
+  if (e.button !== 0) return;
+  const target = e.target as HTMLElement;
+  if (target.closest('button, a, input, [role="button"], [data-slot="scroll-area-thumb"]')) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    if (e.detail === 2) {
+      await getCurrentWindow().toggleMaximize();
+    } else {
+      await getCurrentWindow().startDragging();
+    }
+  } catch {
+    // 非 Tauri 环境
+  }
+};
+const SIDEBAR_WIDTH = "10rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
@@ -246,9 +266,10 @@ function Sidebar({
         {...props}
       >
         <div
-          className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
+          className="flex h-full w-full select-none flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
+          onMouseDown={handleSidebarDrag}
         >
           {children}
         </div>
@@ -343,6 +364,7 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("flex flex-col gap-2 p-2", className)}
       data-sidebar="header"
       data-slot="sidebar-header"
+
       {...props}
     />
   );
@@ -354,6 +376,7 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("flex flex-col gap-2 p-2", className)}
       data-sidebar="footer"
       data-slot="sidebar-footer"
+
       {...props}
     />
   );
@@ -381,11 +404,12 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
     >
       <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+          "flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto group-data-[collapsible=icon]:overflow-hidden",
           className,
         )}
         data-sidebar="content"
         data-slot="sidebar-content"
+  
         {...props}
       />
     </ScrollArea>
@@ -398,6 +422,7 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("relative flex w-full min-w-0 flex-col p-2", className)}
       data-sidebar="group"
       data-slot="sidebar-group"
+
       {...props}
     />
   );
@@ -469,6 +494,7 @@ function SidebarMenu({ className, ...props }: React.ComponentProps<"ul">) {
       className={cn("flex w-full min-w-0 flex-col gap-1", className)}
       data-sidebar="menu"
       data-slot="sidebar-menu"
+
       {...props}
     />
   );

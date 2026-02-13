@@ -13,6 +13,8 @@
     "windows": [
       {
         "title": "拍摄预案助手",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1280,
         "height": 800,
         "resizable": true,

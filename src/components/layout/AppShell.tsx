@@ -1,6 +1,6 @@
 'use client';
 
-import { Link, useLocation } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   FolderKanban,
   Image,
@@ -11,10 +11,12 @@ import {
   Users,
 } from 'lucide-react';
 import type * as React from 'react';
+import { useCallback } from 'react';
 import { useCommandSearchContext } from '@/components/CommandSearch';
 import { TaskQueueIndicator } from '@/components/TaskQueueDrawer';
 import { Button } from '@/components/ui/button';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { openSettingsWindow } from '@/lib/open-settings-window';
 import {
   Sidebar,
   SidebarContent,
@@ -39,6 +41,7 @@ type AppShellProps = {
 
 export function AppShell({ children, contextPanel }: AppShellProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const pathname = location.pathname;
   const { setOpen } = useCommandSearchContext();
   const isProjectsPage =
@@ -48,10 +51,17 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
   const needsFixedHeight =
     isProjectsPage || pathname.startsWith('/assets/models');
 
-  const isActive = (to: string, exact?: boolean) => {
-    if (exact) return pathname === to;
-    return pathname.startsWith(to);
-  };
+  const isActive = useCallback(
+    (to: string, exact?: boolean) => {
+      if (exact) return pathname === to;
+      return pathname.startsWith(to);
+    },
+    [pathname],
+  );
+
+  const handleOpenSettings = useCallback(() => {
+    openSettingsWindow(() => navigate({ to: '/settings' }));
+  }, [navigate]);
 
   return (
     <SidebarProvider defaultOpen>
@@ -122,8 +132,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                isActive={isActive('/settings')}
-                render={<Link to="/settings" />}
+                onClick={handleOpenSettings}
                 tooltip="设置"
               >
                 <Settings2 />
@@ -135,7 +144,10 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
       </Sidebar>
 
       <SidebarInset>
-        <header className="flex h-14 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur-sm">
+        <header
+          data-tauri-drag-region
+          className="flex h-14 select-none items-center gap-2 border-b bg-background px-3"
+        >
           <SidebarTrigger className="shrink-0" />
 
           <button
@@ -161,7 +173,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
             <TaskQueueIndicator />
             <Button
               aria-label="设置"
-              render={<Link to="/settings" />}
+              onClick={handleOpenSettings}
               size="icon"
               variant="ghost"
             >
@@ -174,7 +186,6 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           <div
             className={cn(
               'min-w-0 min-h-0 flex-1',
-              // Projects 首页：左右两栏各自滚动，避免父级滚动干扰
               needsFixedHeight ? 'overflow-hidden' : 'overflow-auto',
             )}
           >
