@@ -85,7 +85,7 @@ export default function PlanToc({
                 onClick={() => scrollTo(s.id)}
                 className={
                   `w-full text-left rounded-xl px-3 py-2 text-sm transition ` +
-                  ((s.level ?? 0) === 1 ? 'pl-6 text-[13px] ' : '') +
+                  ((s.level ?? 0) === 1 ? 'pl-6 ' : '') +
                   (isActive
                     ? 'bg-gray-50 text-[var(--ink)] font-semibold'
                     : 'text-[var(--ink-2)] hover:bg-gray-50')

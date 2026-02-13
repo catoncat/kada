@@ -77,7 +77,7 @@ export function ProjectSidebar({
     SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
 
   return (
-    <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-sidebar">
+    <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-background">
       {/* 新建按钮 */}
       <div className="p-3">
         <Button onClick={onCreateProject} className="w-full" size="sm">
@@ -95,7 +95,7 @@ export function ProjectSidebar({
             placeholder="搜索项目..."
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="pl-8 bg-sidebar-accent/50"
+            className="pl-8 bg-muted/50"
             size="sm"
           />
         </div>
@@ -111,10 +111,10 @@ export function ProjectSidebar({
               onClick={() => onStatusChange(tab.value)}
               className={cn(
                 'flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors',
-                'hover:bg-sidebar-accent',
+                'hover:bg-accent',
                 statusFilter === tab.value
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-foreground',
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-foreground',
               )}
             >
               <span>{tab.label}</span>
@@ -122,7 +122,7 @@ export function ProjectSidebar({
                 className={cn(
                   'text-xs tabular-nums',
                   statusFilter === tab.value
-                    ? 'text-sidebar-accent-foreground'
+                    ? 'text-accent-foreground'
                     : 'text-muted-foreground',
                 )}
               >

@@ -1,17 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { PhotoFrame } from '@/components/PhotoFrame';
 import type { ModelAsset, CreateModelAssetInput } from '@/types/model-asset';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-} from '@/components/ui/select';
+import { FormRow, FormSection } from '@/components/ui/form-row';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { getImageUrl } from '@/lib/scene-assets-api';
 
 interface ModelFormProps {
@@ -24,10 +20,8 @@ interface ModelFormProps {
 }
 
 const GENDER_OPTIONS = [
-  { value: '', label: '不限' },
-  { value: 'male', label: '男' },
-  { value: 'female', label: '女' },
-  { value: 'other', label: '其他' },
+  { value: 'male' as const, label: '男' },
+  { value: 'female' as const, label: '女' },
 ];
 
 function ReferencePhotoThumb({
@@ -55,6 +49,12 @@ function ReferencePhotoThumb({
     </PhotoFrame>
   );
 }
+
+const inputClass =
+  'w-full h-7 rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
+
+const textareaClass =
+  'w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 resize-none';
 
 export function ModelForm({
   initialData,
@@ -123,214 +123,167 @@ export function ModelForm({
     await onSubmit(data);
   };
 
-  const inputClass =
-    'w-full h-10 rounded-lg border border-input bg-background px-4 py-0 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
-
-  const textareaClass =
-    'w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background';
-
-  const genderSelectValue = gender || '__any__';
-  const selectedGenderLabel =
-    GENDER_OPTIONS.find((opt) => opt.value === gender)?.label || '不限';
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="flex h-full flex-col">
       {/* 标题栏 */}
-      <div className="flex items-center justify-between pb-4 border-b border-border">
-        <h2 className="text-lg font-semibold text-foreground">
+      <div className="flex items-center justify-center border-b border-border px-4 py-2.5">
+        <h2 className="text-sm font-semibold text-foreground">
           {isEditing ? '编辑模特' : '新建模特'}
         </h2>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="p-2 rounded-lg hover:bg-accent transition"
-        >
-          <X className="w-5 h-5 text-muted-foreground" />
-        </button>
       </div>
 
-      {/* 名称 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-name">
-          名称 <span className="text-destructive">*</span>
-        </label>
-        <input
-          id="model-name"
-          type="text"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            if (nameError) setNameError('');
-          }}
-          placeholder="例如：小明、模特A"
-          className={inputClass}
-          required
-        />
-        {nameError && (
-          <p className="mt-1 text-sm text-destructive">{nameError}</p>
-        )}
-      </div>
-
-      {/* 性别 + 年龄范围 */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-gender">
-            性别
-          </label>
-          <Select
-            value={genderSelectValue}
-            onValueChange={(value) => {
-              if (!value || value === '__any__') {
-                setGender('');
-                return;
-              }
-              setGender(value);
+      {/* 表单内容 */}
+      <div className="flex-1 overflow-y-auto" style={{ '--form-label-width': '5.5rem' } as React.CSSProperties}>
+        {/* 基本信息 */}
+        <FormRow label="名称" htmlFor="model-name" required>
+          <input
+            id="model-name"
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (nameError) setNameError('');
             }}
-          >
-            <SelectTrigger id="model-gender" className="h-10 sm:h-10">
-              <span className="truncate">{selectedGenderLabel}</span>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="__any__">不限</SelectItem>
-              {GENDER_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
+            placeholder="例如：小明、模特A"
+            className={inputClass}
+            required
+          />
+          {nameError && (
+            <p className="mt-1 text-xs text-destructive">{nameError}</p>
+          )}
+        </FormRow>
+
+        <FormRow label="性别">
+          <SegmentedControl
+            value={gender as 'male' | 'female' | ''}
+            onValueChange={(v) => setGender(v)}
+            options={GENDER_OPTIONS}
+            size="sm"
+            allowDeselect
+          />
+        </FormRow>
+
+        <FormRow label="年龄范围">
+          <div className="flex items-center gap-2">
+            <input
+              id="model-age-min"
+              type="number"
+              min={0}
+              max={120}
+              value={ageRangeMin}
+              onChange={(e) => setAgeRangeMin(e.target.value)}
+              placeholder="下限"
+              className={`${inputClass} w-20`}
+            />
+            <span className="text-xs text-muted-foreground">—</span>
+            <input
+              id="model-age-max"
+              type="number"
+              min={0}
+              max={120}
+              value={ageRangeMax}
+              onChange={(e) => setAgeRangeMax(e.target.value)}
+              placeholder="上限"
+              className={`${inputClass} w-20`}
+            />
+          </div>
+        </FormRow>
+
+        <FormRow label="描述" htmlFor="model-desc" align="start">
+          <textarea
+            id="model-desc"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="关于这个模特的备注信息"
+            rows={2}
+            className={textareaClass}
+          />
+        </FormRow>
+
+        <FormRow label="标签" htmlFor="model-tags">
+          <input
+            id="model-tags"
+            type="text"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="逗号分隔，例如：儿童, 男孩"
+            className={inputClass}
+          />
+        </FormRow>
+
+        {/* 参考照片分组 */}
+        <FormSection
+          title="参考照片"
+          description="上传的照片将作为参考图传给 AI，是保持人物一致性的关键"
+        >
+          <FormRow label="主参考照" align="start">
+            <ImageUploader
+              value={primaryImage}
+              onChange={(path) => setPrimaryImage(path || '')}
+              placeholder="上传主参考照片"
+            />
+          </FormRow>
+
+          <FormRow label="辅助照片" align="start" hint="最多 5 张">
+            <div className="grid grid-cols-5 gap-2">
+              {referenceImages.map((img, i) => (
+                <ReferencePhotoThumb
+                  key={img}
+                  src={getImageUrl(img)}
+                  alt={`参考照 ${i + 1}`}
+                  onRemove={() => handleRemoveReferenceImage(i)}
+                />
               ))}
-            </SelectPopup>
-          </Select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-age-min">
-            年龄下限
-          </label>
-          <input
-            id="model-age-min"
-            type="number"
-            min={0}
-            max={120}
-            value={ageRangeMin}
-            onChange={(e) => setAgeRangeMin(e.target.value)}
-            placeholder="例如：3"
-            className={inputClass}
+              {referenceImages.length < 5 && (
+                <ImageUploader
+                  value=""
+                  onChange={(path) => {
+                    if (path) handleAddReferenceImage(path);
+                  }}
+                  placeholder=""
+                />
+              )}
+            </div>
+          </FormRow>
+        </FormSection>
+
+        {/* 外观提示词 */}
+        <FormRow
+          label="外观提示词"
+          htmlFor="model-appearance"
+          align="start"
+          divider={false}
+          hint="描述将注入到出图提示词中，帮助 AI 保持外观一致。建议 20-200 字。"
+        >
+          <textarea
+            id="model-appearance"
+            value={appearancePrompt}
+            onChange={(e) => setAppearancePrompt(e.target.value)}
+            placeholder="描述人物的外貌特征，如肤色、发型、体型、五官等"
+            rows={3}
+            className={textareaClass}
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-age-max">
-            年龄上限
-          </label>
-          <input
-            id="model-age-max"
-            type="number"
-            min={0}
-            max={120}
-            value={ageRangeMax}
-            onChange={(e) => setAgeRangeMax(e.target.value)}
-            placeholder="例如：5"
-            className={inputClass}
-          />
-        </div>
+        </FormRow>
       </div>
 
-      {/* 描述 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-desc">
-          描述
-        </label>
-        <textarea
-          id="model-desc"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="关于这个模特的备注信息"
-          rows={2}
-          className={`${textareaClass} resize-none`}
-        />
-      </div>
-
-      {/* 参考照片 */}
-      <div className="rounded-xl border border-border bg-muted/60 p-4">
-        <h3 className="text-sm font-medium text-foreground mb-4">参考照片</h3>
-        <p className="text-xs text-muted-foreground mb-3">
-          上传的照片将作为参考图传给 AI，是保持人物一致性的关键
-        </p>
-
-        {/* 主参考照 */}
-        <div className="mb-4">
-          <div className="block text-xs text-muted-foreground mb-2">主参考照</div>
-          <ImageUploader
-            value={primaryImage}
-            onChange={(path) => setPrimaryImage(path || '')}
-            placeholder="上传主参考照片"
-          />
-        </div>
-
-        {/* 辅助参考照 */}
-        <div>
-          <div className="block text-xs text-muted-foreground mb-2">
-            辅助参考照（最多 5 张）
-          </div>
-          <div className="grid grid-cols-5 gap-2">
-            {referenceImages.map((img, i) => (
-              <ReferencePhotoThumb
-                key={img}
-                src={getImageUrl(img)}
-                alt={`参考照 ${i + 1}`}
-                onRemove={() => handleRemoveReferenceImage(i)}
-              />
-            ))}
-            {referenceImages.length < 5 && (
-              <ImageUploader
-                value=""
-                onChange={(path) => {
-                  if (path) handleAddReferenceImage(path);
-                }}
-                placeholder=""
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 外观提示词 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-appearance">
-          外观提示词
-        </label>
-        <textarea
-          id="model-appearance"
-          value={appearancePrompt}
-          onChange={(e) => setAppearancePrompt(e.target.value)}
-          placeholder="描述人物的外貌特征，如肤色、发型、体型、五官等"
-          rows={4}
-          className={`${textareaClass} resize-none`}
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          此描述将注入到出图提示词中，帮助 AI 保持人物外观一致。建议 20-200 字。
-        </p>
-      </div>
-
-      {/* 标签 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="model-tags">
-          标签
-        </label>
-        <input
-          id="model-tags"
-          type="text"
-          value={tagsInput}
-          onChange={(e) => setTagsInput(e.target.value)}
-          placeholder="用逗号分隔，例如：儿童, 男孩, 活泼"
-          className={inputClass}
-        />
-      </div>
-
-      {/* 提交按钮 */}
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-        <Button onClick={onCancel} disabled={loading} variant="outline">
+      {/* 底部操作栏 */}
+      <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+        <Button
+          onClick={onCancel}
+          disabled={loading}
+          variant="outline"
+          size="sm"
+          className="text-sm"
+        >
           取消
         </Button>
-        <Button type="submit" disabled={loading || !name.trim()}>
-          {loading ? '保存中...' : isEditing ? '保存修改' : '创建模特'}
+        <Button
+          type="submit"
+          disabled={loading || !name.trim()}
+          size="sm"
+          className="text-sm"
+        >
+          {loading ? '保存中...' : isEditing ? '保存修改' : '创建'}
         </Button>
       </div>
     </form>

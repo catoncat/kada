@@ -23,12 +23,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-} from '@/components/ui/select';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import {
   createModelAsset,
   deleteModelAsset,
@@ -138,7 +133,7 @@ function ModelsAssetPage() {
   return (
     <div className="h-full min-h-0 flex overflow-hidden">
       {/* 左侧：模特列表 */}
-      <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-sidebar">
+      <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-background">
         <div className="p-3">
           <Button onClick={handleCreate} className="w-full" size="sm">
             <Plus className="w-4 h-4" />
@@ -155,7 +150,7 @@ function ModelsAssetPage() {
                 placeholder="搜索模特..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 bg-sidebar-accent/50"
+                className="pl-8 bg-muted/50"
                 size="sm"
               />
             </div>
@@ -299,8 +294,8 @@ function ModelListItem({
         className={cn(
           'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
           selected
-            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-            : 'hover:bg-sidebar-accent/50',
+            ? 'bg-accent text-accent-foreground'
+            : 'hover:bg-accent/50',
         )}
         onClick={onSelect}
       >
@@ -326,7 +321,7 @@ function ModelListItem({
         </div>
 
         {model.projectId && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+          <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
             专属
           </span>
         )}
@@ -347,10 +342,10 @@ function ModelListItem({
 // ── 属性面板（统一创建/编辑，始终可编辑） ──────────────────
 
 const fieldCls =
-  'h-8 w-full rounded-md border border-input/60 bg-transparent px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-7 w-full rounded-md border border-input bg-transparent px-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
 
 const textareaCls =
-  'w-full rounded-md border border-input/60 bg-transparent px-3 py-2 text-sm text-foreground leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none';
+  'w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm text-foreground leading-relaxed placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 resize-none';
 
 function ModelPropertyPanel({
   model,
@@ -456,7 +451,6 @@ function ModelPropertyPanel({
     setReferenceImages(referenceImages.filter((_, i) => i !== index));
   };
 
-  const genderLabel = gender ? GENDER_LABELS[gender] || gender : '不限';
 
   return (
     <div className="h-full flex flex-col">
@@ -489,8 +483,8 @@ function ModelPropertyPanel({
               />
             </div>
 
-            <div className="flex-1 min-w-0 grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-2.5 items-center text-sm content-start">
-              <span className="text-muted-foreground">名称</span>
+            <div className="flex-1 min-w-0 grid grid-cols-[3.5rem_1fr] gap-x-1.5 gap-y-2.5 items-center text-sm content-start">
+              <span className="text-right text-muted-foreground">名称</span>
               <input
                 type="text"
                 value={name}
@@ -499,23 +493,19 @@ function ModelPropertyPanel({
                 className={fieldCls}
               />
 
-              <span className="text-muted-foreground">性别</span>
-              <Select
-                value={gender || '__any__'}
-                onValueChange={(v) => setGender(!v || v === '__any__' ? '' : v)}
-              >
-                <SelectTrigger className="h-8 sm:h-8 border-input/60">
-                  <span className="truncate">{genderLabel}</span>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value="__any__">不限</SelectItem>
-                  <SelectItem value="male">男</SelectItem>
-                  <SelectItem value="female">女</SelectItem>
-                  <SelectItem value="other">其他</SelectItem>
-                </SelectPopup>
-              </Select>
+              <span className="text-right text-muted-foreground">性别</span>
+              <SegmentedControl
+                value={gender as 'male' | 'female' | ''}
+                onValueChange={(v) => setGender(v)}
+                options={[
+                  { value: 'male' as const, label: '男' },
+                  { value: 'female' as const, label: '女' },
+                ]}
+                size="sm"
+                allowDeselect
+              />
 
-              <span className="text-muted-foreground">年龄</span>
+              <span className="text-right text-muted-foreground">年龄</span>
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
@@ -539,7 +529,7 @@ function ModelPropertyPanel({
                 <span className="text-xs text-muted-foreground">岁</span>
               </div>
 
-              <span className="text-muted-foreground">标签</span>
+              <span className="text-right text-muted-foreground">标签</span>
               <input
                 type="text"
                 value={tagsInput}

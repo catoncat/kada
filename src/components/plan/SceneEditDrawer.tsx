@@ -44,7 +44,7 @@ export function SceneEditDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal="trap-focus">
-      <SheetContent side="right" variant="inset" showBackdrop={false}>
+      <SheetContent side="right" variant="inset">
         <SheetHeader>
           <SheetTitle>
             场景 {sceneIndex + 1}: {scene.location}

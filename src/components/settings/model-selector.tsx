@@ -55,7 +55,7 @@ export default function ModelSelector({
                 {selectedModel.capabilities.slice(0, 2).map(cap => (
                   <span
                     key={cap}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getCapabilityColor(cap)}`}
+                    className={`px-1.5 py-0.5 rounded text-2xs font-medium ${getCapabilityColor(cap)}`}
                   >
                     {getCapabilityIcon(cap)}
                   </span>
@@ -102,7 +102,7 @@ export default function ModelSelector({
                         {model.name}
                       </span>
                       {model.id === value && (
-                        <span className="text-[10px] text-primary font-medium">✓</span>
+                        <span className="text-2xs text-primary font-medium">✓</span>
                       )}
                     </div>
                     {model.description && (
@@ -115,7 +115,7 @@ export default function ModelSelector({
                     {model.capabilities.map(cap => (
                       <span
                         key={cap}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${getCapabilityColor(cap)}`}
+                        className={`px-1.5 py-0.5 rounded text-2xs font-medium ${getCapabilityColor(cap)}`}
                         title={cap}
                       >
                         {getCapabilityIcon(cap)}

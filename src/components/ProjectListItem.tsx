@@ -79,8 +79,8 @@ export function ProjectListItem({
       <ContextMenuTrigger
         className={cn(
           'w-full text-left px-2.5 py-2 rounded-md transition-colors mb-0.5',
-          'hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          selected && 'bg-sidebar-accent',
+          'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          selected && 'bg-accent',
         )}
         onClick={onSelect}
         onDoubleClick={onDoubleClick}

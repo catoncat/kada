@@ -59,7 +59,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
 
       <div className="mt-8 flex-1 flex flex-col overflow-hidden px-3">
         {!isCollapsed && (
-          <h3 className="px-4 text-[10px] font-bold text-[var(--ink-3)] uppercase tracking-[0.24em] mb-4">
+          <h3 className="px-4 text-2xs font-bold text-[var(--ink-3)] uppercase tracking-[0.24em] mb-4">
             历史预案 ({history.length})
           </h3>
         )}
@@ -102,7 +102,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                       <div className="text-sm font-semibold truncate text-[var(--ink)]">
                         {plan.title}
                       </div>
-                      <div className="text-[10px] text-[var(--ink-3)] truncate tracking-wider">
+                      <div className="text-2xs text-[var(--ink-3)] truncate tracking-wider">
                         {plan.createdAt ? new Date(plan.createdAt).toLocaleDateString() : ''}
                       </div>
                     </div>
