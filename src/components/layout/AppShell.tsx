@@ -48,8 +48,12 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
     pathname === '/' ||
     pathname === '/index.html' ||
     pathname === '/index.html/';
+  const isProjectScenesPage = /^\/project\/[^/]+\/scenes$/.test(pathname);
   const needsFixedHeight =
-    isProjectsPage || pathname.startsWith('/assets/models');
+    isProjectsPage ||
+    pathname.startsWith('/assets/models') ||
+    pathname.startsWith('/assets/scenes') ||
+    isProjectScenesPage;
 
   const isActive = useCallback(
     (to: string, exact?: boolean) => {
