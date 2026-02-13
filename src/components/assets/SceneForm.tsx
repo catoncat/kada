@@ -1,74 +1,144 @@
 'use client';
 
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { MapPin, Sun, Tag, X } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
-import type { SceneAsset, CreateSceneAssetInput, SceneStyle } from '@/types/scene-asset';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import type {
+  CreateSceneAssetInput,
+  SceneAsset,
+  SceneStyle,
+} from '@/types/scene-asset';
 
 interface SceneFormProps {
-  /** 编辑时的初始数据 */
   initialData?: SceneAsset;
-  /** 提交回调 */
   onSubmit: (data: CreateSceneAssetInput) => Promise<void>;
-  /** 取消回调 */
-  onCancel: () => void;
-  /** 是否正在提交 */
+  onCancel?: () => void;
+  onDelete?: () => void;
   loading?: boolean;
 }
 
-const COLOR_TONE_OPTIONS: { value: SceneStyle['colorTone']; label: string }[] = [
+const COLOR_TONE_OPTIONS = [
   { value: 'warm', label: '暖色调' },
   { value: 'cool', label: '冷色调' },
   { value: 'neutral', label: '中性' },
-];
+] as const;
 
-const LIGHTING_MOOD_OPTIONS: { value: SceneStyle['lightingMood']; label: string }[] = [
+const LIGHTING_MOOD_OPTIONS = [
   { value: 'soft', label: '柔光' },
   { value: 'dramatic', label: '戏剧性' },
   { value: 'natural', label: '自然光' },
-];
+] as const;
 
-const ERA_OPTIONS: { value: SceneStyle['era']; label: string }[] = [
+const ERA_OPTIONS = [
   { value: 'modern', label: '现代' },
   { value: 'vintage', label: '复古' },
   { value: 'timeless', label: '经典' },
-];
+] as const;
 
-export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: SceneFormProps) {
+const fieldCls =
+  'h-8 w-full rounded-lg border border-transparent bg-background/92 px-2.5 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70';
+
+const textareaCls =
+  'w-full rounded-lg border border-transparent bg-background/92 px-3 py-2 text-sm text-foreground leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70 resize-none';
+
+const macImageUploaderCls =
+  '[&>button]:rounded-xl [&>button]:border [&>button]:border-input/70 [&>button]:border-solid [&>button]:bg-muted/35 [&>button]:p-6 [&>button]:hover:bg-muted/55 [&>button]:transition-colors';
+
+export function SceneForm({
+  initialData,
+  onSubmit,
+  onCancel,
+  onDelete,
+  loading = false,
+}: SceneFormProps) {
+  const isCreate = !initialData;
+
   const [name, setName] = useState(initialData?.name || '');
   const [description, setDescription] = useState(initialData?.description || '');
   const [primaryImage, setPrimaryImage] = useState(initialData?.primaryImage || '');
-  const [defaultLighting, setDefaultLighting] = useState(initialData?.defaultLighting || '');
+  const [defaultLighting, setDefaultLighting] = useState(
+    initialData?.defaultLighting || '',
+  );
   const [isOutdoor, setIsOutdoor] = useState(initialData?.isOutdoor || false);
   const [tagsInput, setTagsInput] = useState(initialData?.tags?.join(', ') || '');
 
-  // 风格属性
   const [colorTone, setColorTone] = useState<SceneStyle['colorTone']>(
-    initialData?.style?.colorTone || 'neutral'
+    initialData?.style?.colorTone || 'neutral',
   );
   const [lightingMood, setLightingMood] = useState<SceneStyle['lightingMood']>(
-    initialData?.style?.lightingMood || 'natural'
+    initialData?.style?.lightingMood || 'natural',
   );
-  const [era, setEra] = useState<SceneStyle['era']>(initialData?.style?.era || 'timeless');
+  const [era, setEra] = useState<SceneStyle['era']>(
+    initialData?.style?.era || 'timeless',
+  );
+  const [nameError, setNameError] = useState('');
 
-  const isEditing = !!initialData;
+  const isDirty = useMemo(() => {
+    if (isCreate) {
+      return Boolean(
+        name.trim() ||
+          description.trim() ||
+          primaryImage ||
+          defaultLighting.trim() ||
+          tagsInput.trim() ||
+          isOutdoor,
+      );
+    }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    return (
+      name !== (initialData.name || '') ||
+      description !== (initialData.description || '') ||
+      primaryImage !== (initialData.primaryImage || '') ||
+      defaultLighting !== (initialData.defaultLighting || '') ||
+      isOutdoor !== Boolean(initialData.isOutdoor) ||
+      tagsInput !== (initialData.tags?.join(', ') || '') ||
+      colorTone !== (initialData.style?.colorTone || 'neutral') ||
+      lightingMood !== (initialData.style?.lightingMood || 'natural') ||
+      era !== (initialData.style?.era || 'timeless')
+    );
+  }, [
+    colorTone,
+    defaultLighting,
+    description,
+    era,
+    initialData,
+    isCreate,
+    isOutdoor,
+    lightingMood,
+    name,
+    primaryImage,
+    tagsInput,
+  ]);
 
+  const resetToInitial = () => {
+    setName(initialData?.name || '');
+    setDescription(initialData?.description || '');
+    setPrimaryImage(initialData?.primaryImage || '');
+    setDefaultLighting(initialData?.defaultLighting || '');
+    setIsOutdoor(Boolean(initialData?.isOutdoor));
+    setTagsInput(initialData?.tags?.join(', ') || '');
+    setColorTone(initialData?.style?.colorTone || 'neutral');
+    setLightingMood(initialData?.style?.lightingMood || 'natural');
+    setEra(initialData?.style?.era || 'timeless');
+    setNameError('');
+  };
+
+  const handleSave = async () => {
     if (!name.trim()) {
-      alert('请输入场景名称');
+      setNameError('场景名称不能为空');
       return;
     }
+
+    setNameError('');
 
     const tags = tagsInput
       .split(/[,，]/)
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const data: CreateSceneAssetInput = {
+    const payload: CreateSceneAssetInput = {
       name: name.trim(),
       description: description.trim() || undefined,
       primaryImage: primaryImage || undefined,
@@ -82,195 +152,213 @@ export function SceneForm({ initialData, onSubmit, onCancel, loading = false }: 
       },
     };
 
-    await onSubmit(data);
+    await onSubmit(payload);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between pb-4 border-b border-border">
-        <h2 className="text-lg font-semibold text-foreground">
-          {isEditing ? '编辑场景' : '新建场景'}
-        </h2>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="p-2 rounded-lg hover:bg-accent transition"
-        >
-          <X className="w-5 h-5 text-muted-foreground" />
-        </button>
-      </div>
-
-      {/* 主图上传 */}
-      <div>
-        <div className="block text-sm font-medium text-foreground mb-2">场景主图</div>
-        <ImageUploader
-          value={primaryImage}
-          onChange={(path) => setPrimaryImage(path || '')}
-          placeholder="上传场景照片"
-        />
-      </div>
-
-      {/* 基本信息 */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-name">
-            场景名称 <span className="text-destructive">*</span>
-          </label>
-          <input
-            id="scene-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="例如：白墙区、窗光区、户外草坪"
-            className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            required
-          />
+    <div className="flex h-full flex-col">
+      {isCreate && (
+        <div className="flex items-center justify-between border-b px-6 py-3.5">
+          <h2 className="text-base font-semibold">新场景</h2>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-md p-1.5 transition hover:bg-accent"
+              aria-label="关闭"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
         </div>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-default-lighting">
-            默认灯光
-          </label>
-          <input
-            id="scene-default-lighting"
-            type="text"
-            value={defaultLighting}
-            onChange={(e) => setDefaultLighting(e.target.value)}
-            placeholder="例如：蝴蝶光、环形灯、自然光"
-            className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          />
-        </div>
-      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <div className="mx-auto max-w-2xl space-y-6 px-6 py-6">
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+            <div className="flex gap-5">
+              <div className="w-32 shrink-0">
+                <ImageUploader
+                  value={primaryImage}
+                  onChange={(path) => setPrimaryImage(path || '')}
+                  placeholder="场景主图"
+                  className={macImageUploaderCls}
+                />
+              </div>
 
-      {/* 描述 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-description">
-          场景描述
-        </label>
-        <textarea
-          id="scene-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="描述这个场景的特点、适合的拍摄风格等"
-          rows={3}
-          className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background resize-none"
-        />
-      </div>
-
-      {/* 标签 */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2" htmlFor="scene-tags">
-          标签
-        </label>
-        <input
-          id="scene-tags"
-          type="text"
-          value={tagsInput}
-          onChange={(e) => setTagsInput(e.target.value)}
-          placeholder="用逗号分隔，例如：极简, 高调, 现代"
-          className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        />
-      </div>
-
-      {/* 户外标记 */}
-      <div className="flex items-center gap-3">
-        <input
-          type="checkbox"
-          id="isOutdoor"
-          checked={isOutdoor}
-          onChange={(e) => setIsOutdoor(e.target.checked)}
-          className="w-4 h-4 rounded border-input text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        />
-        <label htmlFor="isOutdoor" className="text-sm text-foreground">
-          这是户外场景
-        </label>
-      </div>
-
-      {/* 风格属性 */}
-      <div className="rounded-xl border border-border bg-muted/60 p-4">
-        <h3 className="text-sm font-medium text-foreground mb-4">风格属性</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          {/* 色调 */}
-          <div>
-            <div className="block text-xs text-muted-foreground mb-2">色调</div>
-            <div className="flex flex-wrap gap-2">
-              {COLOR_TONE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setColorTone(opt.value)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
-                    colorTone === opt.value
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
+              <div className="min-w-0 flex-1 space-y-3">
+                <div>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (nameError) setNameError('');
+                    }}
+                    placeholder="场景名称"
+                    className="h-10 w-full rounded-lg border border-transparent bg-background/92 px-3 text-[1.1rem] font-semibold tracking-[-0.01em] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)]"
+                  />
+                  {nameError && (
+                    <p className="mt-1 text-xs text-destructive">{nameError}</p>
                   )}
-                >
-                  {opt.label}
-                </button>
-              ))}
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Sun className="h-3 w-3" />
+                      默认灯光
+                    </span>
+                    <input
+                      type="text"
+                      value={defaultLighting}
+                      onChange={(e) => setDefaultLighting(e.target.value)}
+                      placeholder="例如：自然窗光"
+                      className={fieldCls}
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Tag className="h-3 w-3" />
+                      标签
+                    </span>
+                    <input
+                      type="text"
+                      value={tagsInput}
+                      onChange={(e) => setTagsInput(e.target.value)}
+                      placeholder="逗号分隔"
+                      className={fieldCls}
+                    />
+                  </label>
+                </div>
+
+                <label className="inline-flex w-fit items-center gap-2 rounded-lg border border-input/70 bg-background/75 px-2.5 py-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={isOutdoor}
+                    onChange={(e) => setIsOutdoor(e.target.checked)}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    户外场景
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
 
-          {/* 光线氛围 */}
-          <div>
-            <div className="block text-xs text-muted-foreground mb-2">光线氛围</div>
-            <div className="flex flex-wrap gap-2">
-              {LIGHTING_MOOD_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setLightingMood(opt.value)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
-                    lightingMood === opt.value
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+            <label
+              htmlFor="scene-description"
+              className="mb-1.5 block text-sm font-medium text-foreground"
+            >
+              场景描述
+            </label>
+            <textarea
+              id="scene-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="描述这个场景的特点、适合的拍摄风格等"
+              rows={3}
+              className={textareaCls}
+            />
+          </div>
+
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+            <div className="mb-3 text-sm font-medium text-foreground">风格属性</div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <div className="mb-1.5 text-xs text-muted-foreground">色调</div>
+                <SegmentedControl
+                  value={colorTone || ''}
+                  onValueChange={(v) => setColorTone((v || 'neutral') as SceneStyle['colorTone'])}
+                  options={COLOR_TONE_OPTIONS as unknown as { value: string; label: string }[]}
+                  size="sm"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1.5 text-xs text-muted-foreground">光线氛围</div>
+                <SegmentedControl
+                  value={lightingMood || ''}
+                  onValueChange={(v) =>
+                    setLightingMood((v || 'natural') as SceneStyle['lightingMood'])
+                  }
+                  options={LIGHTING_MOOD_OPTIONS as unknown as { value: string; label: string }[]}
+                  size="sm"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1.5 text-xs text-muted-foreground">年代感</div>
+                <SegmentedControl
+                  value={era || ''}
+                  onValueChange={(v) => setEra((v || 'timeless') as SceneStyle['era'])}
+                  options={ERA_OPTIONS as unknown as { value: string; label: string }[]}
+                  size="sm"
+                />
+              </div>
             </div>
           </div>
 
-          {/* 年代感 */}
-          <div>
-            <div className="block text-xs text-muted-foreground mb-2">年代感</div>
-            <div className="flex flex-wrap gap-2">
-              {ERA_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setEra(opt.value)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium transition',
-                    era === opt.value
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background border border-input text-muted-foreground hover:bg-accent hover:text-foreground'
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          {!isCreate && onDelete && (
+            <div className="border-t border-border/60 pt-4">
+              <button
+                type="button"
+                onClick={onDelete}
+                className="text-sm text-destructive/70 transition hover:text-destructive"
+              >
+                删除此场景...
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* 提交按钮 */}
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-        <Button onClick={onCancel} disabled={loading} variant="outline">
-          取消
-        </Button>
-        <Button
-          type="submit"
-          disabled={loading || !name.trim()}
-        >
-          {loading ? '保存中...' : isEditing ? '保存修改' : '创建场景'}
-        </Button>
-      </div>
-    </form>
+      {isCreate ? (
+        <div className="flex items-center justify-end gap-2 border-t bg-background px-6 py-3">
+          {onCancel && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCancel}
+              disabled={loading}
+            >
+              取消
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={loading || !name.trim()}
+          >
+            {loading ? '创建中...' : '创建'}
+          </Button>
+        </div>
+      ) : isDirty ? (
+        <div className="flex items-center justify-between border-t bg-background/80 px-6 py-3 backdrop-blur-sm">
+          <span className="text-sm text-muted-foreground">有未保存的修改</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetToInitial}
+              disabled={loading}
+            >
+              放弃修改
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={loading || !name.trim()}
+            >
+              {loading ? '保存中...' : '保存'}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

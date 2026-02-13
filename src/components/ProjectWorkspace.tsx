@@ -233,51 +233,54 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
       >
         <div className="max-w-4xl mx-auto space-y-4">
           {/* 场景配置区块 */}
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
             <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-4 flex-1 min-w-0">
-                {/* 场景缩略图 */}
+              <div className="flex min-w-0 flex-1 items-start gap-4">
                 <PhotoFrame
                   src={selectedSceneImageUrl}
                   alt={selectedScene?.name || '场景'}
-                  className="h-20 rounded-lg flex-shrink-0"
+                  className="h-20 flex-shrink-0 rounded-lg"
                   fallback={
-                    <div className="h-full w-full flex items-center justify-center">
+                    <div className="flex h-full w-full items-center justify-center">
                       <ImageIcon className="w-6 h-6 text-muted-foreground" />
                     </div>
                   }
                 />
 
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                    <h3 className="font-medium">场景</h3>
+                    <h3 className="text-sm font-semibold">场景</h3>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      {selectedScene ? '已选择' : '未选择'}
+                    </span>
                   </div>
+
                   {selectedScene ? (
                     <div className="mt-1.5">
-                      <p className="text-sm font-medium">{selectedScene.name}</p>
+                      <p className="truncate text-sm font-medium">{selectedScene.name}</p>
                       {selectedScene.description && (
-                        <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">
+                        <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
                           {selectedScene.description}
                         </p>
                       )}
                     </div>
                   ) : (
                     <p className="mt-1.5 text-sm text-muted-foreground">
-                      尚未选择场景
+                      尚未选择场景，生成前建议先完成场景配置。
                     </p>
                   )}
                 </div>
               </div>
 
-              <Link
-                to="/project/$id/scenes"
-                params={{ id: projectId }}
-                className="inline-flex items-center gap-1 text-sm text-primary hover:underline flex-shrink-0"
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                render={<Link to="/project/$id/scenes" params={{ id: projectId }} />}
               >
-                配置
-                <span>→</span>
-              </Link>
+                配置场景
+              </Button>
             </div>
           </div>
 
