@@ -5,17 +5,26 @@
 
 'use client';
 
+import { Check, Edit3, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Check, Edit3, Loader2 } from 'lucide-react';
-import { getSetting, setSetting } from '@/lib/settings-api';
-import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { getSetting, setSetting } from '@/lib/settings-api';
 import { cn } from '@/lib/utils';
 
-/** 单个模板 */
 interface PromptTemplate {
   id: string;
   name: string;
@@ -23,14 +32,12 @@ interface PromptTemplate {
   isDefault: boolean;
 }
 
-/** 存储结构 */
 interface PromptTemplatesData {
   templates: PromptTemplate[];
 }
 
 const SETTINGS_KEY = 'prompt_templates';
 
-/** 默认的儿童摄影模板 */
 const DEFAULT_TEMPLATE: PromptTemplate = {
   id: 'default-child',
   name: '儿童摄影（默认）',
@@ -57,8 +64,18 @@ export function PromptTemplatesSection() {
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', content: '' });
+  const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // 加载模板
+  const sectionHeader = (
+    <div>
+      <h2 className="mb-1 text-lg font-semibold text-foreground">系统提示词</h2>
+      <p className="text-sm text-muted-foreground">
+        管理全局工作室提示词。它会作为固定编排的第一段输入，参与出图预览、实际出图与预案生成。
+      </p>
+    </div>
+  );
+
   useEffect(() => {
     async function load() {
       try {
@@ -66,7 +83,6 @@ export function PromptTemplatesSection() {
         if (data?.templates?.length) {
           setTemplates(data.templates);
         } else {
-          // 初始化默认模板
           setTemplates([DEFAULT_TEMPLATE]);
         }
       } catch {
@@ -75,73 +91,91 @@ export function PromptTemplatesSection() {
         setIsLoading(false);
       }
     }
+
     load();
   }, []);
 
-  // 保存模板
-  const saveTemplates = async (newTemplates: PromptTemplate[]) => {
+  const saveTemplates = async (nextTemplates: PromptTemplate[]) => {
     setIsSaving(true);
+    setErrorMessage(null);
     try {
-      await setSetting(SETTINGS_KEY, { templates: newTemplates });
-      setTemplates(newTemplates);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : '保存失败');
+      await setSetting(SETTINGS_KEY, { templates: nextTemplates });
+      setTemplates(nextTemplates);
+      return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '保存失败');
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 设为默认
   const handleSetDefault = (id: string) => {
-    const newTemplates = templates.map(t => ({
-      ...t,
-      isDefault: t.id === id,
+    const nextTemplates = templates.map((template) => ({
+      ...template,
+      isDefault: template.id === id,
     }));
-    saveTemplates(newTemplates);
+    void saveTemplates(nextTemplates);
   };
 
-  // 删除模板
   const handleDelete = (id: string) => {
-    const template = templates.find(t => t.id === id);
+    const template = templates.find((item) => item.id === id);
     if (!template) return;
     if (template.isDefault) {
-      alert('不能删除默认模板，请先设置其他模板为默认');
+      setErrorMessage('不能删除默认模板，请先设置其他模板为默认');
       return;
     }
-    if (!confirm(`确定要删除「${template.name}」吗？`)) return;
-    saveTemplates(templates.filter(t => t.id !== id));
+    setErrorMessage(null);
+    setDeleteTarget(template);
   };
 
-  // 开始编辑
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    const succeeded = await saveTemplates(
+      templates.filter((template) => template.id !== deleteTarget.id),
+    );
+    if (succeeded) {
+      setDeleteTarget(null);
+    }
+  };
+
   const handleEdit = (template: PromptTemplate) => {
     setEditingId(template.id);
     setEditForm({ name: template.name, content: template.content });
+    setErrorMessage(null);
   };
 
-  // 保存编辑
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingId) return;
     if (!editForm.name.trim() || !editForm.content.trim()) {
-      alert('名称和内容不能为空');
+      setErrorMessage('名称和内容不能为空');
       return;
     }
-    const newTemplates = templates.map(t =>
-      t.id === editingId
-        ? { ...t, name: editForm.name.trim(), content: editForm.content.trim() }
-        : t
+
+    const nextTemplates = templates.map((template) =>
+      template.id === editingId
+        ? {
+            ...template,
+            name: editForm.name.trim(),
+            content: editForm.content.trim(),
+          }
+        : template,
     );
-    saveTemplates(newTemplates);
-    setEditingId(null);
+
+    const succeeded = await saveTemplates(nextTemplates);
+    if (succeeded) {
+      setEditingId(null);
+    }
   };
 
-  // 取消编辑
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditForm({ name: '', content: '' });
+    setErrorMessage(null);
   };
 
-  // 新建模板
   const handleCreate = () => {
+    setErrorMessage(null);
     const newId = `template-${Date.now()}`;
     const newTemplate: PromptTemplate = {
       id: newId,
@@ -149,63 +183,83 @@ export function PromptTemplatesSection() {
       content: '',
       isDefault: false,
     };
-    setTemplates([...templates, newTemplate]);
+
+    setTemplates((prev) => [...prev, newTemplate]);
     setEditingId(newId);
     setEditForm({ name: '新模板', content: '' });
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        {sectionHeader}
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">加载模板中...</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground mb-1">系统提示词</h2>
-        <p className="text-sm text-muted-foreground">
-          管理系统提示词模板，生成预案时会使用改内容作为前置提示词
-        </p>
-      </div>
+      {sectionHeader}
 
-      {/* 模板列表 */}
+      {errorMessage && (
+        <Alert variant="error">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-3">
-        {templates.map(template => (
+        {templates.map((template) => (
           <div
             key={template.id}
             className={cn(
               'rounded-xl border p-4 transition',
               template.isDefault
                 ? 'border-primary/40 bg-primary/5'
-                : 'border-border bg-card'
+                : 'border-border bg-card',
             )}
           >
             {editingId === template.id ? (
-              // 编辑模式
               <div className="space-y-4">
                 <div className="grid gap-2">
                   <Label>模板名称</Label>
                   <Input
                     value={editForm.name}
-                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        name: event.target.value,
+                      }))
+                    }
                     placeholder="如：儿童摄影、孕妇写真"
                   />
                 </div>
+
                 <div className="grid gap-2">
                   <Label>模板内容</Label>
                   <Textarea
                     value={editForm.content}
-                    onChange={e => setEditForm(f => ({ ...f, content: e.target.value }))}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        content: event.target.value,
+                      }))
+                    }
                     placeholder="输入系统提示词内容..."
                     className="min-h-48 font-mono text-sm"
                   />
                 </div>
+
                 <div className="flex gap-2">
-                  <Button onClick={handleSaveEdit} disabled={isSaving}>
-                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  <Button onClick={() => void handleSaveEdit()} disabled={isSaving}>
+                    {isSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
                     保存
                   </Button>
                   <Button variant="outline" onClick={handleCancelEdit}>
@@ -214,17 +268,21 @@ export function PromptTemplatesSection() {
                 </div>
               </div>
             ) : (
-              // 展示模式
-                <div>
-                  <div className="flex items-center justify-between mb-2">
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                    <span className="font-medium text-foreground">{template.name}</span>
-                    {template.isDefault && (
-                      <Badge className="rounded-full px-2" size="sm">
-                        默认
-                      </Badge>
-                    )}
+                      <span className="font-medium text-foreground">
+                        {template.name}
+                      </span>
+                      {template.isDefault && (
+                        <Badge className="rounded-full px-2" size="sm">
+                          默认
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+
                   <div className="flex items-center gap-1">
                     {!template.isDefault && (
                       <Button
@@ -233,7 +291,7 @@ export function PromptTemplatesSection() {
                         onClick={() => handleSetDefault(template.id)}
                         title="设为默认"
                       >
-                        <Check className="w-4 h-4" />
+                        <Check className="h-4 w-4" />
                       </Button>
                     )}
                     <Button
@@ -242,7 +300,7 @@ export function PromptTemplatesSection() {
                       onClick={() => handleEdit(template)}
                       title="编辑"
                     >
-                      <Edit3 className="w-4 h-4" />
+                      <Edit3 className="h-4 w-4" />
                     </Button>
                     {!template.isDefault && (
                       <Button
@@ -251,12 +309,13 @@ export function PromptTemplatesSection() {
                         onClick={() => handleDelete(template.id)}
                         title="删除"
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+
+                <p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
                   {template.content || '（空内容）'}
                 </p>
               </div>
@@ -265,16 +324,43 @@ export function PromptTemplatesSection() {
         ))}
       </div>
 
-      {/* 新建按钮 */}
       <Button
         className="w-full justify-center gap-2 rounded-xl border-dashed"
         onClick={handleCreate}
         size="lg"
         variant="outline"
       >
-        <Plus className="w-4 h-4" />
+        <Plus className="h-4 w-4" />
         新建模板
       </Button>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogPopup className="p-0">
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除模板</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除「{deleteTarget?.name}」吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              取消
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => void handleConfirmDelete()}
+              disabled={isSaving}
+            >
+              {isSaving ? '删除中...' : '删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </div>
   );
 }

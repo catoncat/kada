@@ -12,12 +12,11 @@
 
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
   Copy,
   History,
   Image as ImageIcon,
   Loader2,
+  RefreshCw,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -39,12 +38,17 @@ import {
   useSetCurrentArtifact,
 } from '@/hooks/useArtifacts';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
+import type { PhotoOrientation } from '@/hooks/usePhotoOrientation';
 import { useImageGeneration, useTasksPolling } from '@/hooks/useTasks';
 import { apiUrl } from '@/lib/api-config';
 import { type ArtifactOwnerType, getArtifactUrl } from '@/lib/artifacts-api';
-import { previewImagePrompt, type RenderedPromptBlock } from '@/lib/prompts-api';
+import {
+  previewImagePrompt,
+  type PromptComposerMeta,
+  type PromptOptimizationMeta,
+  type ReferencePlanSummary,
+} from '@/lib/prompts-api';
 import { cn } from '@/lib/utils';
-import type { PhotoOrientation } from '@/hooks/usePhotoOrientation';
 
 export interface ImageStudioLiteProps {
   /** Owner 信息（用于查询和归属 artifacts） */
@@ -68,7 +72,46 @@ export interface ImageStudioLiteProps {
   /** 自定义类名 */
   className?: string;
   /** 图片显示比例 */
-  aspectRatio?: 'photo' | 'landscape' | 'portrait' | 'square' | '4/3' | '16/9' | 'auto';
+  aspectRatio?:
+    | 'photo'
+    | 'landscape'
+    | 'portrait'
+    | 'square'
+    | '4/3'
+    | '16/9'
+    | 'auto';
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizePromptOptimizationMeta(
+  value: unknown,
+): PromptOptimizationMeta | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const status =
+    raw.status === 'optimized' || raw.status === 'fallback' || raw.status === 'skipped'
+      ? raw.status
+      : 'skipped';
+
+  return {
+    status,
+    reason: typeof raw.reason === 'string' ? raw.reason : null,
+    providerId: typeof raw.providerId === 'string' ? raw.providerId : null,
+    providerFormat:
+      typeof raw.providerFormat === 'string' ? raw.providerFormat : null,
+    textModel: typeof raw.textModel === 'string' ? raw.textModel : null,
+    assumptions: toStringArray(raw.assumptions),
+    conflicts: toStringArray(raw.conflicts),
+    negativePrompt:
+      typeof raw.negativePrompt === 'string' ? raw.negativePrompt : null,
+  };
 }
 
 export function ImageStudioLite({
@@ -87,11 +130,17 @@ export function ImageStudioLite({
   const [showHistory, setShowHistory] = useState(false);
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
   const [effectivePromptPreview, setEffectivePromptPreview] = useState('');
-  const [previewBlocks, setPreviewBlocks] = useState<RenderedPromptBlock[]>([]);
-  const [previewRule, setPreviewRule] = useState<{ key: string; id: string } | null>(null);
+  const [sourcePromptPreview, setSourcePromptPreview] = useState('');
+  const [previewComposer, setPreviewComposer] =
+    useState<PromptComposerMeta | null>(null);
+  const [previewStudioTemplateId, setPreviewStudioTemplateId] =
+    useState<string | null>(null);
+  const [promptOptimizationPreview, setPromptOptimizationPreview] =
+    useState<PromptOptimizationMeta | null>(null);
+  const [referencePlanPreview, setReferencePlanPreview] =
+    useState<ReferencePlanSummary | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [showPromptBreakdown, setShowPromptBreakdown] = useState(false);
 
   // 获取版本列表
   const {
@@ -107,6 +156,11 @@ export function ImageStudioLite({
   const deleteMutation = useDeleteArtifact();
   const { createTask } = useImageGeneration();
   const ownerKey = `${owner.type}:${owner.id}:${owner.slot || ''}`;
+  const currentArtifact =
+    artifactsData?.artifacts.find(
+      (a) => a.id === artifactsData.currentArtifactId,
+    ) || artifactsData?.artifacts[0];
+  const displayPath = currentArtifact?.filePath || currentImagePath;
 
   // 轮询任务状态
   useTasksPolling(pendingTaskIds, {
@@ -138,19 +192,35 @@ export function ImageStudioLite({
             : '';
         if (!filePathRaw) continue;
         latestArtifactId = artifactId || null;
-        latestFilePath = filePathRaw.startsWith('/') ? filePathRaw : `/${filePathRaw}`;
+        latestFilePath = filePathRaw.startsWith('/')
+          ? filePathRaw
+          : `/${filePathRaw}`;
         break;
       }
 
-      // 以服务端回显的 effectivePrompt 为准（用于确认上下文拼接是否生效）
+      // 以服务端回显的最终执行 prompt 为准
       for (let i = tasks.length - 1; i >= 0; i--) {
-        const output = tasks[i]?.output as { effectivePrompt?: unknown } | null;
+        const output = tasks[i]?.output as
+          | {
+              effectivePrompt?: unknown;
+              sourceEffectivePrompt?: unknown;
+              promptOptimization?: unknown;
+            }
+          | null;
         if (
           output &&
           typeof output.effectivePrompt === 'string' &&
           output.effectivePrompt.trim()
         ) {
           setEffectivePromptPreview(output.effectivePrompt.trim());
+          setSourcePromptPreview(
+            typeof output.sourceEffectivePrompt === 'string'
+              ? output.sourceEffectivePrompt.trim()
+              : '',
+          );
+          setPromptOptimizationPreview(
+            normalizePromptOptimizationMeta(output.promptOptimization),
+          );
           break;
         }
       }
@@ -177,17 +247,27 @@ export function ImageStudioLite({
     if (prevOwnerKeyRef.current === ownerKey) return;
     prevOwnerKeyRef.current = ownerKey;
     setPrompt(defaultPrompt);
-    setShowPromptBreakdown(false);
+    setPreviewComposer(null);
+    setPreviewStudioTemplateId(null);
+    setSourcePromptPreview('');
+    setPromptOptimizationPreview(null);
+    setReferencePlanPreview(null);
   }, [ownerKey, defaultPrompt]);
 
-  const previewEffectivePrompt = useDebouncedCallback(async (draft: string) => {
+  const runPreview = useCallback(async (
+    draft: string,
+    options?: { forceRefresh?: boolean },
+  ) => {
     if (readonly) return;
 
     const draftPrompt = draft.trim();
     if (!draftPrompt) {
-      setPreviewRule(null);
-      setPreviewBlocks([]);
+      setPreviewComposer(null);
+      setPreviewStudioTemplateId(null);
       setEffectivePromptPreview('');
+      setSourcePromptPreview('');
+      setPromptOptimizationPreview(null);
+      setReferencePlanPreview(null);
       setPreviewError(null);
       return;
     }
@@ -195,20 +275,53 @@ export function ImageStudioLite({
     setIsPreviewing(true);
     setPreviewError(null);
     try {
-      const res = await previewImagePrompt({ prompt: draftPrompt, owner });
-      setEffectivePromptPreview(res.effectivePrompt || '');
-      setPreviewBlocks(res.renderedBlocks || []);
-      setPreviewRule(res.rule || null);
+      const res = await previewImagePrompt({
+        prompt: draftPrompt,
+        owner,
+        referenceImages,
+        currentImagePath: displayPath || null,
+        includeCurrentImageAsReference,
+      }, { forceRefresh: options?.forceRefresh });
+      const finalPrompt = (res.renderPrompt || res.effectivePrompt || '').trim();
+      setEffectivePromptPreview(finalPrompt);
+      setSourcePromptPreview((res.effectivePrompt || '').trim());
+      setPreviewComposer(res.composer || null);
+      setPreviewStudioTemplateId(
+        typeof res.studioTemplateId === 'string' && res.studioTemplateId.trim()
+          ? res.studioTemplateId.trim()
+          : null,
+      );
+      setPromptOptimizationPreview(
+        normalizePromptOptimizationMeta(res.promptOptimization),
+      );
+      setReferencePlanPreview(res.referencePlan || null);
     } catch (error) {
       setPreviewError(error instanceof Error ? error.message : '预览失败');
+      setPromptOptimizationPreview(null);
+      setReferencePlanPreview(null);
     } finally {
       setIsPreviewing(false);
     }
+  }, [
+    readonly,
+    owner,
+    referenceImages,
+    displayPath,
+    includeCurrentImageAsReference,
+  ]);
+
+  const previewEffectivePrompt = useDebouncedCallback((draft: string) => {
+    void runPreview(draft);
   }, 350);
 
   useEffect(() => {
     previewEffectivePrompt(prompt);
   }, [prompt, previewEffectivePrompt]);
+
+  const handleRegeneratePreview = useCallback(() => {
+    if (!prompt.trim()) return;
+    void runPreview(prompt, { forceRefresh: true });
+  }, [prompt, runPreview]);
 
   // 生成图片
   const handleGenerate = useCallback(async () => {
@@ -216,7 +329,7 @@ export function ImageStudioLite({
 
     const refs = [
       ...(Array.isArray(referenceImages) ? referenceImages : []),
-      ...(includeCurrentImageAsReference && currentImagePath ? [currentImagePath] : []),
+      ...(includeCurrentImageAsReference && displayPath ? [displayPath] : []),
     ]
       .map((v) => (typeof v === 'string' ? v.trim() : ''))
       .filter(Boolean);
@@ -248,7 +361,7 @@ export function ImageStudioLite({
     createTask,
     owner,
     referenceImages,
-    currentImagePath,
+    displayPath,
     includeCurrentImageAsReference,
   ]);
 
@@ -280,10 +393,6 @@ export function ImageStudioLite({
   );
 
   // 计算图片 URL - 优先使用当前 artifact
-  const currentArtifact =
-    artifactsData?.artifacts.find((a) => a.id === artifactsData.currentArtifactId) ||
-    artifactsData?.artifacts[0];
-  const displayPath = currentArtifact?.filePath || currentImagePath;
   const imageUrl = displayPath
     ? displayPath.startsWith('/')
       ? apiUrl(displayPath)
@@ -313,10 +422,7 @@ export function ImageStudioLite({
         src={imageUrl}
         alt="Generated"
         forcedOrientation={forcedOrientation}
-        className={cn(
-          'rounded-xl border',
-          aspectRatioClass,
-        )}
+        className={cn('rounded-xl border', aspectRatioClass)}
         fallback={
           <div className="h-full w-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageIcon className="size-12 opacity-50" />
@@ -418,19 +524,35 @@ export function ImageStudioLite({
           <div className="rounded-xl border bg-muted/40 p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-sm font-medium">effectivePrompt（服务端）</div>
-                {previewRule ? (
+                <div className="text-sm font-medium">
+                  renderPrompt（最终执行）
+                </div>
+                {previewComposer ? (
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    规则：{previewRule.key} · {previewRule.id}
+                    编排：{previewComposer.name} · {previewComposer.version}
+                    {previewStudioTemplateId
+                      ? ` · 系统提示词：${previewStudioTemplateId}`
+                      : ''}
                   </div>
                 ) : (
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    按「设置 → 提示词编排」规则拼接后的最终提示词
+                    服务端拼接后经优化器处理，最终用于模型执行
                   </div>
                 )}
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!prompt.trim() || isPreviewing}
+                  onClick={handleRegeneratePreview}
+                >
+                  <RefreshCw
+                    className={cn('mr-1 size-3.5', isPreviewing && 'animate-spin')}
+                  />
+                  重新生成
+                </Button>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -438,7 +560,9 @@ export function ImageStudioLite({
                   disabled={!effectivePromptPreview}
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(effectivePromptPreview);
+                      await navigator.clipboard.writeText(
+                        effectivePromptPreview,
+                      );
                     } catch {
                       // ignore
                     }
@@ -448,20 +572,6 @@ export function ImageStudioLite({
                   <Copy className="size-4" />
                 </Button>
 
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  disabled={previewBlocks.length === 0}
-                  onClick={() => setShowPromptBreakdown((v) => !v)}
-                  title="查看分段"
-                >
-                  {showPromptBreakdown ? (
-                    <ChevronUp className="size-4" />
-                  ) : (
-                    <ChevronDown className="size-4" />
-                  )}
-                </Button>
               </div>
             </div>
 
@@ -480,22 +590,164 @@ export function ImageStudioLite({
               readOnly
               rows={6}
               className="resize-none font-mono text-xs"
-              placeholder="（将显示服务端拼接后的最终提示词）"
+              placeholder="（将显示最终执行的提示词）"
             />
 
-            {showPromptBreakdown && previewBlocks.length > 0 && (
-              <div className="space-y-2">
-                {previewBlocks.map((b) => (
-                  <div key={b.id} className="rounded-lg border bg-background/60 p-2">
-                    <div className="text-xs font-medium">{b.label}</div>
-                    <div className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                      {b.text}
-                    </div>
-                  </div>
+            {promptOptimizationPreview && (
+              <PromptOptimizationPanel meta={promptOptimizationPreview} />
+            )}
+
+            {sourcePromptPreview &&
+              sourcePromptPreview !== effectivePromptPreview && (
+                <details className="rounded-lg border bg-background/60 p-2">
+                  <summary className="cursor-pointer text-xs font-medium">
+                    查看优化前 composed prompt
+                  </summary>
+                  <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-2xs">
+                    {sourcePromptPreview}
+                  </pre>
+                </details>
+              )}
+
+            {referencePlanPreview && (
+              <ReferencePlanPanel plan={referencePlanPreview} />
+            )}
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
+  const statusText =
+    meta.status === 'optimized'
+      ? '已优化'
+      : meta.status === 'fallback'
+        ? '优化失败（已回退）'
+        : '已跳过';
+  const hasAssumptions = meta.assumptions.length > 0;
+  const hasConflicts = meta.conflicts.length > 0;
+
+  return (
+    <div className="rounded-lg border bg-background/60 p-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium">Prompt 优化摘要</div>
+        <div className="text-2xs text-muted-foreground">{statusText}</div>
+      </div>
+
+      <div className="grid gap-1 text-2xs text-muted-foreground md:grid-cols-2">
+        <div>provider: {meta.providerId || '-'}</div>
+        <div>model: {meta.textModel || '-'}</div>
+      </div>
+
+      {meta.reason && (
+        <div className="text-2xs text-amber-700">原因：{meta.reason}</div>
+      )}
+
+      {(hasAssumptions || hasConflicts) && (
+        <div className="grid gap-2 text-2xs md:grid-cols-2">
+          <div>
+            <div className="font-medium text-muted-foreground">assumptions</div>
+            {hasAssumptions ? (
+              <div className="space-y-0.5">
+                {meta.assumptions.map((item) => (
+                  <div key={`assume-${item}`}>{item}</div>
                 ))}
               </div>
+            ) : (
+              <div className="text-muted-foreground">无</div>
             )}
           </div>
+          <div>
+            <div className="font-medium text-muted-foreground">conflicts</div>
+            {hasConflicts ? (
+              <div className="space-y-0.5">
+                {meta.conflicts.map((item) => (
+                  <div key={`conflict-${item}`}>{item}</div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-muted-foreground">无</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
+  const hasDropped = plan.droppedGeneratedImages.length > 0;
+  return (
+    <div className="rounded-lg border bg-background/60 p-2 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium">参考图注入摘要</div>
+        <div className="text-2xs text-muted-foreground">
+          总计 {plan.totalCount} 张
+        </div>
+      </div>
+
+      <div className="grid gap-2 text-2xs md:grid-cols-2">
+        <div>
+          <div className="font-medium text-muted-foreground">
+            identity（{plan.counts.identity}）
+          </div>
+          {plan.byRole.identity.length === 0 ? (
+            <div className="text-muted-foreground">无</div>
+          ) : (
+            <div className="space-y-0.5">
+              {plan.byRole.identity.map((item) => (
+                <div key={`identity-${item}`} className="truncate">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="font-medium text-muted-foreground">
+            scene（{plan.counts.scene}）
+          </div>
+          {plan.byRole.scene.length === 0 ? (
+            <div className="text-muted-foreground">无</div>
+          ) : (
+            <div className="space-y-0.5">
+              {plan.byRole.scene.map((item) => (
+                <div key={`scene-${item}`} className="truncate">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {plan.order.length > 0 && (
+        <div>
+          <div className="text-2xs font-medium text-muted-foreground">
+            注入顺序
+          </div>
+          <div className="mt-1 space-y-0.5 text-2xs">
+            {plan.order.map((item, idx) => (
+              <div key={`order-${item}`}>
+                {idx + 1}. {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasDropped && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-2xs text-amber-700">
+          已自动过滤 {plan.droppedGeneratedImages.length} 张同场景历史生成图：
+          {plan.droppedGeneratedImages.map((item) => (
+            <div key={`dropped-${item}`} className="truncate">
+              {item}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -1,5 +1,4 @@
 import { eq, inArray } from 'drizzle-orm';
-import { DEFAULT_PROMPT_RULES_V1, type PromptRuleKey, type PromptRulesV1 } from '../prompt-rules';
 import { projects, sceneAssets, settings, modelAssets } from '../db/schema';
 
 const FALLBACK_STUDIO_PROMPT = `你是一位专业的儿童摄影师和创意导演，服务于消费级影楼。
@@ -25,6 +24,31 @@ type ImageOwner = {
   slot?: string;
 };
 
+type ComposerProfileKey = 'image-generation:planScene' | 'image-generation:asset';
+
+type ComposerBlockKind =
+  | 'studioPrompt'
+  | 'projectPrompt'
+  | 'customerInfo'
+  | 'modelInfo'
+  | 'selectedSceneAsset'
+  | 'planScene'
+  | 'asset'
+  | 'draftPrompt'
+  | 'editInstruction';
+
+interface ComposerBlockDefinition {
+  id: string;
+  kind: ComposerBlockKind;
+  label: string;
+}
+
+interface ComposerProfileDefinition {
+  id: string;
+  name: string;
+  blocks: ComposerBlockDefinition[];
+}
+
 export interface BuildImagePromptInput {
   prompt: string;
   owner?: ImageOwner;
@@ -39,12 +63,44 @@ export interface RenderedPromptBlock {
 }
 
 export interface BuildPromptResult {
-  ruleKey: PromptRuleKey;
-  ruleId: string;
+  composer: {
+    key: ComposerProfileKey;
+    id: string;
+    name: string;
+    version: string;
+    mode: 'fixed';
+  };
   effectivePrompt: string;
   promptContext: Record<string, unknown>;
   renderedBlocks: RenderedPromptBlock[];
 }
+
+const FIXED_IMAGE_COMPOSER_VERSION = 'fixed:v2';
+
+const FIXED_COMPOSER_PROFILES: Record<ComposerProfileKey, ComposerProfileDefinition> = {
+  'image-generation:planScene': {
+    id: 'image-composer:planScene:fixed-v2',
+    name: '场景预览图（固定编排）',
+    blocks: [
+      { id: 'studio', kind: 'studioPrompt', label: '全局工作室提示词' },
+      { id: 'project', kind: 'projectPrompt', label: '项目信息' },
+      { id: 'customer', kind: 'customerInfo', label: '客户信息' },
+      { id: 'model-info', kind: 'modelInfo', label: '模特外观信息' },
+      { id: 'scene-asset', kind: 'selectedSceneAsset', label: '已选场景资产' },
+      { id: 'plan-scene', kind: 'planScene', label: '分镜场景' },
+      { id: 'draft', kind: 'draftPrompt', label: '出图提示词（draft）' },
+    ],
+  },
+  'image-generation:asset': {
+    id: 'image-composer:asset:fixed-v2',
+    name: '资产图片（固定编排）',
+    blocks: [
+      { id: 'studio', kind: 'studioPrompt', label: '全局工作室提示词' },
+      { id: 'asset', kind: 'asset', label: '资产信息' },
+      { id: 'draft', kind: 'draftPrompt', label: '出图提示词（draft）' },
+    ],
+  },
+};
 
 function safeJsonParse<T>(value: string | null | undefined): T | null {
   if (!value) return null;
@@ -170,16 +226,7 @@ async function loadStudioPrompt(db: any): Promise<{ content: string; templateId?
   return { content: String(defaultTemplate.content), templateId: defaultTemplate.id };
 }
 
-async function loadPromptRules(db: any): Promise<PromptRulesV1> {
-  const [ruleSetting] = await db.select().from(settings).where(eq(settings.key, 'prompt_rules')).limit(1);
-  if (!ruleSetting?.value) return DEFAULT_PROMPT_RULES_V1;
-
-  const parsed = safeJsonParse<PromptRulesV1>(ruleSetting.value);
-  if (!parsed || parsed.version !== 1 || !parsed.rules) return DEFAULT_PROMPT_RULES_V1;
-  return parsed;
-}
-
-function pickRuleKey(owner?: ImageOwner): PromptRuleKey {
+function pickComposerProfileKey(owner?: ImageOwner): ComposerProfileKey {
   if (owner?.type === 'planScene') return 'image-generation:planScene';
   if (owner?.type === 'asset') return 'image-generation:asset';
   return 'image-generation:asset';
@@ -190,9 +237,8 @@ export async function buildImageEffectivePrompt(
   input: BuildImagePromptInput,
 ): Promise<BuildPromptResult> {
   const owner = input.owner;
-  const ruleKey = pickRuleKey(owner);
-  const rules = await loadPromptRules(db);
-  const rule = rules.rules[ruleKey] || DEFAULT_PROMPT_RULES_V1.rules[ruleKey];
+  const composerKey = pickComposerProfileKey(owner);
+  const composerProfile = FIXED_COMPOSER_PROFILES[composerKey];
 
   // ===== 预取上下文（按需） =====
   const studio = await loadStudioPrompt(db);
@@ -279,9 +325,7 @@ export async function buildImageEffectivePrompt(
   // ===== 渲染 blocks =====
   const renderedBlocks: RenderedPromptBlock[] = [];
 
-  for (const b of rule.blocks) {
-    if (!b.enabled) continue;
-
+  for (const b of composerProfile.blocks) {
     let text = '';
     switch (b.kind) {
       case 'studioPrompt':
@@ -328,9 +372,6 @@ export async function buildImageEffectivePrompt(
         text = ins ? `## 编辑指令\n${ins}` : '';
         break;
       }
-      case 'freeText':
-        text = b.content ? String(b.content).trim() : '';
-        break;
       default:
         text = '';
     }
@@ -348,9 +389,17 @@ export async function buildImageEffectivePrompt(
 
   const effectivePrompt = compactLines(renderedBlocks.map((p) => p.text).join('\n\n'));
 
+  const composer = {
+    version: FIXED_IMAGE_COMPOSER_VERSION,
+    key: composerKey,
+    id: composerProfile.id,
+    name: composerProfile.name,
+    mode: 'fixed' as const,
+  };
+
   const promptContext: Record<string, unknown> = {
-    version: 1,
-    rule: { key: ruleKey, id: rule.id, name: rule.name },
+    version: 2,
+    composer,
     owner: owner || null,
     inputs: {
       draftPrompt: typeof input.prompt === 'string' ? input.prompt : null,
@@ -372,8 +421,7 @@ export async function buildImageEffectivePrompt(
   };
 
   return {
-    ruleKey,
-    ruleId: rule.id,
+    composer,
     effectivePrompt,
     promptContext,
     renderedBlocks,
