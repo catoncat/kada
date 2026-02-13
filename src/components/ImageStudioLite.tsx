@@ -709,6 +709,52 @@ function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
 
 function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
   const hasDropped = plan.droppedGeneratedImages.length > 0;
+  const toPreviewUrl = (value: string) => {
+    if (!value) return '';
+    if (value.startsWith('http://') || value.startsWith('https://')) return value;
+    const normalized = value.startsWith('/') ? value : `/${value}`;
+    return apiUrl(normalized);
+  };
+
+  const renderReferenceList = (
+    items: string[],
+    role: 'scene' | 'identity',
+  ) => {
+    if (items.length === 0) {
+      return <div className="text-muted-foreground">无</div>;
+    }
+    return (
+      <div className="grid gap-2">
+        {items.map((item, index) => (
+          <div
+            key={`${role}-${item}`}
+            className="flex items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5"
+          >
+            <div className="text-[10px] font-mono text-muted-foreground shrink-0">
+              {index + 1}
+            </div>
+            <div className="size-9 shrink-0 overflow-hidden rounded border bg-background">
+              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+              <img
+                src={toPreviewUrl(item)}
+                className="size-full object-cover"
+                loading="lazy"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[11px]">{item}</div>
+              {item.includes('.scene-noface.') ? (
+                <div className="text-[10px] text-emerald-600">
+                  已使用场景去脸缓存图
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="rounded-lg border bg-background/60 p-2 space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -723,34 +769,14 @@ function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
           <div className="font-medium text-muted-foreground">
             人物参考（{plan.counts.identity}）
           </div>
-          {plan.byRole.identity.length === 0 ? (
-            <div className="text-muted-foreground">无</div>
-          ) : (
-            <div className="space-y-0.5">
-              {plan.byRole.identity.map((item) => (
-                <div key={`identity-${item}`} className="truncate">
-                  {item}
-                </div>
-              ))}
-            </div>
-          )}
+          {renderReferenceList(plan.byRole.identity, 'identity')}
         </div>
 
         <div>
           <div className="font-medium text-muted-foreground">
             场景参考（{plan.counts.scene}）
           </div>
-          {plan.byRole.scene.length === 0 ? (
-            <div className="text-muted-foreground">无</div>
-          ) : (
-            <div className="space-y-0.5">
-              {plan.byRole.scene.map((item) => (
-                <div key={`scene-${item}`} className="truncate">
-                  {item}
-                </div>
-              ))}
-            </div>
-          )}
+          {renderReferenceList(plan.byRole.scene, 'scene')}
         </div>
       </div>
 
