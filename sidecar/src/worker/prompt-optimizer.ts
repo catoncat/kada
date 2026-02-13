@@ -13,7 +13,8 @@ const DEFAULT_OPTIMIZER_TEMPLATE = `你是影楼图片生成提示词优化器�
 4. 如存在参考图，人物数量与身份一致性是硬约束，不得被场景参考图覆盖。
 5. 如存在场景主题参考图，必须保持其主题布景、道具和光影氛围，不得退化成普通生活照。
 6. 输出风格需符合消费级影楼成片质感（主体明确、布景有主题、用光干净）。
-7. 输出必须是中文，且只输出 JSON。`;
+7. 输出必须是单张单帧画面，禁止拼图、分屏、多宫格、连环画排版、边框海报感。
+8. 输出必须是中文，且只输出 JSON。`;
 
 const DEFAULT_OUTPUT_SCHEMA = `{
   "renderPrompt": "string, 优化后的最终出图提示词（中文）",
@@ -70,25 +71,20 @@ function buildReferenceBindingDeclaration(referencePlan?: ReferencePlanSummary |
   const lines: string[] = ['【参考图绑定声明】'];
 
   if (sceneCount > 0) {
-    if (sceneCount === 1) {
-      lines.push('- 第1张为场景主题参考图：优先锁定布景主题、道具关系、色彩与光影氛围。');
-    } else {
-      lines.push(`- 第1到第${sceneCount}张为场景主题参考图：优先锁定布景主题、道具关系、色彩与光影氛围。`);
-    }
+    lines.push(
+      `- 已注入场景主题参考图（${sceneCount}张）：优先锁定布景主题、道具关系、色彩与光影氛围。`,
+    );
   }
 
   if (identityCount > 0) {
-    const startIndex = sceneCount + 1;
-    const endIndex = sceneCount + identityCount;
-    if (identityCount === 1) {
-      lines.push(`- 第${startIndex}张为人物身份参考图：仅用于锁定人物身份，不继承其背景与构图。`);
-    } else {
-      lines.push(`- 第${startIndex}到第${endIndex}张为人物身份参考图：仅用于锁定人物身份，不继承其背景与构图。`);
-    }
+    lines.push(
+      `- 已注入人物身份参考图（${identityCount}张）：仅用于锁定人物身份，不继承其背景与构图。`,
+    );
   }
 
   lines.push('- 优先级：人物数量与身份一致性（硬约束） > 场景主题一致性 > 文本补充细节。');
-  lines.push('- 禁止退化为普通生活抓拍照，需保持商业摄影成片感。');
+  lines.push('- 禁止退化为普通生活抓拍照，需保持影楼专业成片质感。');
+  lines.push('- 仅允许单张单帧完整画面，禁止拼图、分屏、多宫格、连环画排版。');
   return lines.join('\n');
 }
 

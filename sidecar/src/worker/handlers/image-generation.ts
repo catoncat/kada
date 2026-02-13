@@ -242,6 +242,9 @@ export async function imageGenerationHandler(
       },
       resolvedGenerationOptions || undefined,
     );
+    if (result.aspectRatioRuntime) {
+      (promptContext as any).aspectRatioRuntime = result.aspectRatioRuntime;
+    }
     if (DEBUG_IMAGEGEN) {
       console.log(
         '[ImageGen] API returned, mimeType:',
@@ -253,6 +256,17 @@ export async function imageGenerationHandler(
 
     // 5. 写入文件
     const { buffer, sizeBytes } = parseBase64Image(result.imageBase64);
+    let outputWidth = result.width;
+    let outputHeight = result.height;
+    if ((!outputWidth || !outputHeight) && buffer.length > 0) {
+      try {
+        const metadata = await sharp(buffer, { failOn: 'none' }).metadata();
+        if (!outputWidth && typeof metadata.width === 'number') outputWidth = metadata.width;
+        if (!outputHeight && typeof metadata.height === 'number') outputHeight = metadata.height;
+      } catch {
+        // ignore metadata errors and keep nullable width/height
+      }
+    }
     const ext = getExtension(result.mimeType);
     const filename = `${randomUUID()}.${ext}`;
     const uploadDir = getUploadDir();
@@ -269,8 +283,8 @@ export async function imageGenerationHandler(
       type: 'image',
       mimeType: result.mimeType,
       filePath: `uploads/${filename}`,
-      width: result.width,
-      height: result.height,
+      width: outputWidth,
+      height: outputHeight,
       sizeBytes,
       ownerType: owner?.type || null,
       ownerId: owner?.id || null,
@@ -304,8 +318,8 @@ export async function imageGenerationHandler(
       effectivePrompt,
       sourceEffectivePrompt,
       promptOptimization: (promptContext as any).promptOptimization,
-      width: result.width,
-      height: result.height,
+      width: outputWidth,
+      height: outputHeight,
       sizeBytes,
       // 兼容旧接口
       imageBase64: result.imageBase64,
@@ -338,6 +352,12 @@ interface GenerateImageResult {
   mimeType: string;
   width?: number;
   height?: number;
+  aspectRatioRuntime?: {
+    requested: string | null;
+    attemptedWithImageConfig: boolean;
+    retriedWithoutImageConfig: boolean;
+    appliedWithImageConfig: boolean;
+  };
 }
 
 interface ImageGenerationOptions {
@@ -518,6 +538,10 @@ async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages
   const identityImages = referenceImages?.identity || [];
   const sceneImages = referenceImages?.scene || [];
 
+  parts.push({
+    text: '最终输出必须是单张单帧的完整摄影画面。禁止拼图、分屏、左右对比、多宫格、连环画排版、文字水印与边框版式。',
+  });
+
   if (sceneImages.length > 0) {
     parts.push({
       text: '以下是场景主题参考图：必须复现其布景主题、道具关系、色彩与光影氛围，输出应保持消费级影楼成片质感，避免普通生活抓拍感。',
@@ -568,7 +592,18 @@ function buildAspectRatioInstruction(aspectRatio?: string): string | null {
 function supportsGeminiImageConfigAspectRatio(model: string): boolean {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return false;
-  return normalized.includes('flash-image') || normalized.includes('pro-image-preview');
+  return normalized.includes('image');
+}
+
+function isUnsupportedAspectRatioError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    (lower.includes('unknown name "aspectratio"') &&
+      lower.includes('generation_config')) ||
+    (lower.includes('cannot find field') && lower.includes('aspectratio')) ||
+    (lower.includes('unknown name "imageconfig"') &&
+      lower.includes('generation_config'))
+  );
 }
 
 async function generateImage(
@@ -595,34 +630,74 @@ async function generateImage(
     }
     const parsedOptions = (options && typeof options === 'object' ? options : null) as ImageGenerationOptions | null;
     const requestParts = await buildGeminiReferenceParts(referenceImages);
-    const requestedAspectRatio = buildAspectRatioInstruction(parsedOptions?.aspectRatio);
-    const canUseImageConfigAspectRatio = supportsGeminiImageConfigAspectRatio(provider.imageModel);
-    const imageConfig =
-      requestedAspectRatio && canUseImageConfigAspectRatio
-        ? { aspectRatio: requestedAspectRatio }
-        : null;
+    const requestedAspectRatio = buildAspectRatioInstruction(
+      parsedOptions?.aspectRatio,
+    );
+    const canUseImageConfigAspectRatio = supportsGeminiImageConfigAspectRatio(
+      provider.imageModel,
+    );
+    const attemptedWithImageConfig = Boolean(
+      requestedAspectRatio && canUseImageConfigAspectRatio,
+    );
+    let retriedWithoutImageConfig = false;
 
-    const res = await fetch(`${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [...requestParts, { text: prompt }] }],
-        generationConfig: {
-          responseModalities: ['IMAGE', 'TEXT'],
-          ...(imageConfig ? { imageConfig } : null),
+    const doGenerateRequest = async (withAspectRatio: boolean) => {
+      const imageConfig =
+        withAspectRatio && requestedAspectRatio && canUseImageConfigAspectRatio
+          ? { aspectRatio: requestedAspectRatio }
+          : null;
+      return fetch(
+        `${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [...requestParts, { text: prompt }] }],
+            generationConfig: {
+              responseModalities: ['IMAGE', 'TEXT'],
+              ...(imageConfig ? { imageConfig } : null),
+            },
+          }),
         },
-      }),
-    });
+      );
+    };
+
+    let res = await doGenerateRequest(true);
 
     if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini response status:', res.status);
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      if (DEBUG_IMAGEGEN) console.log('[ImageGen] Gemini error:', JSON.stringify(errorData));
-      throw new Error(
-        (errorData as { error?: { message?: string } }).error?.message ||
-          `HTTP ${res.status}`
-      );
+      let errorData = await res.json().catch(() => ({}));
+      const initialErrorMessage =
+        (errorData as { error?: { message?: string } }).error?.message || '';
+
+      if (
+        requestedAspectRatio &&
+        canUseImageConfigAspectRatio &&
+        isUnsupportedAspectRatioError(initialErrorMessage)
+      ) {
+        if (DEBUG_IMAGEGEN) {
+          console.warn(
+            '[ImageGen] aspectRatio unsupported for model, retry without imageConfig',
+          );
+        }
+        retriedWithoutImageConfig = true;
+        res = await doGenerateRequest(false);
+        if (!res.ok) {
+          errorData = await res.json().catch(() => ({}));
+        }
+      }
+
+      if (!res.ok && DEBUG_IMAGEGEN) {
+        console.log('[ImageGen] Gemini error:', JSON.stringify(errorData));
+      }
+
+      if (!res.ok) {
+        throw new Error(
+          (errorData as { error?: { message?: string } }).error?.message ||
+            `HTTP ${res.status}`,
+        );
+      }
     }
 
     const data = await res.json();
@@ -639,6 +714,13 @@ async function generateImage(
         return {
           imageBase64: part.inlineData.data,
           mimeType: part.inlineData.mimeType || 'image/png',
+          aspectRatioRuntime: {
+            requested: requestedAspectRatio,
+            attemptedWithImageConfig,
+            retriedWithoutImageConfig,
+            appliedWithImageConfig:
+              attemptedWithImageConfig && !retriedWithoutImageConfig,
+          },
         };
       }
     }

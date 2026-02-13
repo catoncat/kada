@@ -263,7 +263,13 @@ async function generateImage(
         contents: [{ parts }],
         generationConfig: {
           responseModalities: ['IMAGE', 'TEXT'],
-          ...(options?.aspectRatio && { aspectRatio: options.aspectRatio }),
+          ...(options?.aspectRatio
+            ? {
+                imageConfig: {
+                  aspectRatio: options.aspectRatio,
+                },
+              }
+            : {}),
         },
       }),
     });
