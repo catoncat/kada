@@ -4,10 +4,12 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { routeTree } from './routeTree.gen';
 import { runMigration, needsMigration } from './lib/data-migration';
+import { startDockIconSync } from './lib/dock-icon';
 import { startThemeSync } from './lib/theme';
 import './index.css';
 
 startThemeSync();
+startDockIconSync();
 
 // 创建 QueryClient 实例
 const queryClient = new QueryClient({

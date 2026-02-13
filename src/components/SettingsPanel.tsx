@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { SettingsNav, type SettingsSection } from './settings/SettingsNav';
+import { ThemeSection } from './settings/ThemeSection';
 import { ProvidersSection } from './settings/ProvidersSection';
 import { PromptTemplatesSection } from './settings/PromptTemplatesSection';
 import { StorageManagement } from './settings/StorageManagement';
@@ -38,6 +39,8 @@ export default function SettingsPanel({ embedded = false, standalone = false }: 
         return <ProvidersSection />;
       case 'templates':
         return <PromptTemplatesSection />;
+      case 'theme':
+        return <ThemeSection />;
       case 'storage':
         return <StorageManagement />;
       default:
