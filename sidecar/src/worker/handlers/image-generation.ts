@@ -562,13 +562,13 @@ async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages
 function buildAspectRatioInstruction(aspectRatio?: string): string | null {
   if (!aspectRatio || typeof aspectRatio !== 'string') return null;
   const raw = aspectRatio.trim();
-  if (!raw || !raw.includes(':')) return null;
-  const [w, h] = raw.split(':').map((v) => Number.parseFloat(v));
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
-    return null;
-  }
-  const orientation = w >= h ? '横向构图' : '纵向构图';
-  return `画幅与构图要求：接近 ${raw} 比例，采用${orientation}，保持主体完整并保留场景叙事空间。`;
+  return raw ? raw : null;
+}
+
+function supportsGeminiImageConfigAspectRatio(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized.includes('flash-image') || normalized.includes('pro-image-preview');
 }
 
 async function generateImage(
@@ -595,16 +595,21 @@ async function generateImage(
     }
     const parsedOptions = (options && typeof options === 'object' ? options : null) as ImageGenerationOptions | null;
     const requestParts = await buildGeminiReferenceParts(referenceImages);
-    const aspectRatioInstruction = buildAspectRatioInstruction(parsedOptions?.aspectRatio);
-    const ratioParts = aspectRatioInstruction ? [{ text: aspectRatioInstruction }] : [];
+    const requestedAspectRatio = buildAspectRatioInstruction(parsedOptions?.aspectRatio);
+    const canUseImageConfigAspectRatio = supportsGeminiImageConfigAspectRatio(provider.imageModel);
+    const imageConfig =
+      requestedAspectRatio && canUseImageConfigAspectRatio
+        ? { aspectRatio: requestedAspectRatio }
+        : null;
 
     const res = await fetch(`${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [...requestParts, ...ratioParts, { text: prompt }] }],
+        contents: [{ parts: [...requestParts, { text: prompt }] }],
         generationConfig: {
           responseModalities: ['IMAGE', 'TEXT'],
+          ...(imageConfig ? { imageConfig } : null),
         },
       }),
     });
