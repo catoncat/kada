@@ -386,6 +386,7 @@ function TaskDeepLinkPage() {
                           projectId: search.projectId,
                           relatedId: search.relatedId,
                           sceneIndex: search.sceneIndex,
+                          mode: search.mode,
                         }}
                       />
                     }

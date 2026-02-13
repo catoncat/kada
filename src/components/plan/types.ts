@@ -38,3 +38,66 @@ export interface PreviewProgress {
   done: number;
   total: number;
 }
+
+/** 结果页模式 */
+export type ResultMode = 'plan' | 'execute' | 'review';
+
+/** 场景执行状态 */
+export type SceneExecutionState =
+  | 'not_confirmed'
+  | 'not_generated'
+  | 'running'
+  | 'failed'
+  | 'needs_info'
+  | 'generated_pending_review'
+  | 'passed';
+
+/** 验收规则状态 */
+export type AcceptanceRuleStatus = 'pass' | 'fail' | 'unknown';
+
+/** 验收规则项 */
+export interface AcceptanceRuleResult {
+  key: 'people' | 'identity' | 'aspectRatio' | 'singleFrame' | 'constraints';
+  label: string;
+  status: AcceptanceRuleStatus;
+  reason: string;
+}
+
+/** 场景验收结果 */
+export interface AcceptanceResult {
+  overall: AcceptanceRuleStatus;
+  passCount: number;
+  failCount: number;
+  unknownCount: number;
+  rules: AcceptanceRuleResult[];
+}
+
+/** 场景任务轨道 */
+export interface SceneTaskTrack {
+  sceneIndex: number;
+  taskId: string | null;
+  status: 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  error: string | null;
+}
+
+/** 执行清单快照 */
+export interface ExecutionChecklistSnapshot {
+  projectId: string;
+  sceneIndex: number;
+  planFingerprint: string;
+  lockedAspectRatio: string;
+  expectedPeopleCount: number;
+  strategyVersion: string;
+  checks: {
+    sceneReferenceReady: boolean;
+    identityCollageReady: boolean;
+    identityMappingComplete: boolean;
+    aspectRatioLocked: boolean;
+    singleFrameDeclared: boolean;
+  };
+  allPassed: boolean;
+  confirmedAt: number | null;
+  updatedAt: number;
+}

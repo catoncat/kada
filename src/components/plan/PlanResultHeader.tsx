@@ -24,7 +24,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { Project } from '@/types/project';
-import type { GeneratedPlan, PreviewProgress } from './types';
+import type { GeneratedPlan, PreviewProgress, ResultMode } from './types';
 
 export interface PlanResultHeaderProps {
   project: Project;
@@ -43,6 +43,10 @@ export interface PlanResultHeaderProps {
   onRegenerate?: () => void;
   /** 导出 PPT 回调 */
   onExportPPT?: () => void;
+  /** 当前结果页模式 */
+  mode?: ResultMode;
+  /** 打开高级排障（任务中心） */
+  onOpenTaskCenter?: () => void;
 }
 
 export function PlanResultHeader({
@@ -55,6 +59,8 @@ export function PlanResultHeader({
   onOpenVersions,
   onRegenerate,
   onExportPPT,
+  mode = 'plan',
+  onOpenTaskCenter,
 }: PlanResultHeaderProps) {
   // 格式化创建时间
   const createdAt = project.createdAt
@@ -87,6 +93,9 @@ export function PlanResultHeader({
             {plan.title}
           </h1>
           <Badge variant="secondary">方案 v1</Badge>
+          <Badge variant="outline">
+            {mode === 'plan' ? '规划' : mode === 'execute' ? '执行' : '验收'}
+          </Badge>
           {createdAt && (
             <span className="text-sm text-muted-foreground">
               创建于 {createdAt}
@@ -103,22 +112,24 @@ export function PlanResultHeader({
             <History className="w-4 h-4" />
             版本历史
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onGeneratePreviews}
-            disabled={
-              isBatchGenerating ||
-              previewProgress.done === previewProgress.total
-            }
-          >
-            {isBatchGenerating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Images className="w-4 h-4" />
-            )}
-            批量生成预览
-          </Button>
+          {mode === 'execute' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onGeneratePreviews}
+              disabled={
+                isBatchGenerating ||
+                previewProgress.done === previewProgress.total
+              }
+            >
+              {isBatchGenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Images className="w-4 h-4" />
+              )}
+              批量执行
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -136,6 +147,11 @@ export function PlanResultHeader({
             <FileDown className="w-4 h-4" />
             导出 PPT
           </Button>
+          {onOpenTaskCenter ? (
+            <Button size="sm" variant="outline" onClick={onOpenTaskCenter}>
+              高级排障（任务中心）
+            </Button>
+          ) : null}
         </div>
       </div>
 

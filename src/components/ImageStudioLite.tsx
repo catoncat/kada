@@ -548,14 +548,20 @@ export function ImageStudioLite({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>预览状态：{previewStatusText}</span>
               <span>参考图：{previewReferenceCount} 张</span>
+              <span>画幅锁定：{aspectRatio}</span>
+              <span>输出策略：单帧静态图</span>
               {previewComposer ? (
                 <span>编排：{previewComposer.name}</span>
               ) : null}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              默认使用简化视图；需要排查时展开下方技术详情。
+              参考图参与详情默认展示，技术排障信息收纳在下方。
             </p>
           </div>
+
+          {referencePlanPreview ? (
+            <ReferencePlanPanel plan={referencePlanPreview} />
+          ) : null}
 
           <details className="rounded-xl border bg-muted/40 p-3">
             <summary className="cursor-pointer text-sm font-medium">
@@ -648,10 +654,6 @@ export function ImageStudioLite({
                     </pre>
                   </details>
                 )}
-
-              {referencePlanPreview && (
-                <ReferencePlanPanel plan={referencePlanPreview} />
-              )}
             </div>
           </details>
         </div>

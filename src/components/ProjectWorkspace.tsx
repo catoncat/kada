@@ -46,7 +46,7 @@ export function ProjectWorkspace({ projectId }: ProjectWorkspaceProps) {
 
 function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
-  const { onTaskComplete, openDrawer, refresh: refreshTasks } = useTaskQueue();
+  const { onTaskComplete, refresh: refreshTasks } = useTaskQueue();
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [projectPromptDraft, setProjectPromptDraft] = useState('');
@@ -137,7 +137,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
   }, [activeTaskId, projectId, onTaskComplete, queryClient]);
 
   // 生成预案
-  const handleGenerate = async (customPrompt?: string) => {
+  const handleGenerate = async () => {
     if (!project?.selectedScene) {
       alert('请先选择场景');
       return;
@@ -146,11 +146,9 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
     try {
       const result = await generatePlan(projectId, {
         mode: 'execute',
-        customPrompt,
       });
       setActiveTaskId(result.taskId);
       refreshTasks();
-      openDrawer();
     } catch (err) {
       setIsGenerating(false);
       alert(err instanceof Error ? err.message : '创建任务失败');

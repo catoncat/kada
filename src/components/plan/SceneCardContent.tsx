@@ -9,20 +9,24 @@ import type { GeneratedScene } from './types';
 export interface SceneCardContentProps {
   scene: GeneratedScene;
   sceneIndex: number;
+  showHeader?: boolean;
 }
 
-export function SceneCardContent({ scene, sceneIndex }: SceneCardContentProps) {
+export function SceneCardContent({
+  scene,
+  sceneIndex,
+  showHeader = true,
+}: SceneCardContentProps) {
   return (
-    <div className="flex-1 p-6">
-      {/* 标题行 */}
-      <div className="flex items-center gap-2 mb-4">
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-medium">
-          {sceneIndex + 1}
-        </span>
-        <h3 className="text-lg font-semibold text-foreground">
-          {scene.location}
-        </h3>
-      </div>
+    <div className="flex-1">
+      {showHeader ? (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">
+            {sceneIndex + 1}
+          </span>
+          <h3 className="text-lg font-semibold text-foreground">{scene.location}</h3>
+        </div>
+      ) : null}
 
       {/* 详情列表 */}
       <div className="space-y-3 text-sm">

@@ -9,13 +9,18 @@ export interface TaskDeepLinkSearch {
   projectId?: string;
   relatedId?: string;
   sceneIndex?: number;
+  mode?: 'plan' | 'execute' | 'review';
 }
 
 export type TaskSourceLink =
   | {
       to: '/project/$id/result';
       params: { id: string };
-      search?: { scene?: number; openEdit?: '1' };
+      search?: {
+        scene?: number;
+        openEdit?: '1';
+        mode?: 'plan' | 'execute' | 'review';
+      };
       label?: string;
     }
   | {
@@ -70,6 +75,12 @@ export function parseTaskDeepLinkSearch(
       typeof sceneRaw === 'number' && Number.isFinite(sceneRaw)
         ? sceneRaw
         : undefined,
+    mode:
+      search.mode === 'plan' ||
+      search.mode === 'execute' ||
+      search.mode === 'review'
+        ? search.mode
+        : undefined,
   };
 }
 
@@ -96,8 +107,8 @@ export function getTaskSourceLink(
       params: { id: rc.projectId },
       search:
         typeof sceneIndex === 'number'
-          ? { scene: sceneIndex, openEdit: '1' }
-          : {},
+          ? { scene: sceneIndex, mode: 'execute' }
+          : { mode: 'execute' },
       label:
         typeof sceneIndex === 'number'
           ? `场景 ${sceneIndex + 1}`
@@ -128,7 +139,7 @@ export function getTaskSourceLink(
         return {
           to: '/project/$id/result',
           params: { id: ownerId },
-          search: { scene: sceneIndex, openEdit: '1' },
+          search: { scene: sceneIndex, mode: 'execute' },
           label: `场景 ${sceneIndex + 1}`,
         };
       }
@@ -136,6 +147,7 @@ export function getTaskSourceLink(
       return {
         to: '/project/$id/result',
         params: { id: ownerId },
+        search: { mode: 'execute' },
         label: '项目结果页',
       };
     }
@@ -167,8 +179,8 @@ export function getSourceLinkFromDeepLinkSearch(
       params: { id: projectId },
       search:
         typeof search.sceneIndex === 'number'
-          ? { scene: search.sceneIndex, openEdit: '1' }
-          : {},
+          ? { scene: search.sceneIndex, mode: search.mode || 'execute' }
+          : { mode: search.mode || 'execute' },
       label: '跳转来源页面',
     };
   }
@@ -205,6 +217,7 @@ export function buildTaskDeepLinkSearch(
         typeof source.sceneIndex === 'number' && Number.isFinite(source.sceneIndex)
           ? source.sceneIndex
           : undefined,
+      mode: source.sourceType === 'projectResult' ? 'execute' : undefined,
     };
   }
 

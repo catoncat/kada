@@ -49,10 +49,18 @@ export function SceneEditDrawer({
           <SheetTitle>
             场景 {sceneIndex + 1}: {scene.location}
           </SheetTitle>
-          <SheetDescription>编辑场景预览图</SheetDescription>
+          <SheetDescription>编辑场景预览图（约束默认锁定为 photo）</SheetDescription>
         </SheetHeader>
         <SheetPanel>
           <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
+              <div>
+                参考图参与：{scene.sceneAssetImage ? '已配置 scene 参考图' : '未配置'}
+              </div>
+              <div>画幅锁定：photo</div>
+              <div>输出策略：单帧静态图</div>
+            </div>
+
             <ImageStudioLite
               owner={owner}
               currentImagePath={scene.previewArtifactPath}
@@ -63,11 +71,8 @@ export function SceneEditDrawer({
               aspectRatio="photo"
             />
 
-            {/* 场景信息摘要 */}
-            <details className="rounded-lg border bg-muted/50 p-4">
-              <summary className="cursor-pointer text-sm font-medium text-foreground">
-                场景信息
-              </summary>
+            <div className="rounded-lg border bg-muted/50 p-4">
+              <h4 className="text-sm font-medium text-foreground">场景信息</h4>
               <div className="mt-2 text-sm text-muted-foreground space-y-1">
                 <p>
                   <span className="font-medium">描述：</span>
@@ -82,7 +87,7 @@ export function SceneEditDrawer({
                   {scene.lighting}
                 </p>
               </div>
-            </details>
+            </div>
           </div>
         </SheetPanel>
       </SheetContent>

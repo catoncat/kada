@@ -254,6 +254,7 @@ export function useImageGeneration() {
       relatedId,
       relatedMeta,
       referenceImages,
+      options,
       owner,
       parentArtifactId,
       editInstruction,
@@ -262,6 +263,7 @@ export function useImageGeneration() {
       relatedId?: string;
       relatedMeta?: string;
       referenceImages?: string[];
+      options?: Record<string, unknown>;
       owner?: {
         type: 'asset' | 'projectPlanVersion' | 'planScene';
         id: string;
@@ -274,6 +276,7 @@ export function useImageGeneration() {
         relatedId,
         relatedMeta,
         referenceImages,
+        options,
         owner,
         parentArtifactId,
         editInstruction,

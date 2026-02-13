@@ -7,44 +7,152 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type GeneratedPlan,
   type GeneratedScene,
+  type ResultMode,
+  type SceneTaskTrack,
+  ExecutionConfirmDialog,
   PlanResultHeader,
   PlanVersionsDrawer,
+  ResultModeSwitch,
+  ReviewBoard,
   SceneCard,
 } from '@/components/plan';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
+import { useProjectSceneTasks } from '@/hooks/useProjectSceneTasks';
 import { useTasksPolling } from '@/hooks/useTasks';
-import { generatePlan, getProject } from '@/lib/projects-api';
-import { parseSceneIndexFromTask } from '@/lib/task-recovery';
-import { createImageTask, fetchTasks } from '@/lib/tasks-api';
+import {
+  buildAcceptanceFixTemplate,
+  evaluateSceneAcceptance,
+  extractIdentityBindings,
+} from '@/lib/acceptance-rules';
+import {
+  confirmExecutionChecklist,
+  getExecutionChecklistSnapshot,
+  isChecklistConfirmed,
+} from '@/lib/execution-checklist';
+import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
+import {
+  clearLegacyOpenEdit,
+  parseResultSearchParams,
+  resolveResultMode,
+  type ResultSearchParams,
+} from '@/lib/result-search-params';
+import { resolveSceneExecutionState } from '@/lib/scene-execution-state';
+import { createImageTask } from '@/lib/tasks-api';
+import type { TaskPromptContext, TaskPromptReferencePlan } from '@/types/task-detail';
 
-interface ResultSearchParams {
-  scene?: number;
-  openEdit?: '1';
+const LOCKED_ASPECT_RATIO = 'photo';
+
+function toIdleTrack(sceneIndex: number): SceneTaskTrack {
+  return {
+    sceneIndex,
+    taskId: null,
+    status: 'idle',
+    createdAt: null,
+    updatedAt: null,
+    error: null,
+  };
+}
+
+function safeString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getManualPassStorageKey(
+  projectId: string,
+  sceneIndex: number,
+  planFingerprint: string,
+): string {
+  return `spv2:scene-pass:${projectId}:${sceneIndex}:${planFingerprint}`;
+}
+
+function readManualPass(
+  projectId: string,
+  sceneIndex: number,
+  planFingerprint: string,
+): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.localStorage.getItem(
+      getManualPassStorageKey(projectId, sceneIndex, planFingerprint),
+    ) === '1'
+  );
+}
+
+function writeManualPass(
+  projectId: string,
+  sceneIndex: number,
+  planFingerprint: string,
+  value: boolean,
+): void {
+  if (typeof window === 'undefined') return;
+  const key = getManualPassStorageKey(projectId, sceneIndex, planFingerprint);
+  if (value) {
+    window.localStorage.setItem(key, '1');
+    return;
+  }
+  window.localStorage.removeItem(key);
+}
+
+function getReferenceImagesFromPromptContext(
+  promptContext?: TaskPromptContext | null,
+): string[] {
+  if (!promptContext || typeof promptContext !== 'object') return [];
+  const plan = promptContext.referencePlan as
+    | TaskPromptReferencePlan
+    | undefined;
+  const byRole = plan?.byRole || promptContext.referenceImagesByRole;
+  return Array.from(
+    new Set([
+      ...toStringArray(byRole?.scene),
+      ...toStringArray(byRole?.identity),
+      ...toStringArray(plan?.identitySourceImages),
+    ]),
+  );
+}
+
+function getFallbackIdentityBindingsFromProject(
+  selectedModelsRaw: string | null | undefined,
+): Array<{ index: number; image: string }> {
+  if (!selectedModelsRaw) return [];
+  try {
+    const parsed = JSON.parse(selectedModelsRaw) as {
+      personModelMap?: Record<string, string>;
+    };
+    const values = Object.values(parsed.personModelMap || {})
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return values.map((modelId, index) => ({
+      index: index + 1,
+      image: `model:${modelId}`,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export const Route = createFileRoute('/project/$id/result')({
   component: ProjectResultPage,
-  validateSearch: (search: Record<string, unknown>): ResultSearchParams => {
-    const scene =
-      typeof search.scene === 'string'
-        ? Number.parseInt(search.scene, 10)
-        : undefined;
-    return {
-      scene:
-        typeof scene === 'number' && Number.isFinite(scene) ? scene : undefined,
-      openEdit: search.openEdit === '1' ? '1' : undefined,
-    };
-  },
+  validateSearch: (search: Record<string, unknown>): ResultSearchParams =>
+    parseResultSearchParams(search),
 });
 
 function ProjectResultPage() {
   const { id } = Route.useParams();
+  const search = Route.useSearch();
   const navigate = useNavigate();
-  const { scene: sceneFromUrl, openEdit } = Route.useSearch();
   const queryClient = useQueryClient();
   const { openDrawer } = useTaskQueue();
+
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(
     new Set(),
@@ -52,8 +160,22 @@ function ProjectResultPage() {
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [sceneTaskHint, setSceneTaskHint] = useState<string | null>(null);
+  const [checklistDialogSceneIndex, setChecklistDialogSceneIndex] = useState<
+    number | null
+  >(null);
+  const [pendingBatchSceneIndices, setPendingBatchSceneIndices] = useState<
+    number[]
+  >([]);
+  const [fixDialogSceneIndex, setFixDialogSceneIndex] = useState<number | null>(
+    null,
+  );
+  const [isFixing, setIsFixing] = useState(false);
+  const [checklistVersion, setChecklistVersion] = useState(0);
+  const [manualPassVersion, setManualPassVersion] = useState(0);
 
-  // 获取项目数据
+  const resolvedMode = resolveResultMode(search);
+  const sceneFromUrl = search.scene;
+
   const {
     data: project,
     isLoading,
@@ -63,13 +185,15 @@ function ProjectResultPage() {
     queryFn: () => getProject(id),
   });
 
-  // 获取项目相关任务（用于“查看最近任务”入口）
-  const { data: projectTasks = [] } = useQuery({
-    queryKey: ['project-tasks', id],
-    queryFn: () => fetchTasks({ relatedId: id, limit: 200 }),
-  });
+  const plan = project?.generatedPlan as GeneratedPlan | null;
 
-  // 重新生成 mutation
+  const {
+    latestTaskByScene,
+    detailByScene,
+    sceneTrackMap,
+    refetch: refetchSceneTasks,
+  } = useProjectSceneTasks(id);
+
   const regenerateMutation = useMutation({
     mutationFn: () => generatePlan(id),
     onSuccess: () => {
@@ -77,7 +201,16 @@ function ProjectResultPage() {
     },
   });
 
-  // 批量任务轮询
+  const updateSceneMutation = useMutation({
+    mutationFn: (nextPlan: GeneratedPlan) =>
+      updateProject(id, {
+        generatedPlan: nextPlan,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+  });
+
   useTasksPolling(batchTaskIds, {
     enabled: batchTaskIds.length > 0,
     onAllComplete: () => {
@@ -88,40 +221,142 @@ function ProjectResultPage() {
     },
   });
 
-  const latestSceneTaskMap = useMemo(() => {
-    const map = new Map<number, string>();
-    const sorted = [...projectTasks].sort((a, b) => {
-      const t1 = new Date(a.createdAt || 0).getTime();
-      const t2 = new Date(b.createdAt || 0).getTime();
-      return t2 - t1;
-    });
+  const expectedPeopleCount = Math.max(project?.customer?.people?.length || 1, 1);
 
-    for (const task of sorted) {
-      if (task.type !== 'image-generation' && task.type !== 'plan-generation')
-        continue;
-      const sceneIndex = parseSceneIndexFromTask(task);
-      if (sceneIndex === null) continue;
-      if (!map.has(sceneIndex)) {
-        map.set(sceneIndex, task.id);
-      }
+  const checklistMap = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof getExecutionChecklistSnapshot>>();
+    if (!plan?.scenes) return map;
+    const fallbackIdentityBindings = getFallbackIdentityBindingsFromProject(
+      project?.selectedModels,
+    );
+    for (let sceneIndex = 0; sceneIndex < plan.scenes.length; sceneIndex += 1) {
+      const scene = plan.scenes[sceneIndex];
+      const promptContext =
+        detailByScene.get(sceneIndex)?.run?.promptContext ||
+        detailByScene.get(sceneIndex)?.artifacts?.[0]?.promptContext ||
+        null;
+      const identityBindings = extractIdentityBindings(
+        promptContext as TaskPromptContext | null,
+      );
+      map.set(
+        sceneIndex,
+        getExecutionChecklistSnapshot({
+          projectId: id,
+          sceneIndex,
+          scene,
+          expectedPeopleCount,
+          identityBindings:
+            identityBindings.length > 0
+              ? identityBindings
+              : fallbackIdentityBindings,
+          lockedAspectRatio: LOCKED_ASPECT_RATIO,
+        }),
+      );
     }
-
     return map;
-  }, [projectTasks]);
+  }, [
+    detailByScene,
+    expectedPeopleCount,
+    id,
+    plan?.scenes,
+    checklistVersion,
+    project?.selectedModels,
+  ]);
+
+  const acceptanceMap = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof evaluateSceneAcceptance>>();
+    if (!plan?.scenes) return map;
+    for (let sceneIndex = 0; sceneIndex < plan.scenes.length; sceneIndex += 1) {
+      map.set(
+        sceneIndex,
+        evaluateSceneAcceptance({
+          scene: plan.scenes[sceneIndex],
+          expectedPeopleCount,
+          lockedAspectRatio: LOCKED_ASPECT_RATIO,
+          latestTask: latestTaskByScene.get(sceneIndex) || null,
+          latestTaskDetail: detailByScene.get(sceneIndex) || null,
+        }),
+      );
+    }
+    return map;
+  }, [detailByScene, expectedPeopleCount, latestTaskByScene, plan?.scenes]);
+
+  const manualPassedMap = useMemo(() => {
+    const map = new Map<number, boolean>();
+    if (!plan?.scenes) return map;
+    for (let sceneIndex = 0; sceneIndex < plan.scenes.length; sceneIndex += 1) {
+      const checklist = checklistMap.get(sceneIndex);
+      if (!checklist) continue;
+      map.set(
+        sceneIndex,
+        readManualPass(id, sceneIndex, checklist.planFingerprint),
+      );
+    }
+    return map;
+  }, [id, checklistMap, manualPassVersion, plan?.scenes]);
+
+  const executionStateMap = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof resolveSceneExecutionState>>();
+    if (!plan?.scenes) return map;
+    for (let sceneIndex = 0; sceneIndex < plan.scenes.length; sceneIndex += 1) {
+      const scene = plan.scenes[sceneIndex];
+      const checklist = checklistMap.get(sceneIndex);
+      map.set(
+        sceneIndex,
+        resolveSceneExecutionState({
+          checklistConfirmed: isChecklistConfirmed(checklist),
+          hasPreviewImage: Boolean(scene.previewArtifactPath),
+          latestTrack: sceneTrackMap.get(sceneIndex) || toIdleTrack(sceneIndex),
+          acceptance: acceptanceMap.get(sceneIndex) || null,
+          manualPassed: Boolean(manualPassedMap.get(sceneIndex)),
+        }),
+      );
+    }
+    return map;
+  }, [acceptanceMap, checklistMap, manualPassedMap, plan?.scenes, sceneTrackMap]);
+
+  const handleSwitchMode = useCallback(
+    (nextMode: ResultMode) => {
+      navigate({
+        to: '/project/$id/result',
+        params: { id },
+        search: {
+          scene: sceneFromUrl,
+          mode: nextMode,
+        },
+      });
+    },
+    [id, navigate, sceneFromUrl],
+  );
+
+  const handleOpenEditFromReview = useCallback(
+    (sceneIndex: number) => {
+      navigate({
+        to: '/project/$id/result',
+        params: { id },
+        search: {
+          scene: sceneIndex,
+          mode: 'execute',
+        },
+      });
+    },
+    [id, navigate],
+  );
 
   const handleViewRecentTasks = useCallback(
     (sceneIndex: number) => {
-      const recentTaskId = latestSceneTaskMap.get(sceneIndex);
-      if (recentTaskId) {
+      const recentTask = latestTaskByScene.get(sceneIndex);
+      if (recentTask) {
         setSceneTaskHint(null);
         navigate({
           to: '/tasks/$id',
-          params: { id: recentTaskId },
+          params: { id: recentTask.id },
           search: {
             sourceType: 'projectResult',
             projectId: id,
             relatedId: id,
             sceneIndex,
+            mode: 'execute',
           },
         });
         return;
@@ -130,7 +365,7 @@ function ProjectResultPage() {
       setSceneTaskHint(`场景 ${sceneIndex + 1} 暂无历史任务，已打开任务中心。`);
       openDrawer();
     },
-    [id, latestSceneTaskMap, navigate, openDrawer],
+    [id, latestTaskByScene, navigate, openDrawer],
   );
 
   const handleRegenerate = async () => {
@@ -144,110 +379,131 @@ function ProjectResultPage() {
     }
   };
 
-  // 生成单个场景预览图
-  const handleGenerateScenePreview = useCallback(
-    async (sceneIndex: number, visualPrompt: string) => {
-      setGeneratingScenes((prev) => new Set(prev).add(sceneIndex));
+  const enqueueSceneTask = useCallback(
+    async (options: {
+      sceneIndex: number;
+      prompt: string;
+      referenceImages?: string[];
+      editInstruction?: string;
+      taskOptions?: Record<string, unknown>;
+    }) => {
+      setGeneratingScenes((prev) => new Set(prev).add(options.sceneIndex));
       try {
-        const plan = project?.generatedPlan as GeneratedPlan | null;
-        const scene = plan?.scenes?.[sceneIndex] as GeneratedScene | undefined;
-        const referenceImages = [scene?.sceneAssetImage].filter(
-          Boolean,
-        ) as string[];
-
-        const task = await createImageTask(visualPrompt, {
+        const task = await createImageTask(options.prompt, {
           relatedId: id,
-          relatedMeta: JSON.stringify({ sceneIndex }),
+          relatedMeta: JSON.stringify({ sceneIndex: options.sceneIndex }),
           referenceImages:
-            referenceImages.length > 0 ? referenceImages : undefined,
+            options.referenceImages && options.referenceImages.length > 0
+              ? options.referenceImages
+              : undefined,
           owner: {
             type: 'planScene',
-            id: id,
-            slot: `scene:${sceneIndex}`,
+            id,
+            slot: `scene:${options.sceneIndex}`,
           },
+          editInstruction: options.editInstruction,
+          options: options.taskOptions,
         });
         setBatchTaskIds((prev) => [...prev, task.id]);
+        setSceneTaskHint(`场景 ${options.sceneIndex + 1} 已入队执行。`);
+        await refetchSceneTasks();
       } catch (err) {
         console.error('Failed to create image task:', err);
         setGeneratingScenes((prev) => {
           const next = new Set(prev);
-          next.delete(sceneIndex);
+          next.delete(options.sceneIndex);
           return next;
         });
       }
     },
-    [id, project?.generatedPlan],
+    [id, refetchSceneTasks],
   );
 
-  // 批量生成所有场景预览图
+  const handleGenerateScenePreview = useCallback(
+    async (sceneIndex: number, visualPrompt: string) => {
+      const scene = plan?.scenes?.[sceneIndex];
+      if (!scene) return;
+      const referenceImages = [scene.sceneAssetImage].filter(Boolean) as string[];
+      await enqueueSceneTask({
+        sceneIndex,
+        prompt: visualPrompt,
+        referenceImages,
+      });
+    },
+    [enqueueSceneTask, plan?.scenes],
+  );
+
   const handleBatchGeneratePreview = useCallback(
     async (scenes: GeneratedScene[]) => {
-      const indices = scenes
+      const candidates = scenes
         .map((scene, index) => ({ scene, index }))
         .filter(
-          ({ scene }) => !scene.previewArtifactPath && scene.visualPrompt,
+          ({ scene }) => !scene.previewArtifactPath && Boolean(scene.visualPrompt),
         );
 
-      if (indices.length === 0) return;
+      if (candidates.length === 0) return;
 
-      const newGenerating = new Set<number>();
-      const taskIds: string[] = [];
-
-      for (const { scene, index } of indices) {
-        newGenerating.add(index);
-        try {
-          const referenceImages = [scene.sceneAssetImage].filter(
-            Boolean,
-          ) as string[];
-          const task = await createImageTask(scene.visualPrompt, {
-            relatedId: id,
-            relatedMeta: JSON.stringify({ sceneIndex: index }),
-            referenceImages:
-              referenceImages.length > 0 ? referenceImages : undefined,
-            owner: {
-              type: 'planScene',
-              id: id,
-              slot: `scene:${index}`,
-            },
-          });
-          taskIds.push(task.id);
-        } catch (err) {
-          console.error(`Failed to create task for scene ${index}:`, err);
-        }
+      const unconfirmed = candidates.filter(
+        ({ index }) => !isChecklistConfirmed(checklistMap.get(index)),
+      );
+      if (unconfirmed.length > 0) {
+        setSceneTaskHint(
+          `批量执行前需逐场景确认清单（剩余 ${unconfirmed.length} 个未确认）。`,
+        );
+        setPendingBatchSceneIndices(unconfirmed.map((item) => item.index));
+        return;
       }
 
-      setGeneratingScenes(newGenerating);
-      setBatchTaskIds(taskIds);
+      for (const item of candidates) {
+        // 串行创建任务，保持执行顺序可追溯
+        // eslint-disable-next-line no-await-in-loop
+        await enqueueSceneTask({
+          sceneIndex: item.index,
+          prompt: item.scene.visualPrompt,
+          referenceImages: [item.scene.sceneAssetImage].filter(
+            Boolean,
+          ) as string[],
+        });
+      }
     },
-    [id],
+    [checklistMap, enqueueSceneTask],
   );
 
   const handleExportPPT = () => {
-    // TODO: Phase 4 实现 PPT 导出
     alert('PPT 导出功能将在 Phase 4 实现');
   };
 
-  // 刷新项目数据
   const handleRefreshProject = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['project', id] });
-  }, [queryClient, id]);
+    queryClient.invalidateQueries({ queryKey: ['project-tasks', id] });
+  }, [id, queryClient]);
 
-  // 计算预览进度
+  const handleUpdateScene = useCallback(
+    async (
+      sceneIndex: number,
+      patch: Partial<
+        Pick<GeneratedScene, 'description' | 'shots' | 'lighting' | 'visualPrompt'>
+      >,
+    ) => {
+      if (!plan?.scenes || !plan.scenes[sceneIndex]) return;
+      const nextScenes = plan.scenes.map((scene, index) =>
+        index === sceneIndex ? { ...scene, ...patch } : scene,
+      );
+      await updateSceneMutation.mutateAsync({
+        ...plan,
+        scenes: nextScenes,
+      });
+    },
+    [plan, updateSceneMutation],
+  );
+
   const previewProgress = useMemo(() => {
-    const plan = project?.generatedPlan as GeneratedPlan | null;
     if (!plan?.scenes) return { done: 0, total: 0 };
-
     const total = plan.scenes.length;
-    const done = plan.scenes.filter(
-      (scene) => scene.previewArtifactPath,
-    ).length;
-
+    const done = plan.scenes.filter((scene) => scene.previewArtifactPath).length;
     return { done, total };
-  }, [project?.generatedPlan]);
+  }, [plan?.scenes]);
 
-  const plan = project?.generatedPlan as GeneratedPlan | null;
-
-  // 处理从任务列表跳转：滚动到指定场景并自动打开编辑抽屉
   useEffect(() => {
     if (!plan?.scenes?.length) return;
     if (typeof sceneFromUrl !== 'number' || Number.isNaN(sceneFromUrl)) return;
@@ -255,29 +511,97 @@ function ProjectResultPage() {
 
     const el = document.getElementById(`scene-${sceneFromUrl}`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [plan?.scenes, sceneFromUrl]);
 
-    // 清理 URL（保持页面状态不受影响）
+  useEffect(() => {
+    if (search.openEdit !== '1') return;
+    const cleaned = clearLegacyOpenEdit(search);
     navigate({
       to: '/project/$id/result',
       params: { id },
-      search: {},
+      search: cleaned,
       replace: true,
     });
-  }, [sceneFromUrl, plan?.scenes?.length, navigate, id]);
+  }, [id, navigate, search]);
 
-  // Loading 状态
+  const handleConfirmChecklist = useCallback(async () => {
+    if (checklistDialogSceneIndex === null) return;
+    const snapshot = checklistMap.get(checklistDialogSceneIndex);
+    if (!snapshot) return;
+    if (!snapshot.allPassed) {
+      alert('清单尚未满足，需补充信息后才能确认。');
+      return;
+    }
+    confirmExecutionChecklist(snapshot);
+    setChecklistVersion((prev) => prev + 1);
+    setChecklistDialogSceneIndex(null);
+  }, [checklistDialogSceneIndex, checklistMap]);
+
+  const handleConfirmFix = useCallback(async () => {
+    if (fixDialogSceneIndex === null || !plan?.scenes) return;
+    const scene = plan.scenes[fixDialogSceneIndex];
+    const acceptance = acceptanceMap.get(fixDialogSceneIndex);
+    if (!scene || !acceptance) return;
+
+    setIsFixing(true);
+    try {
+      const latestDetail = detailByScene.get(fixDialogSceneIndex) || null;
+      const latestPrompt =
+        safeString(latestDetail?.run?.effectivePrompt) || scene.visualPrompt;
+      const referencesFromPromptContext = getReferenceImagesFromPromptContext(
+        (latestDetail?.run?.promptContext as TaskPromptContext | null) || null,
+      );
+      const referenceImages = Array.from(
+        new Set([
+          ...(scene.sceneAssetImage ? [scene.sceneAssetImage] : []),
+          ...referencesFromPromptContext,
+        ]),
+      );
+      const fixTemplate = buildAcceptanceFixTemplate({
+        acceptance,
+        lockedAspectRatio: LOCKED_ASPECT_RATIO,
+      });
+
+      await enqueueSceneTask({
+        sceneIndex: fixDialogSceneIndex,
+        prompt: latestPrompt,
+        referenceImages,
+        editInstruction: fixTemplate.editInstruction,
+        taskOptions: fixTemplate.options,
+      });
+      setFixDialogSceneIndex(null);
+    } finally {
+      setIsFixing(false);
+    }
+  }, [acceptanceMap, detailByScene, enqueueSceneTask, fixDialogSceneIndex, plan?.scenes]);
+
+  const handleMarkScenePassed = useCallback(
+    (sceneIndex: number) => {
+      const acceptance = acceptanceMap.get(sceneIndex);
+      const checklist = checklistMap.get(sceneIndex);
+      if (!acceptance || !checklist) return;
+      if (acceptance.failCount > 0 || acceptance.unknownCount > 0) {
+        alert('存在未通过或待补充项，暂不可标记通过。');
+        return;
+      }
+
+      writeManualPass(id, sceneIndex, checklist.planFingerprint, true);
+      setManualPassVersion((prev) => prev + 1);
+    },
+    [acceptanceMap, checklistMap, id],
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // Error 状态
   if (error || !project) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <Alert variant="error">
           <AlertTitle>加载失败</AlertTitle>
           <AlertDescription>
@@ -288,17 +612,15 @@ function ProjectResultPage() {
     );
   }
 
-  // 未生成方案
   if (!plan) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* 顶部导航 */}
-        <div className="flex items-center justify-between mb-8">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link
               to="/"
               search={{ project: id }}
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"
             >
               返回项目
             </Link>
@@ -306,16 +628,13 @@ function ProjectResultPage() {
           </div>
         </div>
 
-        {/* 空状态 */}
         <div className="rounded-2xl border border-dashed border-border bg-card p-12">
           <div className="flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <ImageIcon className="w-8 h-8 text-muted-foreground" />
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <ImageIcon className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-foreground">
-              尚未生成方案
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground max-w-sm">
+            <h3 className="text-lg font-medium text-foreground">尚未生成方案</h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               请先完成项目配置，然后点击「生成方案」按钮
             </p>
             <Button
@@ -331,12 +650,25 @@ function ProjectResultPage() {
     );
   }
 
+  const checklistDialogSnapshot =
+    checklistDialogSceneIndex !== null
+      ? checklistMap.get(checklistDialogSceneIndex) || null
+      : null;
+  const fixDialogAcceptance =
+    fixDialogSceneIndex !== null ? acceptanceMap.get(fixDialogSceneIndex) : null;
+  const fixDialogTemplate = fixDialogAcceptance
+    ? buildAcceptanceFixTemplate({
+        acceptance: fixDialogAcceptance,
+        lockedAspectRatio: LOCKED_ASPECT_RATIO,
+      })
+    : null;
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header: 版本信息 + 操作 */}
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <PlanResultHeader
         project={project}
         plan={plan}
+        mode={resolvedMode}
         previewProgress={previewProgress}
         isBatchGenerating={batchTaskIds.length > 0}
         isRegenerating={isRegenerating}
@@ -344,44 +676,182 @@ function ProjectResultPage() {
         onOpenVersions={() => setShowVersions(true)}
         onRegenerate={handleRegenerate}
         onExportPPT={handleExportPPT}
+        onOpenTaskCenter={openDrawer}
       />
 
-      {/* 场景列表标题 */}
-      <div className="mt-8 mb-4">
-        <h2 className="text-lg font-semibold text-foreground">
-          分镜场景 ({plan.scenes.length})
-        </h2>
-        {sceneTaskHint && (
-          <Alert variant="info" className="mt-3">
-            <AlertTitle>查看最近任务</AlertTitle>
-            <AlertDescription>{sceneTaskHint}</AlertDescription>
-          </Alert>
-        )}
+      <div className="mt-5">
+        <ResultModeSwitch value={resolvedMode} onValueChange={handleSwitchMode} />
       </div>
 
-      {/* 场景列表 */}
-      <div className="space-y-6">
-        {plan.scenes.map((scene, index) => (
-          <div key={`${scene.location}-${index}`} id={`scene-${index}`}>
-            <SceneCard
-              scene={scene}
-              sceneIndex={index}
-              projectId={project.id}
-              autoOpenEdit={openEdit === '1' && sceneFromUrl === index}
-              isGenerating={generatingScenes.has(index)}
-              onGeneratePreview={handleGenerateScenePreview}
-              onImageChange={handleRefreshProject}
-              onViewRecentTasks={handleViewRecentTasks}
-            />
-          </div>
-        ))}
-      </div>
+      {sceneTaskHint ? (
+        <Alert variant="info" className="mt-4">
+          <AlertTitle>执行提示</AlertTitle>
+          <AlertDescription>{sceneTaskHint}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      {/* 版本抽屉 */}
+      {resolvedMode === 'plan' ? (
+        <Alert variant="info" className="mt-4">
+          <AlertTitle>导演助理 AI</AlertTitle>
+          <AlertDescription>聚焦分镜编辑与表达优化，不直接触发执行任务。</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {resolvedMode === 'execute' ? (
+        <Alert variant="info" className="mt-4">
+          <AlertTitle>执行监理 AI</AlertTitle>
+          <AlertDescription>按清单约束执行，异常会给出可确认的一键修复建议。</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {resolvedMode === 'review' ? (
+        <div className="mt-6">
+          <ReviewBoard
+            scenes={plan.scenes}
+            acceptanceMap={acceptanceMap}
+            sceneTrackMap={sceneTrackMap}
+            manualPassedMap={manualPassedMap}
+            onFixScene={setFixDialogSceneIndex}
+            onOpenEditScene={handleOpenEditFromReview}
+            onViewSceneTask={handleViewRecentTasks}
+            onMarkScenePassed={handleMarkScenePassed}
+          />
+        </div>
+      ) : (
+        <div className="mt-6 space-y-6">
+          {plan.scenes.map((scene, index) => (
+            <div key={`${scene.location}-${index}`} id={`scene-${index}`}>
+              <SceneCard
+                mode={resolvedMode}
+                scene={scene}
+                sceneIndex={index}
+                projectId={project.id}
+                autoOpenEdit={search.openEdit === '1' && sceneFromUrl === index}
+                isGenerating={generatingScenes.has(index)}
+                onGeneratePreview={handleGenerateScenePreview}
+                onImageChange={handleRefreshProject}
+                onViewRecentTasks={handleViewRecentTasks}
+                onRequestChecklistConfirm={setChecklistDialogSceneIndex}
+                onRequestFix={setFixDialogSceneIndex}
+                onUpdateScene={handleUpdateScene}
+                checklistSnapshot={checklistMap.get(index) || null}
+                executionState={executionStateMap.get(index)}
+                acceptance={acceptanceMap.get(index) || null}
+                taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       <PlanVersionsDrawer
         open={showVersions}
         onOpenChange={setShowVersions}
         projectId={project.id}
+      />
+
+      <ExecutionConfirmDialog
+        open={pendingBatchSceneIndices.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setPendingBatchSceneIndices([]);
+        }}
+        title="批量执行确认面板"
+        description="批量执行前需逐场景完成清单确认。"
+        confirmLabel="去确认首个场景"
+        items={pendingBatchSceneIndices.map((sceneIndex) => ({
+          label: `场景 ${sceneIndex + 1}`,
+          value: '清单未确认',
+        }))}
+        onConfirm={() => {
+          if (pendingBatchSceneIndices.length > 0) {
+            setChecklistDialogSceneIndex(pendingBatchSceneIndices[0]);
+          }
+          setPendingBatchSceneIndices([]);
+        }}
+      />
+
+      <ExecutionConfirmDialog
+        open={checklistDialogSceneIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setChecklistDialogSceneIndex(null);
+        }}
+        title={
+          checklistDialogSceneIndex !== null
+            ? `场景 ${checklistDialogSceneIndex + 1} 清单确认`
+            : '清单确认'
+        }
+        description="确认后将按此清单执行，未确认不可生成。"
+        confirmLabel="确认清单"
+        canConfirm={Boolean(checklistDialogSnapshot?.allPassed)}
+        items={
+          checklistDialogSnapshot
+            ? [
+                {
+                  label: '场景参考图已确定',
+                  value: checklistDialogSnapshot.checks.sceneReferenceReady
+                    ? '已完成'
+                    : '缺少 scene 参考图',
+                },
+                {
+                  label: '人物拼接图可用',
+                  value: checklistDialogSnapshot.checks.identityCollageReady
+                    ? '已完成'
+                    : '多人场景缺少拼接参考图',
+                },
+                {
+                  label: '编号映射完整',
+                  value: checklistDialogSnapshot.checks.identityMappingComplete
+                    ? '已完成'
+                    : '编号映射缺失或不连续',
+                },
+                {
+                  label: '画幅与硬约束已锁定',
+                  value: checklistDialogSnapshot.checks.aspectRatioLocked
+                    ? checklistDialogSnapshot.lockedAspectRatio
+                    : '未锁定',
+                },
+                {
+                  label: '输出为单帧静态图',
+                  value: checklistDialogSnapshot.checks.singleFrameDeclared
+                    ? '已声明'
+                    : '未声明',
+                },
+              ]
+            : []
+        }
+        onConfirm={handleConfirmChecklist}
+      />
+
+      <ExecutionConfirmDialog
+        open={fixDialogSceneIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setFixDialogSceneIndex(null);
+        }}
+        title={
+          fixDialogSceneIndex !== null
+            ? `场景 ${fixDialogSceneIndex + 1} 一键修复`
+            : '一键修复'
+        }
+        description={
+          fixDialogAcceptance
+            ? `发现 ${fixDialogAcceptance.failCount + fixDialogAcceptance.unknownCount} 项未通过，已为你预填修复参数。`
+            : '将创建新的修复任务。'
+        }
+        confirmLabel="确认并创建修复任务"
+        canConfirm={Boolean(fixDialogAcceptance)}
+        isConfirming={isFixing}
+        items={[
+          {
+            label: '修复策略',
+            value: fixDialogTemplate?.editInstruction || '-',
+          },
+          {
+            label: '画幅锁定',
+            value:
+              fixDialogTemplate?.options.aspectRatio || LOCKED_ASPECT_RATIO,
+          },
+        ]}
+        onConfirm={handleConfirmFix}
       />
     </div>
   );

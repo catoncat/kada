@@ -272,6 +272,7 @@ export async function createImageTask(
     relatedId?: string;
     relatedMeta?: string;
     referenceImages?: string[];
+    options?: Record<string, unknown>;
     owner?: ImageGenerationInput['owner'];
     parentArtifactId?: string;
     editInstruction?: string;
@@ -283,6 +284,7 @@ export async function createImageTask(
       prompt,
       providerId: options?.providerId,
       referenceImages: options?.referenceImages,
+      options: options?.options,
       owner: options?.owner,
       parentArtifactId: options?.parentArtifactId,
       editInstruction: options?.editInstruction,
