@@ -10,10 +10,12 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { useReplayTask, useTaskDetail } from '@/hooks/useTasks';
+import { apiUrl } from '@/lib/api-config';
 import {
   getSourceLinkFromDeepLinkSearch,
   getTaskSourceLink,
@@ -125,6 +127,61 @@ function getReferenceSummary(
       : identity.length + scene.length;
 
   return { totalCount, identity, scene, dropped };
+}
+
+function getReferencePreviewUrl(pathValue: string): string {
+  if (
+    pathValue.startsWith('data:') ||
+    pathValue.startsWith('http://') ||
+    pathValue.startsWith('https://')
+  ) {
+    return pathValue;
+  }
+  const normalized = pathValue.startsWith('/') ? pathValue : `/${pathValue}`;
+  return apiUrl(normalized);
+}
+
+function ReferenceImageList({
+  items,
+  keyPrefix,
+}: {
+  items: string[];
+  keyPrefix: string;
+}) {
+  if (items.length === 0) {
+    return <div className="text-muted-foreground">无</div>;
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      {items.map((item, index) => {
+        const preview = getReferencePreviewUrl(item);
+        return (
+          <a
+            key={`${keyPrefix}-${item}`}
+            href={preview}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-center gap-2 rounded border bg-background px-1.5 py-1 hover:bg-muted/30"
+          >
+            <PhotoFrame
+              src={preview}
+              alt={`${keyPrefix}-${index + 1}`}
+              className="h-10 w-10 rounded border"
+            />
+            <div className="min-w-0 text-2xs">
+              <div className="truncate text-muted-foreground">
+                {index + 1}. {item}
+              </div>
+              {item.includes('.scene-noface.') ? (
+                <div className="text-emerald-600">场景去脸缓存</div>
+              ) : null}
+            </div>
+          </a>
+        );
+      })}
+    </div>
+  );
 }
 
 function TaskDeepLinkPage() {
@@ -466,44 +523,31 @@ function TaskDeepLinkPage() {
                   <div className="font-medium text-muted-foreground">
                     identity（{referenceSummary.identity.length}）
                   </div>
-                  {referenceSummary.identity.length === 0 ? (
-                    <div className="text-muted-foreground">无</div>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {referenceSummary.identity.map((item) => (
-                        <div key={`identity-${item}`} className="truncate">
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <ReferenceImageList
+                    items={referenceSummary.identity}
+                    keyPrefix="identity"
+                  />
                 </div>
                 <div>
                   <div className="font-medium text-muted-foreground">
                     scene（{referenceSummary.scene.length}）
                   </div>
-                  {referenceSummary.scene.length === 0 ? (
-                    <div className="text-muted-foreground">无</div>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {referenceSummary.scene.map((item) => (
-                        <div key={`scene-${item}`} className="truncate">
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <ReferenceImageList
+                    items={referenceSummary.scene}
+                    keyPrefix="scene"
+                  />
                 </div>
               </div>
 
               {referenceSummary.dropped.length > 0 && (
                 <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
                   已自动过滤 {referenceSummary.dropped.length} 张历史生成图：
-                  {referenceSummary.dropped.map((item) => (
-                    <div key={`dropped-${item}`} className="truncate">
-                      {item}
-                    </div>
-                  ))}
+                  <div className="mt-1">
+                    <ReferenceImageList
+                      items={referenceSummary.dropped}
+                      keyPrefix="dropped"
+                    />
+                  </div>
                 </div>
               )}
             </div>

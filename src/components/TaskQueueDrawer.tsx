@@ -179,6 +179,18 @@ function getArtifactPreviewUrl(artifact: TaskDetailArtifact): string | null {
   return apiUrl(normalized);
 }
 
+function getReferencePreviewUrl(pathValue: string): string {
+  if (
+    pathValue.startsWith('data:') ||
+    pathValue.startsWith('http://') ||
+    pathValue.startsWith('https://')
+  ) {
+    return pathValue;
+  }
+  const normalized = pathValue.startsWith('/') ? pathValue : `/${pathValue}`;
+  return apiUrl(normalized);
+}
+
 function getImageParams(
   task: Task,
   detail?: TaskDetailView | null,
@@ -1065,12 +1077,7 @@ function TaskDetailPane({
             ) : (
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 {imageParams.referenceImages.map((img, idx) => {
-                  const preview =
-                    img.startsWith('http://') ||
-                    img.startsWith('https://') ||
-                    img.startsWith('data:')
-                      ? img
-                      : apiUrl(img.startsWith('/') ? img : `/${img}`);
+                  const preview = getReferencePreviewUrl(img);
 
                   return (
                     <a
@@ -1309,6 +1316,42 @@ function ReferenceSummaryBlock({
     );
   }
 
+  const renderImageList = (items: string[], keyPrefix: string) => {
+    if (items.length === 0) {
+      return <div className="text-muted-foreground">无</div>;
+    }
+    return (
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {items.map((item, index) => {
+          const preview = getReferencePreviewUrl(item);
+          return (
+            <a
+              key={`${keyPrefix}-${item}`}
+              href={preview}
+              target="_blank"
+              rel="noreferrer"
+              className="group flex items-center gap-2 rounded border bg-background px-1.5 py-1 hover:bg-muted/30"
+            >
+              <PhotoFrame
+                src={preview}
+                alt={`${keyPrefix}-${index + 1}`}
+                className="h-10 w-10 rounded border"
+              />
+              <div className="min-w-0 text-2xs">
+                <div className="truncate text-muted-foreground">
+                  {index + 1}. {item}
+                </div>
+                {item.includes('.scene-noface.') ? (
+                  <div className="text-emerald-600">场景去脸缓存</div>
+                ) : null}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="rounded-lg border bg-muted/40 p-2 space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -1323,34 +1366,14 @@ function ReferenceSummaryBlock({
           <div className="font-medium text-muted-foreground">
             identity（{summary.byRole.identity.length}）
           </div>
-          {summary.byRole.identity.length === 0 ? (
-            <div className="text-muted-foreground">无</div>
-          ) : (
-            <div className="space-y-0.5">
-              {summary.byRole.identity.map((item) => (
-                <div key={`ref-identity-${item}`} className="truncate">
-                  {item}
-                </div>
-              ))}
-            </div>
-          )}
+          {renderImageList(summary.byRole.identity, 'ref-identity')}
         </div>
 
         <div>
           <div className="font-medium text-muted-foreground">
             scene（{summary.byRole.scene.length}）
           </div>
-          {summary.byRole.scene.length === 0 ? (
-            <div className="text-muted-foreground">无</div>
-          ) : (
-            <div className="space-y-0.5">
-              {summary.byRole.scene.map((item) => (
-                <div key={`ref-scene-${item}`} className="truncate">
-                  {item}
-                </div>
-              ))}
-            </div>
-          )}
+          {renderImageList(summary.byRole.scene, 'ref-scene')}
         </div>
       </div>
 
@@ -1359,24 +1382,14 @@ function ReferenceSummaryBlock({
           <div className="text-2xs font-medium text-muted-foreground">
             注入顺序
           </div>
-          <div className="mt-1 space-y-0.5 text-2xs">
-            {summary.order.map((item, idx) => (
-              <div key={`ref-order-${idx}-${item}`}>
-                {idx + 1}. {item}
-              </div>
-            ))}
-          </div>
+          <div className="mt-1">{renderImageList(summary.order, 'ref-order')}</div>
         </div>
       )}
 
       {summary.dropped.length > 0 && (
         <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-2xs text-amber-700">
           已自动过滤 {summary.dropped.length} 张历史生成图：
-          {summary.dropped.map((item) => (
-            <div key={`ref-dropped-${item}`} className="truncate">
-              {item}
-            </div>
-          ))}
+          <div className="mt-1">{renderImageList(summary.dropped, 'ref-dropped')}</div>
         </div>
       )}
     </div>
