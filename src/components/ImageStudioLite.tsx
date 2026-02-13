@@ -414,6 +414,21 @@ export function ImageStudioLite({
       : aspectRatio === 'portrait'
         ? 'portrait'
         : undefined;
+  const previewStatusText =
+    !prompt.trim()
+      ? '待输入'
+      : isPreviewing
+        ? '预览生成中'
+        : promptOptimizationPreview
+          ? promptOptimizationPreview.status === 'optimized'
+            ? '已优化'
+            : promptOptimizationPreview.status === 'fallback'
+              ? '优化失败（已回退）'
+              : '已跳过优化'
+          : effectivePromptPreview
+            ? '已生成预览'
+            : '待预览';
+  const previewReferenceCount = referencePlanPreview?.totalCount ?? 0;
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
@@ -521,99 +536,113 @@ export function ImageStudioLite({
             )}
           </Button>
 
-          <div className="rounded-xl border bg-muted/40 p-3 space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  renderPrompt（最终执行）
-                </div>
-                {previewComposer ? (
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    编排：{previewComposer.name} · {previewComposer.version}
-                    {previewStudioTemplateId
-                      ? ` · 系统提示词：${previewStudioTemplateId}`
-                      : ''}
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    服务端拼接后经优化器处理，最终用于模型执行
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!prompt.trim() || isPreviewing}
-                  onClick={handleRegeneratePreview}
-                >
-                  <RefreshCw
-                    className={cn('mr-1 size-3.5', isPreviewing && 'animate-spin')}
-                  />
-                  重新生成
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-8"
-                  disabled={!effectivePromptPreview}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(
-                        effectivePromptPreview,
-                      );
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                  title="复制"
-                >
-                  <Copy className="size-4" />
-                </Button>
-
-              </div>
+          <div className="rounded-xl border bg-muted/40 p-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>预览状态：{previewStatusText}</span>
+              <span>参考图：{previewReferenceCount} 张</span>
+              {previewComposer ? <span>编排：{previewComposer.name}</span> : null}
             </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              默认使用简化视图；需要排查时展开下方技术详情。
+            </p>
+          </div>
 
-            {isPreviewing && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
-                <span>正在生成预览…</span>
+          <details className="rounded-xl border bg-muted/40 p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              技术详情
+            </summary>
+            <div className="mt-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    最终出图文案
+                  </div>
+                  {previewComposer ? (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      编排：{previewComposer.name} · {previewComposer.version}
+                      {previewStudioTemplateId
+                        ? ` · 系统提示词：${previewStudioTemplateId}`
+                        : ''}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      服务端拼接后经优化器处理，最终用于模型执行
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!prompt.trim() || isPreviewing}
+                    onClick={handleRegeneratePreview}
+                  >
+                    <RefreshCw
+                      className={cn('mr-1 size-3.5', isPreviewing && 'animate-spin')}
+                    />
+                    重新生成
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    disabled={!effectivePromptPreview}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(
+                          effectivePromptPreview,
+                        );
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    title="复制"
+                  >
+                    <Copy className="size-4" />
+                  </Button>
+                </div>
               </div>
-            )}
-            {previewError && (
-              <div className="text-xs text-red-500">{previewError}</div>
-            )}
 
-            <Textarea
-              value={effectivePromptPreview}
-              readOnly
-              rows={6}
-              className="resize-none font-mono text-xs"
-              placeholder="（将显示最终执行的提示词）"
-            />
-
-            {promptOptimizationPreview && (
-              <PromptOptimizationPanel meta={promptOptimizationPreview} />
-            )}
-
-            {sourcePromptPreview &&
-              sourcePromptPreview !== effectivePromptPreview && (
-                <details className="rounded-lg border bg-background/60 p-2">
-                  <summary className="cursor-pointer text-xs font-medium">
-                    查看优化前 composed prompt
-                  </summary>
-                  <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-2xs">
-                    {sourcePromptPreview}
-                  </pre>
-                </details>
+              {isPreviewing && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" />
+                  <span>正在生成预览…</span>
+                </div>
+              )}
+              {previewError && (
+                <div className="text-xs text-red-500">{previewError}</div>
               )}
 
-            {referencePlanPreview && (
-              <ReferencePlanPanel plan={referencePlanPreview} />
-            )}
+              <Textarea
+                value={effectivePromptPreview}
+                readOnly
+                rows={6}
+                className="resize-none font-mono text-xs"
+                placeholder="（将显示最终执行的提示词）"
+              />
 
-          </div>
+              {promptOptimizationPreview && (
+                <PromptOptimizationPanel meta={promptOptimizationPreview} />
+              )}
+
+              {sourcePromptPreview &&
+                sourcePromptPreview !== effectivePromptPreview && (
+                  <details className="rounded-lg border bg-background/60 p-2">
+                    <summary className="cursor-pointer text-xs font-medium">
+                      查看优化前拼接文案
+                    </summary>
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-2xs">
+                      {sourcePromptPreview}
+                    </pre>
+                  </details>
+                )}
+
+              {referencePlanPreview && (
+                <ReferencePlanPanel plan={referencePlanPreview} />
+              )}
+            </div>
+          </details>
         </div>
       )}
     </div>
@@ -637,7 +666,7 @@ function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
         <div className="text-2xs text-muted-foreground">{statusText}</div>
       </div>
 
-      <div className="grid gap-1 text-2xs text-muted-foreground md:grid-cols-2">
+      <div className="grid gap-1 text-2xs text-muted-foreground">
         <div>provider: {meta.providerId || '-'}</div>
         <div>model: {meta.textModel || '-'}</div>
       </div>
@@ -647,9 +676,9 @@ function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
       )}
 
       {(hasAssumptions || hasConflicts) && (
-        <div className="grid gap-2 text-2xs md:grid-cols-2">
+        <div className="grid gap-2 text-2xs">
           <div>
-            <div className="font-medium text-muted-foreground">assumptions</div>
+            <div className="font-medium text-muted-foreground">假设补全</div>
             {hasAssumptions ? (
               <div className="space-y-0.5">
                 {meta.assumptions.map((item) => (
@@ -661,7 +690,7 @@ function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
             )}
           </div>
           <div>
-            <div className="font-medium text-muted-foreground">conflicts</div>
+            <div className="font-medium text-muted-foreground">冲突处理</div>
             {hasConflicts ? (
               <div className="space-y-0.5">
                 {meta.conflicts.map((item) => (
@@ -683,16 +712,16 @@ function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
   return (
     <div className="rounded-lg border bg-background/60 p-2 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium">参考图注入摘要</div>
+        <div className="text-xs font-medium">参考图参与详情</div>
         <div className="text-2xs text-muted-foreground">
           总计 {plan.totalCount} 张
         </div>
       </div>
 
-      <div className="grid gap-2 text-2xs md:grid-cols-2">
+      <div className="grid gap-2 text-2xs">
         <div>
           <div className="font-medium text-muted-foreground">
-            identity（{plan.counts.identity}）
+            人物参考（{plan.counts.identity}）
           </div>
           {plan.byRole.identity.length === 0 ? (
             <div className="text-muted-foreground">无</div>
@@ -709,7 +738,7 @@ function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
 
         <div>
           <div className="font-medium text-muted-foreground">
-            scene（{plan.counts.scene}）
+            场景参考（{plan.counts.scene}）
           </div>
           {plan.byRole.scene.length === 0 ? (
             <div className="text-muted-foreground">无</div>
@@ -728,7 +757,7 @@ function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
       {plan.order.length > 0 && (
         <div>
           <div className="text-2xs font-medium text-muted-foreground">
-            注入顺序
+            参与顺序
           </div>
           <div className="mt-1 space-y-0.5 text-2xs">
             {plan.order.map((item, idx) => (

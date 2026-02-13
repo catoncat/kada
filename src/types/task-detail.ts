@@ -1,5 +1,31 @@
 export type TaskRecoverySourceType = 'projectResult' | 'project' | 'assets';
 
+export interface TaskPromptReferenceByRole {
+  identity: string[];
+  scene: string[];
+}
+
+export interface TaskPromptOptimization {
+  status?: 'optimized' | 'fallback' | 'skipped' | string;
+  reason?: string | null;
+  providerId?: string | null;
+  providerFormat?: string | null;
+  textModel?: string | null;
+  assumptions?: string[];
+  conflicts?: string[];
+  negativePrompt?: string | null;
+  sourcePrompt?: string | null;
+  renderPrompt?: string | null;
+}
+
+export interface TaskPromptContext {
+  referenceImagesCount?: number;
+  referenceImagesByRole?: TaskPromptReferenceByRole;
+  droppedReferenceImages?: string[];
+  promptOptimization?: TaskPromptOptimization;
+  [key: string]: unknown;
+}
+
 export interface TaskDetailTimelineItem {
   status: string;
   at: string;
@@ -18,7 +44,7 @@ export interface TaskDetailRun {
   relatedType: string | null;
   relatedId: string | null;
   effectivePrompt: string | null;
-  promptContext: Record<string, unknown> | null;
+  promptContext: TaskPromptContext | null;
   parentRunId: string | null;
   taskId: string | null;
   error: Record<string, unknown> | null;
@@ -39,7 +65,7 @@ export interface TaskDetailArtifact {
   ownerId: string | null;
   ownerSlot: string | null;
   effectivePrompt: string | null;
-  promptContext: Record<string, unknown> | null;
+  promptContext: TaskPromptContext | null;
   referenceImages: string[];
   editInstruction: string | null;
   parentArtifactId: string | null;

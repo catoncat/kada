@@ -244,7 +244,9 @@ export interface ImageGenerationOutput {
   runId: string;
   filePath: string;
   mimeType: string;
-  effectivePrompt: string;
+  effectivePrompt: string; // 最终执行文本（可能已被优化）
+  sourceEffectivePrompt?: string; // 优化前 composed prompt
+  promptOptimization?: Record<string, unknown>;
   width?: number;
   height?: number;
   sizeBytes?: number;

@@ -1,40 +1,35 @@
 'use client';
 
-import { useTaskQueue } from '@/contexts/TaskQueueContext';
-import {
-  isApiError,
-  TASK_TYPE_LABELS,
-  TASK_STATUS_LABELS,
-  type Task,
-  deleteTask,
-  retryTask,
-} from '@/lib/tasks-api';
-import { useReplayTask, useTaskDetail } from '@/hooks/useTasks';
-import type { TaskDetailArtifact, TaskDetailView } from '@/types/task-detail';
-import {
-  X,
-  Loader2,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Trash2,
-  RefreshCw,
-  ListTodo,
-  Sparkles,
-  Copy,
-  ExternalLink,
-  Image as ImageIcon,
-} from 'lucide-react';
-import { PhotoFrame } from '@/components/PhotoFrame';
-import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+  CheckCircle,
+  Clock,
+  Copy,
+  ExternalLink,
+  Image as ImageIcon,
+  ListTodo,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  X,
+  XCircle,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { PhotoFrame } from '@/components/PhotoFrame';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { useTaskQueue } from '@/contexts/TaskQueueContext';
+import { useReplayTask, useTaskDetail } from '@/hooks/useTasks';
 import { apiUrl } from '@/lib/api-config';
 import { openSettingsWindow } from '@/lib/open-settings-window';
 import {
@@ -42,6 +37,22 @@ import {
   getTaskSourceLink,
   type TaskSourceLink,
 } from '@/lib/task-recovery';
+import {
+  deleteTask,
+  isApiError,
+  retryTask,
+  TASK_STATUS_LABELS,
+  TASK_TYPE_LABELS,
+  type Task,
+} from '@/lib/tasks-api';
+import { cn } from '@/lib/utils';
+import type {
+  TaskDetailArtifact,
+  TaskDetailView,
+  TaskPromptContext,
+  TaskPromptOptimization,
+  TaskPromptReferenceByRole,
+} from '@/types/task-detail';
 
 type TaskFilter = 'all' | 'active' | 'history';
 
@@ -79,7 +90,10 @@ function getDraftPrompt(task: Task): string | null {
   return null;
 }
 
-function getEffectivePrompt(task: Task, detail?: TaskDetailView | null): string | null {
+function getEffectivePrompt(
+  task: Task,
+  detail?: TaskDetailView | null,
+): string | null {
   const fromRun = safeString(detail?.run?.effectivePrompt);
   if (fromRun) return fromRun;
 
@@ -91,7 +105,10 @@ function getEffectivePrompt(task: Task, detail?: TaskDetailView | null): string 
   return null;
 }
 
-function buildReplayPayload(task: Task, detail?: TaskDetailView | null): string {
+function buildReplayPayload(
+  task: Task,
+  detail?: TaskDetailView | null,
+): string {
   const sourceLink = getTaskSourceLink(task, detail);
   return JSON.stringify(
     {
@@ -150,7 +167,11 @@ function getArtifactPreviewUrl(artifact: TaskDetailArtifact): string | null {
   const filePath = safeString(artifact.filePath);
   if (!filePath) return null;
 
-  if (filePath.startsWith('data:') || filePath.startsWith('http://') || filePath.startsWith('https://')) {
+  if (
+    filePath.startsWith('data:') ||
+    filePath.startsWith('http://') ||
+    filePath.startsWith('https://')
+  ) {
     return filePath;
   }
 
@@ -166,7 +187,6 @@ function getImageParams(
   referenceImages: string[];
   editInstruction: string | null;
   parentArtifactId: string | null;
-  options: Record<string, unknown> | null;
 } {
   let owner: { type: string | null; id: string | null; slot: string | null } = {
     type: null,
@@ -177,7 +197,6 @@ function getImageParams(
   let referenceImages: string[] = [];
   let editInstruction: string | null = null;
   let parentArtifactId: string | null = null;
-  let options: Record<string, unknown> | null = null;
 
   if (isRecord(task.input)) {
     if (isRecord(task.input.owner)) {
@@ -190,22 +209,25 @@ function getImageParams(
 
     if (Array.isArray(task.input.referenceImages)) {
       referenceImages = task.input.referenceImages
-        .filter((img): img is string => typeof img === 'string' && img.trim().length > 0)
+        .filter(
+          (img): img is string =>
+            typeof img === 'string' && img.trim().length > 0,
+        )
         .map((img) => img.trim());
     }
 
     editInstruction = safeString(task.input.editInstruction);
     parentArtifactId = safeString(task.input.parentArtifactId);
 
-    if (isRecord(task.input.options)) {
-      options = task.input.options;
-    }
   }
 
   if (detail?.artifacts?.length) {
     const fromArtifacts = detail.artifacts
       .flatMap((artifact) => artifact.referenceImages)
-      .filter((img): img is string => typeof img === 'string' && img.trim().length > 0)
+      .filter(
+        (img): img is string =>
+          typeof img === 'string' && img.trim().length > 0,
+      )
       .map((img) => img.trim());
 
     if (fromArtifacts.length > 0) {
@@ -213,8 +235,10 @@ function getImageParams(
     }
 
     const latestArtifact = detail.artifacts[0];
-    if (!editInstruction) editInstruction = safeString(latestArtifact.editInstruction);
-    if (!parentArtifactId) parentArtifactId = safeString(latestArtifact.parentArtifactId);
+    if (!editInstruction)
+      editInstruction = safeString(latestArtifact.editInstruction);
+    if (!parentArtifactId)
+      parentArtifactId = safeString(latestArtifact.parentArtifactId);
   }
 
   return {
@@ -222,7 +246,102 @@ function getImageParams(
     referenceImages,
     editInstruction,
     parentArtifactId,
-    options,
+  };
+}
+
+interface ReferenceSummaryView {
+  totalCount: number;
+  byRole: TaskPromptReferenceByRole;
+  dropped: string[];
+  order: string[];
+}
+
+interface PromptOptimizationView {
+  status: 'optimized' | 'fallback' | 'skipped';
+  reason: string | null;
+  providerId: string | null;
+  providerFormat: string | null;
+  textModel: string | null;
+  assumptions: string[];
+  conflicts: string[];
+  sourcePrompt: string | null;
+  renderPrompt: string | null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizePromptOptimization(
+  value: TaskPromptOptimization | undefined,
+): PromptOptimizationView | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const status =
+    value.status === 'optimized' ||
+    value.status === 'fallback' ||
+    value.status === 'skipped'
+      ? value.status
+      : 'skipped';
+
+  const sourcePrompt = safeString(value.sourcePrompt);
+  const renderPrompt = safeString(value.renderPrompt);
+  const assumptions = toStringArray(value.assumptions);
+  const conflicts = toStringArray(value.conflicts);
+
+  if (
+    !sourcePrompt &&
+    !renderPrompt &&
+    assumptions.length === 0 &&
+    conflicts.length === 0 &&
+    !safeString(value.providerId) &&
+    !safeString(value.textModel) &&
+    !safeString(value.reason)
+  ) {
+    return null;
+  }
+
+  return {
+    status,
+    reason: safeString(value.reason),
+    providerId: safeString(value.providerId),
+    providerFormat: safeString(value.providerFormat),
+    textModel: safeString(value.textModel),
+    assumptions,
+    conflicts,
+    sourcePrompt,
+    renderPrompt,
+  };
+}
+
+function getReferenceSummary(
+  promptContext?: TaskPromptContext | null,
+): ReferenceSummaryView | null {
+  if (!promptContext || typeof promptContext !== 'object') return null;
+  const rawByRole = promptContext.referenceImagesByRole;
+  const identity = toStringArray(rawByRole?.identity);
+  const scene = toStringArray(rawByRole?.scene);
+  const dropped = toStringArray(promptContext.droppedReferenceImages);
+  const order = [...identity, ...scene];
+  const totalCountRaw = promptContext.referenceImagesCount;
+  const totalCount =
+    typeof totalCountRaw === 'number' && Number.isFinite(totalCountRaw)
+      ? totalCountRaw
+      : order.length;
+
+  if (identity.length === 0 && scene.length === 0 && dropped.length === 0) {
+    return null;
+  }
+
+  return {
+    totalCount,
+    byRole: { identity, scene },
+    dropped,
+    order,
   };
 }
 
@@ -252,15 +371,19 @@ export function TaskQueueDrawer() {
     kind: 'success' | 'info';
     message: string;
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   const activeTasks = useMemo(
-    () => allTasks.filter((t) => t.status === 'pending' || t.status === 'running'),
+    () =>
+      allTasks.filter((t) => t.status === 'pending' || t.status === 'running'),
     [allTasks],
   );
   const historyTasks = useMemo(
-    () => allTasks.filter((t) => t.status === 'completed' || t.status === 'failed'),
+    () =>
+      allTasks.filter((t) => t.status === 'completed' || t.status === 'failed'),
     [allTasks],
   );
 
@@ -271,7 +394,8 @@ export function TaskQueueDrawer() {
 
   const detailQuery = useTaskDetail(selectedTaskId, {
     refetchInterval:
-      selectedTask && (selectedTask.status === 'pending' || selectedTask.status === 'running')
+      selectedTask &&
+      (selectedTask.status === 'pending' || selectedTask.status === 'running')
         ? 1000
         : false,
   });
@@ -285,9 +409,10 @@ export function TaskQueueDrawer() {
       return;
     }
 
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
 
     const id = window.setTimeout(() => {
       titleRef.current?.focus();
@@ -326,7 +451,7 @@ export function TaskQueueDrawer() {
     return allTasks;
   }, [allTasks, activeTasks, filter, historyTasks]);
 
-  const handleDelete = async (task: Task) => {
+  const handleDelete = (task: Task) => {
     setActionError(null);
     setActionNotice(null);
     if (task.status === 'running') {
@@ -334,19 +459,25 @@ export function TaskQueueDrawer() {
       return;
     }
 
-    if (!window.confirm('删除后将无法在任务中心查看该记录，是否继续删除？')) {
-      return;
-    }
+    setDeleteTarget(task);
+  };
 
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeletingTask(true);
     try {
-      await deleteTask(task.id);
+      await deleteTask(deleteTarget.id);
       await refresh();
       setActionNotice({ kind: 'info', message: '任务已删除。' });
-      if (selectedTaskId === task.id) {
+      if (selectedTaskId === deleteTarget.id) {
         setSelectedTaskId(null);
       }
+      setDeleteTarget(null);
     } catch (error) {
       setActionError(error instanceof Error ? error : new Error('删除失败'));
+    } finally {
+      setIsDeletingTask(false);
     }
   };
 
@@ -388,7 +519,10 @@ export function TaskQueueDrawer() {
     }
   };
 
-  const handleCopyReplayInfo = async (task: Task, detail?: TaskDetailView | null) => {
+  const handleCopyReplayInfo = async (
+    task: Task,
+    detail?: TaskDetailView | null,
+  ) => {
     setActionError(null);
     setActionNotice(null);
     try {
@@ -464,7 +598,11 @@ export function TaskQueueDrawer() {
                   )}
                   onClick={() => setFilter(item)}
                 >
-                  {item === 'all' ? '全部' : item === 'active' ? '进行中' : '历史'}
+                  {item === 'all'
+                    ? '全部'
+                    : item === 'active'
+                      ? '进行中'
+                      : '历史'}
                 </button>
               ))}
             </div>
@@ -507,7 +645,9 @@ export function TaskQueueDrawer() {
                     const StatusIcon = STATUS_ICON[task.status];
                     const statusColor = STATUS_COLOR[task.status];
                     const isSelected = task.id === selectedTaskId;
-                    const promptPreview = getEffectivePrompt(task, undefined) || getDraftPrompt(task);
+                    const promptPreview =
+                      getEffectivePrompt(task, undefined) ||
+                      getDraftPrompt(task);
 
                     return (
                       <button
@@ -586,7 +726,9 @@ export function TaskQueueDrawer() {
                 task={selectedTask}
                 detail={detailQuery.data}
                 isLoading={detailQuery.isLoading}
-                loadError={detailQuery.error instanceof Error ? detailQuery.error : null}
+                loadError={
+                  detailQuery.error instanceof Error ? detailQuery.error : null
+                }
                 actionError={actionError}
                 actionNotice={actionNotice}
                 onDelete={handleDelete}
@@ -595,11 +737,40 @@ export function TaskQueueDrawer() {
                 onCopyReplay={handleCopyReplayInfo}
                 onJumpPrepare={handleTaskJumpPrepare}
                 isReplaying={replayMutation.isPending}
+                isDeletingTask={isDeletingTask}
               />
             )}
           </section>
         </div>
       </div>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogPopup className="p-0">
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除任务记录</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后将无法在任务中心查看该记录，是否继续删除？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              取消
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              disabled={isDeletingTask}
+              onClick={handleDeleteConfirm}
+            >
+              {isDeletingTask ? '删除中...' : '删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </>
   );
 }
@@ -611,12 +782,13 @@ interface TaskDetailPaneProps {
   loadError: Error | null;
   actionError: Error | null;
   actionNotice: { kind: 'success' | 'info'; message: string } | null;
-  onDelete: (task: Task) => Promise<void>;
+  onDelete: (task: Task) => void;
   onRetry: (task: Task) => Promise<void>;
   onReplay: (task: Task) => Promise<void>;
   onCopyReplay: (task: Task, detail?: TaskDetailView | null) => Promise<void>;
   onJumpPrepare: (task: Task) => void;
   isReplaying: boolean;
+  isDeletingTask: boolean;
 }
 
 function TaskDetailPane({
@@ -632,8 +804,8 @@ function TaskDetailPane({
   onCopyReplay,
   onJumpPrepare,
   isReplaying,
+  isDeletingTask,
 }: TaskDetailPaneProps) {
-  const [isDeleting, setIsDeleting] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [copyState, setCopyState] = useState<{
     kind: 'success' | 'error';
@@ -644,6 +816,15 @@ function TaskDetailPane({
   const draftPrompt = getDraftPrompt(task);
   const effectivePrompt = getEffectivePrompt(task, detail);
   const imageParams = getImageParams(task, detail);
+  const referenceSummary = getReferenceSummary(detail?.run?.promptContext);
+  const promptOptimization = normalizePromptOptimization(
+    detail?.run?.promptContext?.promptOptimization,
+  );
+  const sourceComposedPrompt =
+    promptOptimization?.sourcePrompt &&
+    promptOptimization.sourcePrompt !== effectivePrompt
+      ? promptOptimization.sourcePrompt
+      : null;
   const runError = extractRunErrorMessage(detail);
   const actionErrorMessage = getActionErrorMessage(actionError);
   const showProviderSetupAction = shouldSuggestProviderSettings(actionError);
@@ -711,7 +892,12 @@ function TaskDetailPane({
               打开详情页
             </Link>
 
-            {sourceLink && <SourceLinkButton link={sourceLink} onClick={() => onJumpPrepare(task)} />}
+            {sourceLink && (
+              <SourceLinkButton
+                link={sourceLink}
+                onClick={() => onJumpPrepare(task)}
+              />
+            )}
 
             <button
               type="button"
@@ -725,7 +911,11 @@ function TaskDetailPane({
                   : 'bg-primary text-primary-foreground hover:bg-primary/90',
               )}
             >
-              {isReplaying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {isReplaying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
               按原参数再生成
             </button>
 
@@ -744,7 +934,11 @@ function TaskDetailPane({
                 aria-label="重试当前任务"
                 className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               >
-                {isRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {isRetrying ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
                 重试任务
               </button>
             )}
@@ -752,19 +946,16 @@ function TaskDetailPane({
             {task.status !== 'running' && (
               <button
                 type="button"
-                onClick={async () => {
-                  setIsDeleting(true);
-                  try {
-                    await onDelete(task);
-                  } finally {
-                    setIsDeleting(false);
-                  }
-                }}
-                disabled={isDeleting}
+                onClick={() => onDelete(task)}
+                disabled={isDeletingTask}
                 aria-label="删除当前任务"
                 className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60"
               >
-                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                {isDeletingTask ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
                 删除任务
               </button>
             )}
@@ -818,7 +1009,9 @@ function TaskDetailPane({
       <div className="rounded-xl border p-3">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-medium">Prompt 复盘</h3>
-          {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          {isLoading && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
         </div>
 
         {loadError && (
@@ -838,6 +1031,15 @@ function TaskDetailPane({
             content={effectivePrompt}
             onCopy={() => handleCopyText('Effective Prompt', effectivePrompt)}
           />
+          <PromptBlock
+            label="Composed Prompt（优化前）"
+            content={sourceComposedPrompt}
+            onCopy={() =>
+              handleCopyText('Composed Prompt', sourceComposedPrompt)
+            }
+          />
+          <PromptOptimizationBlock summary={promptOptimization} />
+          <ReferenceSummaryBlock summary={referenceSummary} />
         </div>
       </div>
 
@@ -851,7 +1053,10 @@ function TaskDetailPane({
             <KV label="owner.slot" value={imageParams.owner.slot} />
             <KV label="parentArtifactId" value={imageParams.parentArtifactId} />
             <KV label="editInstruction" value={imageParams.editInstruction} />
-            <KV label="referenceImages" value={String(imageParams.referenceImages.length)} />
+            <KV
+              label="referenceImages"
+              value={String(imageParams.referenceImages.length)}
+            />
           </div>
 
           <div className="mt-3 space-y-2">
@@ -860,9 +1065,12 @@ function TaskDetailPane({
             ) : (
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 {imageParams.referenceImages.map((img, idx) => {
-                  const preview = img.startsWith('http://') || img.startsWith('https://') || img.startsWith('data:')
-                    ? img
-                    : apiUrl(img.startsWith('/') ? img : `/${img}`);
+                  const preview =
+                    img.startsWith('http://') ||
+                    img.startsWith('https://') ||
+                    img.startsWith('data:')
+                      ? img
+                      : apiUrl(img.startsWith('/') ? img : `/${img}`);
 
                   return (
                     <a
@@ -888,14 +1096,6 @@ function TaskDetailPane({
             )}
           </div>
 
-          {imageParams.options && (
-            <details className="mt-3 rounded-md border p-2">
-              <summary className="cursor-pointer text-xs font-medium">高级参数 options（展开查看）</summary>
-              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
-                {JSON.stringify(imageParams.options, null, 2)}
-              </pre>
-            </details>
-          )}
         </div>
       )}
 
@@ -906,7 +1106,10 @@ function TaskDetailPane({
           <KV label="Run ID" value={detail?.run?.id || '-'} />
           <KV label="Run 状态" value={runStatusLabel} />
           <KV label="Run 绑定 taskId" value={detail?.run?.taskId || '-'} />
-          <KV label="Artifact 数量" value={String(detail?.artifacts?.length || 0)} />
+          <KV
+            label="Artifact 数量"
+            value={String(detail?.artifacts?.length || 0)}
+          />
         </div>
 
         {(task.error || runError) && (
@@ -924,7 +1127,9 @@ function TaskDetailPane({
               return (
                 <div key={artifact.id} className="rounded-md border p-2">
                   <div className="mb-1 flex items-center justify-between">
-                    <p className="truncate text-xs font-medium">{artifact.id}</p>
+                    <p className="truncate text-xs font-medium">
+                      {artifact.id}
+                    </p>
                     {url && (
                       <a
                         href={url}
@@ -964,7 +1169,10 @@ function TaskDetailPane({
         {detail?.timeline && detail.timeline.length > 0 ? (
           <ol className="mt-3 space-y-1 text-xs text-muted-foreground">
             {detail.timeline.map((item, idx) => (
-              <li key={`${item.status}-${item.at}-${idx}`} className="flex items-center justify-between rounded bg-muted px-2 py-1">
+              <li
+                key={`${item.status}-${item.at}-${idx}`}
+                className="flex items-center justify-between rounded bg-muted px-2 py-1"
+              >
                 <span>{item.status}</span>
                 <span>{formatTime(item.at)}</span>
               </li>
@@ -1014,6 +1222,162 @@ function PromptBlock({
         </pre>
       ) : (
         <p className="text-xs text-muted-foreground">暂无内容</p>
+      )}
+    </div>
+  );
+}
+
+function PromptOptimizationBlock({
+  summary,
+}: {
+  summary: PromptOptimizationView | null;
+}) {
+  if (!summary) {
+    return (
+      <div className="rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">
+        Prompt 优化摘要：暂无数据（可能为旧任务或未启用优化器）。
+      </div>
+    );
+  }
+
+  const statusText =
+    summary.status === 'optimized'
+      ? '已优化'
+      : summary.status === 'fallback'
+        ? '优化失败（已回退）'
+        : '已跳过';
+
+  return (
+    <div className="rounded-lg border bg-muted/40 p-2 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium">Prompt 优化摘要</div>
+        <div className="text-2xs text-muted-foreground">{statusText}</div>
+      </div>
+
+      <div className="grid gap-1 text-2xs text-muted-foreground md:grid-cols-2">
+        <div>provider: {summary.providerId || '-'}</div>
+        <div>model: {summary.textModel || '-'}</div>
+        <div>format: {summary.providerFormat || '-'}</div>
+      </div>
+
+      {summary.reason && (
+        <div className="text-2xs text-amber-700">原因：{summary.reason}</div>
+      )}
+
+      {(summary.assumptions.length > 0 || summary.conflicts.length > 0) && (
+        <div className="grid gap-2 text-2xs md:grid-cols-2">
+          <div>
+            <div className="font-medium text-muted-foreground">assumptions</div>
+            {summary.assumptions.length === 0 ? (
+              <div className="text-muted-foreground">无</div>
+            ) : (
+              <div className="space-y-0.5">
+                {summary.assumptions.map((item) => (
+                  <div key={`opt-assume-${item}`}>{item}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="font-medium text-muted-foreground">conflicts</div>
+            {summary.conflicts.length === 0 ? (
+              <div className="text-muted-foreground">无</div>
+            ) : (
+              <div className="space-y-0.5">
+                {summary.conflicts.map((item) => (
+                  <div key={`opt-conflict-${item}`}>{item}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReferenceSummaryBlock({
+  summary,
+}: {
+  summary: ReferenceSummaryView | null;
+}) {
+  if (!summary) {
+    return (
+      <div className="rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">
+        参考图注入摘要：暂无数据（可能是旧任务或未使用参考图）。
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-muted/40 p-2 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium">参考图注入摘要</div>
+        <div className="text-2xs text-muted-foreground">
+          总计 {summary.totalCount} 张
+        </div>
+      </div>
+
+      <div className="grid gap-2 text-2xs md:grid-cols-2">
+        <div>
+          <div className="font-medium text-muted-foreground">
+            identity（{summary.byRole.identity.length}）
+          </div>
+          {summary.byRole.identity.length === 0 ? (
+            <div className="text-muted-foreground">无</div>
+          ) : (
+            <div className="space-y-0.5">
+              {summary.byRole.identity.map((item) => (
+                <div key={`ref-identity-${item}`} className="truncate">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="font-medium text-muted-foreground">
+            scene（{summary.byRole.scene.length}）
+          </div>
+          {summary.byRole.scene.length === 0 ? (
+            <div className="text-muted-foreground">无</div>
+          ) : (
+            <div className="space-y-0.5">
+              {summary.byRole.scene.map((item) => (
+                <div key={`ref-scene-${item}`} className="truncate">
+                  {item}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {summary.order.length > 0 && (
+        <div>
+          <div className="text-2xs font-medium text-muted-foreground">
+            注入顺序
+          </div>
+          <div className="mt-1 space-y-0.5 text-2xs">
+            {summary.order.map((item, idx) => (
+              <div key={`ref-order-${idx}-${item}`}>
+                {idx + 1}. {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {summary.dropped.length > 0 && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-2xs text-amber-700">
+          已自动过滤 {summary.dropped.length} 张历史生成图：
+          {summary.dropped.map((item) => (
+            <div key={`ref-dropped-${item}`} className="truncate">
+              {item}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1089,7 +1453,11 @@ export function TaskQueueIndicator() {
     <button
       type="button"
       onClick={toggleDrawer}
-      aria-label={hasActiveTasks ? `任务中心，当前有 ${activeCount} 个进行中任务` : '打开任务复盘中心'}
+      aria-label={
+        hasActiveTasks
+          ? `任务中心，当前有 ${activeCount} 个进行中任务`
+          : '打开任务复盘中心'
+      }
       className={cn(
         'relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition text-sm font-medium',
         hasActiveTasks
@@ -1107,7 +1475,9 @@ export function TaskQueueIndicator() {
           <ListTodo className="w-4 h-4" />
           <span>任务</span>
           {allTasks.length > 0 && (
-            <span className="text-xs text-[var(--ink-3)]">({allTasks.length})</span>
+            <span className="text-xs text-[var(--ink-3)]">
+              ({allTasks.length})
+            </span>
           )}
         </>
       )}

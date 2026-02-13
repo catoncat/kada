@@ -44,7 +44,7 @@ export function SceneEditDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal="trap-focus">
-      <SheetContent side="right" variant="inset">
+      <SheetContent side="right" variant="inset" className="max-w-2xl">
         <SheetHeader>
           <SheetTitle>
             场景 {sceneIndex + 1}: {scene.location}
@@ -64,9 +64,11 @@ export function SceneEditDrawer({
             />
 
             {/* 场景信息摘要 */}
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-              <h4 className="text-sm font-medium text-foreground">场景信息</h4>
-              <div className="text-sm text-muted-foreground space-y-1">
+            <details className="rounded-lg border bg-muted/50 p-4">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">
+                场景信息
+              </summary>
+              <div className="mt-2 text-sm text-muted-foreground space-y-1">
                 <p>
                   <span className="font-medium">描述：</span>
                   {scene.description}
@@ -80,7 +82,7 @@ export function SceneEditDrawer({
                   {scene.lighting}
                 </p>
               </div>
-            </div>
+            </details>
           </div>
         </SheetPanel>
       </SheetContent>
