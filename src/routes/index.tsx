@@ -9,6 +9,8 @@ import {
   type StatusFilter,
 } from '@/components/ProjectSidebar';
 import { ProjectWorkspace } from '@/components/ProjectWorkspace';
+import { ThreeColumnLayout } from '@/components/layout/ThreeColumnLayout';
+import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -230,39 +232,47 @@ function ProjectListPage() {
     }
   }, [filteredProjects, selectedProjectId]);
 
-  return (
-    <div className="h-full min-h-0 flex bg-background overflow-hidden">
-      {/* 左侧边栏 */}
-      <ProjectSidebar
-        projects={filteredProjects}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={handleSelectProject}
-        onOpenProject={handleOpenProject}
-        onCreateProject={handleCreate}
-        onRenameProject={(project) => {
-          setProjectToRename({ id: project.id, title: project.title });
-          setRenameTitle(project.title);
-          setRenameDialogOpen(true);
-        }}
-        onDeleteProject={(project) => {
-          setProjectToDelete({ id: project.id, title: project.title });
-          setDeleteDialogOpen(true);
-        }}
-        search={search}
-        onSearchChange={setSearch}
-        statusFilter={statusFilter}
-        onStatusChange={setStatusFilter}
-        sortBy={sortBy}
-        onSortChange={setSortBy}
-        counts={counts}
-        isLoading={isLoading}
-        isEmpty={!isLoading && !error && projects.length === 0}
-      />
+  const listPanel = (
+    <ProjectSidebar
+      projects={filteredProjects}
+      selectedProjectId={selectedProjectId}
+      onSelectProject={handleSelectProject}
+      onOpenProject={handleOpenProject}
+      onCreateProject={handleCreate}
+      onRenameProject={(project) => {
+        setProjectToRename({ id: project.id, title: project.title });
+        setRenameTitle(project.title);
+        setRenameDialogOpen(true);
+      }}
+      onDeleteProject={(project) => {
+        setProjectToDelete({ id: project.id, title: project.title });
+        setDeleteDialogOpen(true);
+      }}
+      search={search}
+      onSearchChange={setSearch}
+      statusFilter={statusFilter}
+      onStatusChange={setStatusFilter}
+      sortBy={sortBy}
+      onSortChange={setSortBy}
+      counts={counts}
+      isLoading={isLoading}
+      isEmpty={!isLoading && !error && projects.length === 0}
+    />
+  );
 
-      {/* 右侧工作区 */}
-      <main className="flex-1 min-w-0 min-h-0 overflow-hidden">
-        <ProjectWorkspace projectId={selectedProjectId} />
-      </main>
+  const workspacePanel = (
+    <main className="h-full min-h-0 min-w-0 overflow-hidden">
+      <ProjectWorkspace projectId={selectedProjectId} />
+    </main>
+  );
+
+  return (
+    <ThreeColumnLayout
+      preset={THREE_COLUMN_PRESETS.projects}
+      resizeAriaLabel="调整项目列表宽度"
+      list={listPanel}
+      detail={workspacePanel}
+    >
 
       {/* 新建项目对话框 */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -381,6 +391,6 @@ function ProjectListPage() {
           </form>
         </DialogPopup>
       </Dialog>
-    </div>
+    </ThreeColumnLayout>
   );
 }

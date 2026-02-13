@@ -3,7 +3,8 @@
  * 显示单个服务商信息，支持操作
  */
 
-import { Star, Pencil, Trash2, Check, Server } from 'lucide-react';
+import { Pencil, Trash2, Check, Server } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import type { ProviderConfig } from '@/types/provider';
 import { cn } from '@/lib/utils';
 
@@ -27,19 +28,12 @@ export function ProviderCard({
   return (
     <div
       className={cn(
-        'group relative rounded-xl border p-4 transition',
+        'rounded-xl border p-4 transition',
         isDefault
           ? 'border-primary/40 bg-primary/5'
           : 'border-border bg-card hover:border-ring/24 hover:bg-accent/30'
       )}
     >
-      {/* 默认标记 */}
-      {isDefault && (
-        <div className="absolute -top-2 -right-2 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground">
-          <Star className="w-3 h-3 fill-current" />
-        </div>
-      )}
-
       <div className="flex items-start gap-3">
         {/* 图标 */}
         <div className={cn(
@@ -54,9 +48,16 @@ export function ProviderCard({
 
         {/* 信息 */}
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-foreground truncate">
-            {provider.name}
-          </h3>
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="text-sm font-medium text-foreground truncate">
+              {provider.name}
+            </h3>
+            {isDefault && (
+              <Badge className="rounded-full px-2 shrink-0" size="sm">
+                默认
+              </Badge>
+            )}
+          </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
             <span className="px-1.5 py-0.5 rounded bg-muted font-mono">
               {formatLabel}
@@ -70,7 +71,7 @@ export function ProviderCard({
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+        <div className="flex items-center gap-1">
           {!isDefault && (
             <button
               type="button"

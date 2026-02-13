@@ -77,7 +77,7 @@ export function ProjectSidebar({
     SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
 
   return (
-    <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-background">
+    <aside className="h-full w-full flex min-h-0 flex-col bg-background">
       {/* 新建按钮 */}
       <div className="p-3">
         <Button onClick={onCreateProject} className="w-full" size="sm">

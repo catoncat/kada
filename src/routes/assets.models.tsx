@@ -7,6 +7,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { PhotoFrame } from '@/components/PhotoFrame';
 import {
+  ThreeColumnDetailPane,
+  ThreeColumnLayout,
+  ThreeColumnListPane,
+} from '@/components/layout/ThreeColumnLayout';
+import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
+import {
   AlertDialog,
   AlertDialogClose,
   AlertDialogDescription,
@@ -164,113 +170,123 @@ function ModelsAssetPage() {
     setDeleteTarget(model);
   };
 
-  return (
-    <div className="h-full min-h-0 flex overflow-hidden">
-      {/* 左侧：模特列表 */}
-      <aside className="w-[280px] shrink-0 border-r flex min-h-0 flex-col bg-background">
-        <div className="p-3">
-          <Button
-            onClick={handleCreate}
-            className="w-full justify-center"
-            size="sm"
-            variant="outline"
-          >
-            <Plus className="w-4 h-4" />
-            新建模特
-          </Button>
-        </div>
-
-        {models.length > 0 && (
-          <div className="px-3 pb-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <Input
-                type="search"
-                placeholder="搜索模特..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 bg-muted/50"
-                size="sm"
-              />
-            </div>
-          </div>
-        )}
-
-        {models.length > 0 && <div className="mx-3 border-t" />}
-
-        <div
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-          onWheel={(e) => e.stopPropagation()}
+  const listPanel = (
+    <ThreeColumnListPane>
+      <div className="p-3">
+        <Button
+          onClick={handleCreate}
+          className="w-full justify-center"
+          size="sm"
+          variant="outline"
         >
-          {isLoading && (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
+          <Plus className="w-4 h-4" />
+          新建模特
+        </Button>
+      </div>
 
-          {!isLoading && models.length === 0 && (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              还没有模特
-            </div>
-          )}
-
-          {!isLoading && models.length > 0 && filteredModels.length === 0 && (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              没有匹配的模特
-            </div>
-          )}
-
-          {!isLoading && filteredModels.length > 0 && (
-            <div className="px-2 py-1">
-              {filteredModels.map((model) => (
-                <ModelListItem
-                  key={model.id}
-                  model={model}
-                  selected={model.id === selectedModelId}
-                  onSelect={() => handleSelect(model.id)}
-                  onDelete={() => handleDelete(model)}
-                />
-              ))}
-            </div>
-          )}
+      {models.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="search"
+              placeholder="搜索模特..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 bg-muted/50"
+              size="sm"
+            />
+          </div>
         </div>
-      </aside>
+      )}
 
-      {/* 右侧面板 */}
-      <main className="flex-1 min-w-0 min-h-0 bg-[#F5F5F7] dark:bg-[#1C1C1E]">
-        {panelMode === 'empty' && (
-          <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-            <Users className="w-16 h-16 mb-4 opacity-30" />
-            <p className="text-sm">选择一个模特查看详情</p>
-            <p className="text-xs mt-1 opacity-60">或点击「新建模特」创建</p>
+      {models.length > 0 && <div className="mx-3 border-t" />}
+
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        onWheel={(e) => e.stopPropagation()}
+      >
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {panelMode === 'create' && (
-          <ModelPropertyPanel
-            key="__create__"
-            model={null}
-            onSave={handleSubmitCreate}
-            onCancel={() => setPanelMode(selectedModelId ? 'detail' : 'empty')}
-            loading={createMutation.isPending}
-          />
+        {!isLoading && models.length === 0 && (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            还没有模特
+          </div>
         )}
 
-        {panelMode === 'detail' && selectedModel && (
-          <ModelPropertyPanel
-            key={`${selectedModel.id}:${resetKey}`}
-            model={selectedModel}
-            onSave={handleSubmitEdit}
-            onDelete={() => handleDelete(selectedModel)}
-            loading={updateMutation.isPending}
-          />
+        {!isLoading && models.length > 0 && filteredModels.length === 0 && (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            没有匹配的模特
+          </div>
         )}
-      </main>
 
-      {/* 删除确认 */}
+        {!isLoading && filteredModels.length > 0 && (
+          <div className="px-2 py-1">
+            {filteredModels.map((model) => (
+              <ModelListItem
+                key={model.id}
+                model={model}
+                selected={model.id === selectedModelId}
+                onSelect={() => handleSelect(model.id)}
+                onDelete={() => handleDelete(model)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </ThreeColumnListPane>
+  );
+
+  const detailPanel = (
+    <ThreeColumnDetailPane>
+      {panelMode === 'empty' && (
+        <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+          <Users className="w-16 h-16 mb-4 opacity-30" />
+          <p className="text-sm">选择一个模特查看详情</p>
+          <p className="text-xs mt-1 opacity-60">或点击「新建模特」创建</p>
+        </div>
+      )}
+
+      {panelMode === 'create' && (
+        <ModelPropertyPanel
+          key="__create__"
+          model={null}
+          onSave={handleSubmitCreate}
+          onCancel={() => setPanelMode(selectedModelId ? 'detail' : 'empty')}
+          loading={createMutation.isPending}
+        />
+      )}
+
+      {panelMode === 'detail' && selectedModel && (
+        <ModelPropertyPanel
+          key={`${selectedModel.id}:${resetKey}`}
+          model={selectedModel}
+          onSave={handleSubmitEdit}
+          onDelete={() => handleDelete(selectedModel)}
+          loading={updateMutation.isPending}
+        />
+      )}
+    </ThreeColumnDetailPane>
+  );
+
+  return (
+    <>
+      <ThreeColumnLayout
+        preset={THREE_COLUMN_PRESETS.assetsModels}
+        resizeAriaLabel="调整模特列表宽度"
+        list={listPanel}
+        detail={detailPanel}
+      />
+
       <AlertDialog
         open={!!deleteTarget}
-        onOpenChange={() => setDeleteTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
       >
         <AlertDialogPopup className="p-0">
           <AlertDialogHeader>
@@ -296,7 +312,7 @@ function ModelsAssetPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-    </div>
+    </>
   );
 }
 
