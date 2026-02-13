@@ -3,6 +3,10 @@ dist
 .DS_Store
 *.local
 *.log
+.env
+.env.*
+!.env.example
+!.env.sample
 
 # Tauri
 src-tauri/target
