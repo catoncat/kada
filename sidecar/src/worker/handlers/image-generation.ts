@@ -559,6 +559,18 @@ async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages
   return parts;
 }
 
+function buildAspectRatioInstruction(aspectRatio?: string): string | null {
+  if (!aspectRatio || typeof aspectRatio !== 'string') return null;
+  const raw = aspectRatio.trim();
+  if (!raw || !raw.includes(':')) return null;
+  const [w, h] = raw.split(':').map((v) => Number.parseFloat(v));
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return null;
+  }
+  const orientation = w >= h ? '横向构图' : '纵向构图';
+  return `画幅与构图要求：接近 ${raw} 比例，采用${orientation}，保持主体完整并保留场景叙事空间。`;
+}
+
 async function generateImage(
   provider: Provider,
   prompt: string,
@@ -583,15 +595,16 @@ async function generateImage(
     }
     const parsedOptions = (options && typeof options === 'object' ? options : null) as ImageGenerationOptions | null;
     const requestParts = await buildGeminiReferenceParts(referenceImages);
+    const aspectRatioInstruction = buildAspectRatioInstruction(parsedOptions?.aspectRatio);
+    const ratioParts = aspectRatioInstruction ? [{ text: aspectRatioInstruction }] : [];
 
     const res = await fetch(`${provider.baseUrl}/models/${provider.imageModel}:generateContent?key=${provider.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [...requestParts, { text: prompt }] }],
+        contents: [{ parts: [...requestParts, ...ratioParts, { text: prompt }] }],
         generationConfig: {
           responseModalities: ['IMAGE', 'TEXT'],
-          ...(parsedOptions?.aspectRatio ? { aspectRatio: parsedOptions.aspectRatio } : null),
         },
       }),
     });
