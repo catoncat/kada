@@ -386,7 +386,7 @@ export function ModelConfigSection({
       </Dialog>
 
       {/* 自动匹配结果弹窗 */}
-      <Dialog open={isMatchDialogOpen} onOpenChange={() => setIsMatchDialogOpen(false)}>
+      <Dialog open={isMatchDialogOpen} onOpenChange={setIsMatchDialogOpen}>
         <DialogPopup
           className="w-full max-w-lg max-h-[80vh] overflow-y-auto p-6"
           showCloseButton={false}

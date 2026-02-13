@@ -4,6 +4,16 @@ import { useState } from 'react';
 import { Plus, Menu, History, Settings as SettingsIcon, MessageSquare, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import type { PlanRecord } from '@/hooks/usePlans';
 
 function cn(...inputs: ClassValue[]) {
@@ -20,6 +30,13 @@ interface SidebarProps {
 
 export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteHistory, currentId }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<PlanRecord | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (!deleteTarget || !onDeleteHistory) return;
+    onDeleteHistory(deleteTarget.id);
+    setDeleteTarget(null);
+  };
 
   return (
     <aside 
@@ -32,6 +49,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
     >
       <div className="p-4 flex items-center justify-between">
         <button 
+          type="button"
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-2 rounded-full transition-colors hover:bg-gray-100"
         >
@@ -41,6 +59,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
 
       <div className="px-3 mt-4">
         <button 
+          type="button"
           onClick={onNewChat}
           className={cn(
             "flex items-center gap-3 overflow-hidden",
@@ -83,6 +102,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                 )}
               >
                 <button
+                  type="button"
                   onClick={() => onSelectHistory(plan)}
                   className={cn(
                     "flex items-center gap-3 flex-1 p-3 rounded-2xl transition-colors text-left",
@@ -114,9 +134,7 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm('确定要删除这条历史预案吗？')) {
-                        onDeleteHistory(plan.id);
-                      }
+                      setDeleteTarget(plan);
                     }}
                     className="p-2 rounded-xl text-[var(--ink-3)] hover:text-red-600 hover:bg-red-50 transition"
                     title="删除"
@@ -129,6 +147,30 @@ export default function Sidebar({ onNewChat, history, onSelectHistory, onDeleteH
           )}
         </div>
       </div>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogPopup className="p-0">
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除历史预案</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除「{deleteTarget?.title}」吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              取消
+            </AlertDialogClose>
+            <Button variant="destructive" onClick={handleConfirmDelete}>
+              删除
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
 
       <div className="p-4 border-t border-[var(--line)]">
         <div
