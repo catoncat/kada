@@ -60,6 +60,9 @@ promptsRoutes.post('/preview-image', async (c) => {
     const modelRefImages: string[] = Array.isArray((composed.promptContext as any).modelReferenceImages)
       ? (composed.promptContext as any).modelReferenceImages
       : [];
+    const modelReferenceSubjects = Array.isArray((composed.promptContext as any).modelReferenceSubjects)
+      ? (composed.promptContext as any).modelReferenceSubjects
+      : [];
     const previewReferenceInputs = buildPreviewReferenceInputs({
       referenceImages,
       currentImagePath: currentImagePath || null,
@@ -70,6 +73,7 @@ promptsRoutes.post('/preview-image', async (c) => {
       owner,
       editInstruction,
       modelReferenceImages: modelRefImages,
+      modelReferenceSubjects,
       inputReferenceImages: previewReferenceInputs,
     });
     const referencePlan = buildReferencePlanSummary(resolvedReferences);

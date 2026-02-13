@@ -10,7 +10,9 @@ const DEFAULT_OPTIMIZER_TEMPLATE = `你是影楼图片生成提示词优化器�
 1. 不得编造输入中不存在的人物、年龄、关系、场景、服装、道具、镜头或灯光。
 2. 人物身份必须稳定，不可改变人物数量、身份和年龄。
 3. 优化重点是消歧、结构化和可执行性，不是改主题。
-4. 输出必须是中文，且只输出 JSON。`;
+4. 如存在场景主题参考图，必须保持其主题布景、道具和光影氛围，不得退化成普通生活照。
+5. 输出风格需符合消费级影楼成片质感（主体明确、布景有主题、用光干净）。
+6. 输出必须是中文，且只输出 JSON。`;
 
 const DEFAULT_OUTPUT_SCHEMA = `{
   "renderPrompt": "string, 优化后的最终出图提示词（中文）",
@@ -57,6 +59,48 @@ export interface OptimizeImagePromptInput {
 export interface OptimizeImagePromptResult {
   renderPrompt: string;
   meta: PromptOptimizationMeta;
+}
+
+function buildReferenceBindingDeclaration(referencePlan?: ReferencePlanSummary | null): string {
+  if (!referencePlan || referencePlan.totalCount <= 0) return '';
+
+  const sceneCount = referencePlan.counts.scene;
+  const identityCount = referencePlan.counts.identity;
+  const lines: string[] = ['【参考图绑定声明】'];
+
+  if (sceneCount > 0) {
+    if (sceneCount === 1) {
+      lines.push('- 第1张为场景主题参考图：优先锁定布景主题、道具关系、色彩与光影氛围。');
+    } else {
+      lines.push(`- 第1到第${sceneCount}张为场景主题参考图：优先锁定布景主题、道具关系、色彩与光影氛围。`);
+    }
+  }
+
+  if (identityCount > 0) {
+    const startIndex = sceneCount + 1;
+    const endIndex = sceneCount + identityCount;
+    if (identityCount === 1) {
+      lines.push(`- 第${startIndex}张为人物身份参考图：仅用于锁定人物身份，不继承其背景与构图。`);
+    } else {
+      lines.push(`- 第${startIndex}到第${endIndex}张为人物身份参考图：仅用于锁定人物身份，不继承其背景与构图。`);
+    }
+  }
+
+  lines.push('- 优先级：场景主题一致性 > 人物身份一致性 > 文本补充细节。');
+  lines.push('- 禁止退化为普通生活抓拍照，需保持商业摄影成片感。');
+  return lines.join('\n');
+}
+
+function appendReferenceBindingDeclaration(
+  renderPrompt: string,
+  referencePlan?: ReferencePlanSummary | null,
+): string {
+  const trimmed = renderPrompt.trim();
+  if (!trimmed) return trimmed;
+  const declaration = buildReferenceBindingDeclaration(referencePlan);
+  if (!declaration) return trimmed;
+  if (trimmed.includes('【参考图绑定声明】')) return trimmed;
+  return `${trimmed}\n\n${declaration}`;
 }
 
 function parseJsonSafely<T>(raw: string | null | undefined): T | null {
@@ -376,8 +420,9 @@ export async function optimizeImagePrompt(
 
   const provider = input.provider || (await resolveTextProvider(input.db, input.providerId));
   if (!provider || !hasTextCapability(provider)) {
+    const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
     return {
-      renderPrompt: sourcePrompt,
+      renderPrompt: finalPrompt,
       meta: {
         status: 'skipped',
         reason: provider ? 'TEXT_CAPABILITY_UNAVAILABLE' : 'NO_PROVIDER',
@@ -403,8 +448,9 @@ export async function optimizeImagePrompt(
     const raw = await callTextModel(provider, optimizerPrompt);
     const parsed = parseOptimizerOutput(raw);
     if (!parsed.renderPrompt) {
+      const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
       return {
-        renderPrompt: sourcePrompt,
+        renderPrompt: finalPrompt,
         meta: {
           status: 'fallback',
           reason: 'OPTIMIZER_OUTPUT_PARSE_FAILED',
@@ -417,8 +463,9 @@ export async function optimizeImagePrompt(
       };
     }
 
+    const finalPrompt = appendReferenceBindingDeclaration(parsed.renderPrompt, input.referencePlan);
     return {
-      renderPrompt: parsed.renderPrompt,
+      renderPrompt: finalPrompt,
       meta: {
         status: 'optimized',
         reason: null,
@@ -432,8 +479,9 @@ export async function optimizeImagePrompt(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'PROMPT_OPTIMIZER_ERROR';
+    const finalPrompt = appendReferenceBindingDeclaration(sourcePrompt, input.referencePlan);
     return {
-      renderPrompt: sourcePrompt,
+      renderPrompt: finalPrompt,
       meta: {
         status: 'fallback',
         reason: message,

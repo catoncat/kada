@@ -75,6 +75,13 @@ export interface BuildPromptResult {
   renderedBlocks: RenderedPromptBlock[];
 }
 
+export interface ModelReferenceSubject {
+  subjectId: string;
+  role: string;
+  modelId: string;
+  images: string[];
+}
+
 const FIXED_IMAGE_COMPOSER_VERSION = 'fixed:v2';
 
 const FIXED_COMPOSER_PROFILES: Record<ComposerProfileKey, ComposerProfileDefinition> = {
@@ -275,6 +282,7 @@ export async function buildImageEffectivePrompt(
 
   // 加载模特映射数据
   let modelInfoData: Array<{ personRole: string; name: string; appearancePrompt: string }> = [];
+  const modelReferenceSubjects: ModelReferenceSubject[] = [];
   let modelReferenceImages: string[] = [];
 
   if (project) {
@@ -325,11 +333,29 @@ export async function buildImageEffectivePrompt(
         }
 
         // 收集参考图（优先级：主参考 > 辅助参考）
+        const personImages: string[] = [];
         if (model.primaryImage) {
-          modelReferenceImages.push(model.primaryImage);
+          personImages.push(model.primaryImage);
         }
         const refs = safeJsonParse<string[]>(model.referenceImages) ?? [];
-        modelReferenceImages.push(...refs.slice(0, 2));
+        personImages.push(...refs.slice(0, 2));
+        const normalizedPersonImages = Array.from(
+          new Set(
+            personImages
+              .filter((img): img is string => typeof img === 'string')
+              .map((img) => img.trim())
+              .filter(Boolean),
+          ),
+        );
+        if (normalizedPersonImages.length > 0) {
+          modelReferenceSubjects.push({
+            subjectId: person.id,
+            role: person.role || '人物',
+            modelId: model.id,
+            images: normalizedPersonImages,
+          });
+          modelReferenceImages.push(...normalizedPersonImages);
+        }
       }
     }
   }
@@ -438,6 +464,7 @@ export async function buildImageEffectivePrompt(
             : null,
     },
     modelReferenceImages,
+    modelReferenceSubjects,
     renderedBlocks,
   };
 
