@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
 import { sceneAssets } from '../db/schema';
+import { warmSceneReferenceSanitization } from '../services/scene-face-sanitizer';
 
 export const assetsRoutes = new Hono();
 
@@ -77,6 +78,7 @@ assetsRoutes.post('/scenes', async (c) => {
     };
 
     await db.insert(sceneAssets).values(newScene);
+    await warmSceneReferenceSanitization(newScene.primaryImage);
 
     // 返回解析后的数据
     return c.json({
@@ -123,6 +125,7 @@ assetsRoutes.put('/scenes/:id', async (c) => {
 
     // 获取更新后的数据
     const [updated] = await db.select().from(sceneAssets).where(eq(sceneAssets.id, id));
+    await warmSceneReferenceSanitization(updated?.primaryImage);
 
     return c.json({
       ...updated,

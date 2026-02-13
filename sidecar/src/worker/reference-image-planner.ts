@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { generationArtifacts } from '../db/schema';
+import { sanitizeSceneReferenceImages } from '../services/scene-face-sanitizer';
 
 const MAX_TOTAL_REFERENCE_IMAGES = 8;
 const MAX_IDENTITY_REFERENCE_IMAGES = 4;
@@ -134,6 +135,34 @@ function selectBalancedIdentityImages(
     return aChild ? -1 : 1;
   });
 
+  // 多角色场景：每个角色仅保留 1 张身份图，减少身份锚点互相竞争。
+  if (prioritizedSubjects.length > 1) {
+    const selected: string[] = [];
+    const seen = new Set<string>();
+    for (const subject of prioritizedSubjects) {
+      if (selected.length >= MAX_IDENTITY_REFERENCE_IMAGES) break;
+      const first = subject.images[0];
+      if (!first) continue;
+      const key = normalizeReferenceKey(first);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(first);
+    }
+
+    // 兜底：若首图重复导致名额不足，最多补到“角色数量上限”，但仍不超过每角色一张。
+    const targetCount = Math.min(prioritizedSubjects.length, MAX_IDENTITY_REFERENCE_IMAGES);
+    if (selected.length < targetCount) {
+      for (const ref of fallbackModelRefs) {
+        if (selected.length >= targetCount) break;
+        const key = normalizeReferenceKey(ref);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        selected.push(ref);
+      }
+    }
+    return selected;
+  }
+
   const selected: string[] = [];
   const seen = new Set<string>();
   const cursors = new Map<string, number>(
@@ -253,13 +282,14 @@ export async function resolveReferenceImages(input: ResolveReferenceImagesInput)
 
   const { filtered: filteredSceneCandidates, dropped: droppedGeneratedImages } =
     await filterOutOwnerGeneratedReferences(input.db, input.owner, input.editInstruction, sceneCandidates);
+  const sanitizedSceneCandidates = await sanitizeSceneReferenceImages(filteredSceneCandidates);
 
   const modelIdentityImages = selectBalancedIdentityImages(modelSubjects, modelRefs);
   const sceneMax = Math.max(
     0,
     Math.min(MAX_SCENE_REFERENCE_IMAGES, MAX_TOTAL_REFERENCE_IMAGES - modelIdentityImages.length),
   );
-  const sceneContextImages = filteredSceneCandidates.slice(0, sceneMax);
+  const sceneContextImages = sanitizedSceneCandidates.slice(0, sceneMax);
   const allImages = [...sceneContextImages, ...modelIdentityImages];
 
   return {

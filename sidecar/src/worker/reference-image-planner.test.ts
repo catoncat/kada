@@ -90,7 +90,7 @@ test('resolveReferenceImages keeps at least one identity image per subject when 
     inputReferenceImages: ['/uploads/scene-1.jpg'],
   });
 
-  assert.equal(result.modelIdentityImages.length, 4);
+  assert.equal(result.modelIdentityImages.length, 3);
   assert.ok(result.modelIdentityImages.includes('/uploads/dad-1.jpg'));
   assert.ok(result.modelIdentityImages.includes('/uploads/mom-1.jpg'));
   assert.ok(result.modelIdentityImages.includes('/uploads/baby-1.jpg'));
