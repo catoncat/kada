@@ -9,19 +9,12 @@ export interface ModelAsset {
   gender?: 'male' | 'female' | 'other';
   ageRangeMin?: number;
   ageRangeMax?: number;
-  description?: string;
   /** 外观提示词（中文） */
   appearancePrompt?: string;
   /** 主参考照片路径 */
   primaryImage?: string;
   /** 辅助参考照片路径数组 */
   referenceImages?: string[];
-  /** 标签 */
-  tags?: string[];
-  /**
-   * @deprecated 兼容历史数据字段，不再用于“项目专属”语义。
-   */
-  projectId?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -32,11 +25,9 @@ export interface CreateModelAssetInput {
   gender?: 'male' | 'female' | 'other';
   ageRangeMin?: number;
   ageRangeMax?: number;
-  description?: string;
   appearancePrompt?: string;
   primaryImage?: string;
   referenceImages?: string[];
-  tags?: string[];
 }
 
 /** 更新模特资产的输入 */

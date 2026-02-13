@@ -19,12 +19,8 @@ export interface SceneAsset {
   description?: string;
   /** 主图路径 */
   primaryImage?: string;
-  /** 补充图片路径数组 */
-  supplementaryImages?: string[];
   /** 默认灯光方案 */
   defaultLighting?: string;
-  /** 推荐道具 ID 列表 */
-  recommendedProps?: string[];
   /** 标签 */
   tags?: string[];
   /** 是否户外场景 */
@@ -40,9 +36,7 @@ export interface CreateSceneAssetInput {
   name: string;
   description?: string;
   primaryImage?: string;
-  supplementaryImages?: string[];
   defaultLighting?: string;
-  recommendedProps?: string[];
   tags?: string[];
   isOutdoor?: boolean;
   style?: SceneStyle;

@@ -5,9 +5,6 @@ import { Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   ImageIcon,
-  Shirt,
-  Package,
-  Settings2,
   Sparkles,
   Loader2,
   FolderOpen,
@@ -307,7 +304,7 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
             />
 
             <p className="mt-2 text-xs text-muted-foreground">
-              规则可在「设置 → 提示词编排」中调整。
+              项目提示词会直接参与后续 AI 生成上下文。
             </p>
           </div>
 
@@ -327,64 +324,6 @@ function ProjectWorkspaceContent({ projectId }: { projectId: string }) {
               });
             }}
           />
-
-          {/* 服装配置区块 */}
-          <div className="rounded-xl border border-border bg-card p-5 opacity-60">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                  <Shirt className="w-5 h-5 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-medium">服装</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {project.selectedOutfits?.length
-                      ? `已选 ${project.selectedOutfits.length} 套`
-                      : '待开发'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-sm text-muted-foreground">配置 →</span>
-            </div>
-          </div>
-
-          {/* 道具配置区块 */}
-          <div className="rounded-xl border border-border bg-card p-5 opacity-60">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                  <Package className="w-5 h-5 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-medium">道具</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {project.selectedProps?.length
-                      ? `已选 ${project.selectedProps.length} 个`
-                      : '待开发'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-sm text-muted-foreground">配置 →</span>
-            </div>
-          </div>
-
-          {/* 拍摄参数配置区块 */}
-          <div className="rounded-xl border border-border bg-card p-5 opacity-60">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                  <Settings2 className="w-5 h-5 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-medium">拍摄参数</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {project.params ? '已配置' : '待开发'}
-                  </p>
-                </div>
-              </div>
-              <span className="text-sm text-muted-foreground">配置 →</span>
-            </div>
-          </div>
 
           {/* 生成结果入口已上移为固定提示，避免出现在页面最下面 */}
         </div>

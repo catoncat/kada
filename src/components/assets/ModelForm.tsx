@@ -68,7 +68,6 @@ export function ModelForm({
   const [ageRangeMax, setAgeRangeMax] = useState<string>(
     initialData?.ageRangeMax != null ? String(initialData.ageRangeMax) : '',
   );
-  const [description, setDescription] = useState(initialData?.description || '');
   const [appearancePrompt, setAppearancePrompt] = useState(
     initialData?.appearancePrompt || '',
   );
@@ -76,7 +75,6 @@ export function ModelForm({
   const [referenceImages, setReferenceImages] = useState<string[]>(
     initialData?.referenceImages || [],
   );
-  const [tagsInput, setTagsInput] = useState(initialData?.tags?.join(', ') || '');
   const [nameError, setNameError] = useState('');
 
   const isEditing = !!initialData;
@@ -99,21 +97,14 @@ export function ModelForm({
     }
     setNameError('');
 
-    const tags = tagsInput
-      .split(/[,，]/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-
     const data: CreateModelAssetInput = {
       name: name.trim(),
       gender: (gender as 'male' | 'female' | 'other') || undefined,
       ageRangeMin: ageRangeMin ? Number(ageRangeMin) : undefined,
       ageRangeMax: ageRangeMax ? Number(ageRangeMax) : undefined,
-      description: description.trim() || undefined,
       appearancePrompt: appearancePrompt.trim() || undefined,
       primaryImage: primaryImage || undefined,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-      tags: tags.length > 0 ? tags : undefined,
     };
 
     await onSubmit(data);
@@ -183,28 +174,6 @@ export function ModelForm({
               className={`${inputClass} w-20`}
             />
           </div>
-        </FormRow>
-
-        <FormRow label="描述" htmlFor="model-desc" align="start">
-          <textarea
-            id="model-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="关于这个模特的备注信息"
-            rows={2}
-            className={textareaClass}
-          />
-        </FormRow>
-
-        <FormRow label="标签" htmlFor="model-tags">
-          <input
-            id="model-tags"
-            type="text"
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="逗号分隔，例如：儿童, 男孩"
-            className={inputClass}
-          />
         </FormRow>
 
         {/* 参考照片分组 */}

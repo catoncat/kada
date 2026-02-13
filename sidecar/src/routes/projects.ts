@@ -134,9 +134,6 @@ projectRoutes.get('/', async (c) => {
 
       return {
         ...p,
-        selectedOutfits: p.selectedOutfits ? JSON.parse(p.selectedOutfits) : [],
-        selectedProps: p.selectedProps ? JSON.parse(p.selectedProps) : [],
-        params: p.params ? JSON.parse(p.params) : null,
         customer: p.customer ? JSON.parse(p.customer) : null,
         generatedPlan: p.generatedPlan ? JSON.parse(p.generatedPlan) : null,
         // 元数据
@@ -223,9 +220,6 @@ projectRoutes.get('/:id', async (c) => {
 
     const parsed = {
       ...project,
-      selectedOutfits: project.selectedOutfits ? JSON.parse(project.selectedOutfits) : [],
-      selectedProps: project.selectedProps ? JSON.parse(project.selectedProps) : [],
-      params: project.params ? JSON.parse(project.params) : null,
       customer: project.customer ? JSON.parse(project.customer) : null,
       generatedPlan,
     };
@@ -257,9 +251,6 @@ projectRoutes.post('/', async (c) => {
       projectPrompt: null,
       status: 'draft',
       selectedScene: null,
-      selectedOutfits: null,
-      selectedProps: null,
-      params: null,
       customer: null,
       selectedModels: null,
       generatedPlan: null,
@@ -271,9 +262,6 @@ projectRoutes.post('/', async (c) => {
 
     return c.json({
       ...newProject,
-      selectedOutfits: [],
-      selectedProps: [],
-      params: null,
       customer: null,
       generatedPlan: null,
     }, 201);
@@ -312,15 +300,6 @@ projectRoutes.put('/:id', async (c) => {
     if (body.selectedScene !== undefined) {
       updates.selectedScene = body.selectedScene || null;
     }
-    if (body.selectedOutfits !== undefined) {
-      updates.selectedOutfits = JSON.stringify(body.selectedOutfits);
-    }
-    if (body.selectedProps !== undefined) {
-      updates.selectedProps = JSON.stringify(body.selectedProps);
-    }
-    if (body.params !== undefined) {
-      updates.params = body.params ? JSON.stringify(body.params) : null;
-    }
     if (body.customer !== undefined) {
       updates.customer = body.customer ? JSON.stringify(body.customer) : null;
     }
@@ -340,9 +319,6 @@ projectRoutes.put('/:id', async (c) => {
 
     return c.json({
       ...updated,
-      selectedOutfits: updated.selectedOutfits ? JSON.parse(updated.selectedOutfits) : [],
-      selectedProps: updated.selectedProps ? JSON.parse(updated.selectedProps) : [],
-      params: updated.params ? JSON.parse(updated.params) : null,
       customer: updated.customer ? JSON.parse(updated.customer) : null,
       generatedPlan: updated.generatedPlan ? JSON.parse(updated.generatedPlan) : null,
     });

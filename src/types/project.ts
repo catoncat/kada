@@ -27,18 +27,6 @@ export interface CustomerInfo {
   notes?: string;
 }
 
-/** 拍摄参数 */
-export interface ShootingParams {
-  /** 焦段 */
-  focalLength?: string;
-  /** 光比 */
-  lightRatio?: string;
-  /** 时段 */
-  timeOfDay?: string;
-  /** 其他参数 */
-  [key: string]: string | undefined;
-}
-
 /** 项目 */
 export interface Project {
   id: string;
@@ -48,12 +36,6 @@ export interface Project {
   projectPrompt?: string | null;
   /** 已选场景 ID（MVP 单选） */
   selectedScene?: string;
-  /** 已选服装配置（JSON） */
-  selectedOutfits?: string[];
-  /** 已选道具 ID 列表 */
-  selectedProps?: string[];
-  /** 拍摄参数 */
-  params?: ShootingParams;
   /** 客户信息 */
   customer?: CustomerInfo;
   /** 模特配置（JSON 字符串） */
@@ -75,9 +57,6 @@ export interface UpdateProjectInput {
   status?: ProjectStatus;
   projectPrompt?: string | null;
   selectedScene?: string | null;
-  selectedOutfits?: string[];
-  selectedProps?: string[];
-  params?: ShootingParams;
   customer?: CustomerInfo;
   selectedModels?: string;
   generatedPlan?: unknown;

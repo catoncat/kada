@@ -135,25 +135,25 @@ export function ProjectCard({ project, onDelete, onRename, onRetry }: ProjectCar
           </div>
         </div>
 
-        {/* 服装 */}
+        {/* 人物 */}
         <div className="rounded-lg bg-muted/72 p-3 text-center">
-          <div className="text-xs text-muted-foreground mb-1">服装</div>
+          <div className="text-xs text-muted-foreground mb-1">人物</div>
           <div className={cn(
             'text-sm font-medium',
-            project.selectedOutfits?.length ? 'text-foreground' : 'text-muted-foreground'
+            project.customer?.people?.length ? 'text-foreground' : 'text-muted-foreground'
           )}>
-            {project.selectedOutfits?.length || 0} 套
+            {project.customer?.people?.length || 0} 人
           </div>
         </div>
 
-        {/* 道具 */}
+        {/* 提示词 */}
         <div className="rounded-lg bg-muted/72 p-3 text-center">
-          <div className="text-xs text-muted-foreground mb-1">道具</div>
+          <div className="text-xs text-muted-foreground mb-1">提示词</div>
           <div className={cn(
             'text-sm font-medium',
-            project.selectedProps?.length ? 'text-foreground' : 'text-muted-foreground'
+            project.projectPrompt?.trim() ? 'text-foreground' : 'text-muted-foreground'
           )}>
-            {project.selectedProps?.length || 0} 个
+            {project.projectPrompt?.trim() ? '已填' : '未填'}
           </div>
         </div>
       </div>

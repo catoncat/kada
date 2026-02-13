@@ -92,8 +92,8 @@ function ProjectListRow({ project, onDelete, onRename }: ProjectListRowProps) {
   // 资产摘要
   const assetSummary = [
     project.selectedScene ? '场景已选' : null,
-    project.selectedOutfits?.length ? `${project.selectedOutfits.length}套服装` : null,
-    project.selectedProps?.length ? `${project.selectedProps.length}道具` : null,
+    project.customer?.people?.length ? `${project.customer.people.length}人` : null,
+    project.projectPrompt?.trim() ? '提示词已填' : null,
   ]
     .filter(Boolean)
     .join('，') || '未配置';

@@ -107,8 +107,7 @@ function ModelsAssetPage() {
     return models.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
-        m.appearancePrompt?.toLowerCase().includes(q) ||
-        m.tags?.some((t) => t.toLowerCase().includes(q)),
+        m.appearancePrompt?.toLowerCase().includes(q),
     );
   }, [models, search]);
 
@@ -426,7 +425,6 @@ function ModelPropertyPanel({
   const [ageMax, setAgeMax] = useState(
     model?.ageRangeMax != null ? String(model.ageRangeMax) : '',
   );
-  const [description, setDescription] = useState(model?.description || '');
   const [appearancePrompt, setAppearancePrompt] = useState(
     model?.appearancePrompt || '',
   );
@@ -434,7 +432,6 @@ function ModelPropertyPanel({
   const [referenceImages, setReferenceImages] = useState<string[]>(
     model?.referenceImages || [],
   );
-  const [tagsInput, setTagsInput] = useState(model?.tags?.join(', ') || '');
 
   // ── 脏检测 ──
   const isDirty = useMemo(() => {
@@ -444,12 +441,10 @@ function ModelPropertyPanel({
       gender !== (model.gender || '') ||
       ageMin !== (model.ageRangeMin != null ? String(model.ageRangeMin) : '') ||
       ageMax !== (model.ageRangeMax != null ? String(model.ageRangeMax) : '') ||
-      description !== (model.description || '') ||
       appearancePrompt !== (model.appearancePrompt || '') ||
       primaryImage !== (model.primaryImage || '') ||
       JSON.stringify(referenceImages) !==
-        JSON.stringify(model.referenceImages || []) ||
-      tagsInput !== (model.tags?.join(', ') || '')
+        JSON.stringify(model.referenceImages || [])
     );
   }, [
     isCreate,
@@ -458,11 +453,9 @@ function ModelPropertyPanel({
     gender,
     ageMin,
     ageMax,
-    description,
     appearancePrompt,
     primaryImage,
     referenceImages,
-    tagsInput,
   ]);
 
   const handleDiscard = () => {
@@ -470,29 +463,21 @@ function ModelPropertyPanel({
     setGender(model?.gender || '');
     setAgeMin(model?.ageRangeMin != null ? String(model.ageRangeMin) : '');
     setAgeMax(model?.ageRangeMax != null ? String(model.ageRangeMax) : '');
-    setDescription(model?.description || '');
     setAppearancePrompt(model?.appearancePrompt || '');
     setPrimaryImage(model?.primaryImage || '');
     setReferenceImages(model?.referenceImages || []);
-    setTagsInput(model?.tags?.join(', ') || '');
   };
 
   const handleSave = async () => {
     if (!name.trim()) return;
-    const tags = tagsInput
-      .split(/[,，]/)
-      .map((t) => t.trim())
-      .filter(Boolean);
     await onSave({
       name: name.trim(),
       gender: (gender as 'male' | 'female' | 'other') || undefined,
       ageRangeMin: ageMin ? Number(ageMin) : undefined,
       ageRangeMax: ageMax ? Number(ageMax) : undefined,
-      description: description.trim() || undefined,
       appearancePrompt: appearancePrompt.trim() || undefined,
       primaryImage: primaryImage || undefined,
       referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-      tags: tags.length > 0 ? tags : undefined,
     });
   };
 
@@ -588,36 +573,8 @@ function ModelPropertyPanel({
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <span className="text-xs text-muted-foreground">标签</span>
-                  <input
-                    type="text"
-                    value={tagsInput}
-                    onChange={(e) => setTagsInput(e.target.value)}
-                    placeholder="逗号分隔"
-                    className={fieldCls}
-                  />
-                </div>
               </div>
             </div>
-          </div>
-
-          {/* ── 描述 ── */}
-          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
-            <label
-              htmlFor="model-desc"
-              className="mb-1.5 block text-sm font-medium text-foreground"
-            >
-              描述
-            </label>
-            <textarea
-              id="model-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="关于这个模特的备注"
-              rows={2}
-              className={textareaCls}
-            />
           </div>
 
           {/* ── 外观提示词 ── */}

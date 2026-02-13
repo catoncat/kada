@@ -10,10 +10,7 @@ export const modelAssetsRoutes = new Hono();
 function parseModelAsset(m: typeof modelAssets.$inferSelect) {
   return {
     ...m,
-    // 兼容历史字段：统一按全局资产语义返回
-    projectId: null,
     referenceImages: m.referenceImages ? JSON.parse(m.referenceImages) : [],
-    tags: m.tags ? JSON.parse(m.tags) : [],
   };
 }
 
@@ -131,12 +128,9 @@ modelAssetsRoutes.post('/', async (c) => {
       gender: body.gender || null,
       ageRangeMin: body.ageRangeMin ?? null,
       ageRangeMax: body.ageRangeMax ?? null,
-      description: body.description || null,
       appearancePrompt: body.appearancePrompt || null,
       primaryImage: body.primaryImage || null,
       referenceImages: body.referenceImages ? JSON.stringify(body.referenceImages) : null,
-      tags: body.tags ? JSON.stringify(body.tags) : null,
-      projectId: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -147,7 +141,6 @@ modelAssetsRoutes.post('/', async (c) => {
       {
         ...newModel,
         referenceImages: body.referenceImages || [],
-        tags: body.tags || [],
       },
       201,
     );
@@ -177,12 +170,9 @@ modelAssetsRoutes.put('/:id', async (c) => {
     if (body.gender !== undefined) updates.gender = body.gender;
     if (body.ageRangeMin !== undefined) updates.ageRangeMin = body.ageRangeMin;
     if (body.ageRangeMax !== undefined) updates.ageRangeMax = body.ageRangeMax;
-    if (body.description !== undefined) updates.description = body.description;
     if (body.appearancePrompt !== undefined) updates.appearancePrompt = body.appearancePrompt;
     if (body.primaryImage !== undefined) updates.primaryImage = body.primaryImage;
     if (body.referenceImages !== undefined) updates.referenceImages = JSON.stringify(body.referenceImages);
-    if (body.tags !== undefined) updates.tags = JSON.stringify(body.tags);
-    updates.projectId = null;
 
     await db.update(modelAssets).set(updates).where(eq(modelAssets.id, id));
 

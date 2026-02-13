@@ -65,10 +65,8 @@ function ensureTables() {
       project_prompt TEXT,
       status TEXT NOT NULL DEFAULT 'draft',
       selected_scene TEXT,
-      selected_outfits TEXT,
-      selected_props TEXT,
-      params TEXT,
       customer TEXT,
+      selected_models TEXT,
       generated_plan TEXT,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
@@ -79,9 +77,7 @@ function ensureTables() {
       name TEXT NOT NULL,
       description TEXT,
       primary_image TEXT,
-      supplementary_images TEXT,
       default_lighting TEXT,
-      recommended_props TEXT,
       tags TEXT,
       is_outdoor INTEGER DEFAULT 0,
       style TEXT,
@@ -95,12 +91,9 @@ function ensureTables() {
       gender TEXT,
       age_range_min INTEGER,
       age_range_max INTEGER,
-      description TEXT,
       appearance_prompt TEXT,
       primary_image TEXT,
       reference_images TEXT,
-      tags TEXT,
-      project_id TEXT,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
     );
@@ -187,9 +180,6 @@ function ensureColumns() {
   // projects: 历史数据库可能缺少 customer/project_prompt 等列
   addColumnIfMissing('projects', 'project_prompt', 'TEXT');
   addColumnIfMissing('projects', 'customer', 'TEXT');
-  addColumnIfMissing('projects', 'selected_props', 'TEXT');
-  addColumnIfMissing('projects', 'selected_outfits', 'TEXT');
-  addColumnIfMissing('projects', 'params', 'TEXT');
   addColumnIfMissing('projects', 'generated_plan', 'TEXT');
   addColumnIfMissing('projects', 'selected_models', 'TEXT');
 

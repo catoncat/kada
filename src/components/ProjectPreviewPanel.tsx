@@ -9,8 +9,8 @@ import {
   Clock,
   CheckCircle2,
   MapPin,
-  Shirt,
-  Package,
+  Users,
+  FileText,
   Loader2,
   AlertCircle,
   FolderOpen,
@@ -138,24 +138,24 @@ export function ProjectPreviewPanel({
               configured={!!project.selectedScene}
             />
             <AssetItem
-              icon={Shirt}
-              label="服装"
+              icon={Users}
+              label="人物"
               value={
-                project.selectedOutfits?.length
-                  ? `${project.selectedOutfits.length} 套`
+                project.customer?.people?.length
+                  ? `${project.customer.people.length} 人`
                   : '未配置'
               }
-              configured={!!project.selectedOutfits?.length}
+              configured={!!project.customer?.people?.length}
             />
             <AssetItem
-              icon={Package}
-              label="道具"
+              icon={FileText}
+              label="项目提示词"
               value={
-                project.selectedProps?.length
-                  ? `${project.selectedProps.length} 个`
+                project.projectPrompt?.trim()
+                  ? '已填写'
                   : '未配置'
               }
-              configured={!!project.selectedProps?.length}
+              configured={!!project.projectPrompt?.trim()}
             />
           </div>
         </section>

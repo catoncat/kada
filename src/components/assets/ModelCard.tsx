@@ -75,25 +75,6 @@ export function ModelCard({ model, onEdit, onDelete }: ModelCardProps) {
           </p>
         )}
 
-        {/* 标签 */}
-        {model.tags && model.tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {model.tags.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground"
-              >
-                {tag}
-              </span>
-            ))}
-            {model.tags.length > 3 && (
-              <span className="px-2 py-0.5 text-xs text-muted-foreground">
-                +{model.tags.length - 3}
-              </span>
-            )}
-          </div>
-        )}
-
         {/* 操作按钮 */}
         {(onEdit || onDelete) && (
           <div className="mt-4 flex items-center gap-2 pt-3 border-t border-border">

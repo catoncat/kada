@@ -15,8 +15,6 @@ assetsRoutes.get('/scenes', async (c) => {
     // 解析 JSON 字段
     const parsed = scenes.map((s) => ({
       ...s,
-      supplementaryImages: s.supplementaryImages ? JSON.parse(s.supplementaryImages) : [],
-      recommendedProps: s.recommendedProps ? JSON.parse(s.recommendedProps) : [],
       tags: s.tags ? JSON.parse(s.tags) : [],
       style: s.style ? JSON.parse(s.style) : null,
     }));
@@ -44,8 +42,6 @@ assetsRoutes.get('/scenes/:id', async (c) => {
     // 解析 JSON 字段
     const parsed = {
       ...scene,
-      supplementaryImages: scene.supplementaryImages ? JSON.parse(scene.supplementaryImages) : [],
-      recommendedProps: scene.recommendedProps ? JSON.parse(scene.recommendedProps) : [],
       tags: scene.tags ? JSON.parse(scene.tags) : [],
       style: scene.style ? JSON.parse(scene.style) : null,
     };
@@ -72,9 +68,7 @@ assetsRoutes.post('/scenes', async (c) => {
       name: body.name,
       description: body.description || null,
       primaryImage: body.primaryImage || null,
-      supplementaryImages: body.supplementaryImages ? JSON.stringify(body.supplementaryImages) : null,
       defaultLighting: body.defaultLighting || null,
-      recommendedProps: body.recommendedProps ? JSON.stringify(body.recommendedProps) : null,
       tags: body.tags ? JSON.stringify(body.tags) : null,
       isOutdoor: body.isOutdoor ?? false,
       style: body.style ? JSON.stringify(body.style) : null,
@@ -87,8 +81,6 @@ assetsRoutes.post('/scenes', async (c) => {
     // 返回解析后的数据
     return c.json({
       ...newScene,
-      supplementaryImages: body.supplementaryImages || [],
-      recommendedProps: body.recommendedProps || [],
       tags: body.tags || [],
       style: body.style || null,
     }, 201);
@@ -122,13 +114,7 @@ assetsRoutes.put('/scenes/:id', async (c) => {
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     if (body.primaryImage !== undefined) updates.primaryImage = body.primaryImage;
-    if (body.supplementaryImages !== undefined) {
-      updates.supplementaryImages = JSON.stringify(body.supplementaryImages);
-    }
     if (body.defaultLighting !== undefined) updates.defaultLighting = body.defaultLighting;
-    if (body.recommendedProps !== undefined) {
-      updates.recommendedProps = JSON.stringify(body.recommendedProps);
-    }
     if (body.tags !== undefined) updates.tags = JSON.stringify(body.tags);
     if (body.isOutdoor !== undefined) updates.isOutdoor = body.isOutdoor;
     if (body.style !== undefined) updates.style = JSON.stringify(body.style);
@@ -140,8 +126,6 @@ assetsRoutes.put('/scenes/:id', async (c) => {
 
     return c.json({
       ...updated,
-      supplementaryImages: updated.supplementaryImages ? JSON.parse(updated.supplementaryImages) : [],
-      recommendedProps: updated.recommendedProps ? JSON.parse(updated.recommendedProps) : [],
       tags: updated.tags ? JSON.parse(updated.tags) : [],
       style: updated.style ? JSON.parse(updated.style) : null,
     });

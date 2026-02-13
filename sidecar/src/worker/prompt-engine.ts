@@ -283,11 +283,32 @@ export async function buildImageEffectivePrompt(
     const personModelMap = selectedModels?.personModelMap || {};
     const people = customerData?.people || [];
 
-    const modelIds = [...new Set(Object.values(personModelMap))].filter(Boolean);
+    const modelIds = [
+      ...new Set(
+        Object.values(personModelMap).filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+      ),
+    ];
 
     if (modelIds.length > 0) {
-      const models = await db.select().from(modelAssets).where(inArray(modelAssets.id, modelIds));
-      const modelMap = new Map(models.map((m: any) => [m.id, m]));
+      type ModelRow = {
+        id: string;
+        name: string;
+        appearancePrompt: string | null;
+        primaryImage: string | null;
+        referenceImages: string | null;
+      };
+
+      const models: ModelRow[] = await db
+        .select({
+          id: modelAssets.id,
+          name: modelAssets.name,
+          appearancePrompt: modelAssets.appearancePrompt,
+          primaryImage: modelAssets.primaryImage,
+          referenceImages: modelAssets.referenceImages,
+        })
+        .from(modelAssets)
+        .where(inArray(modelAssets.id, modelIds));
+      const modelMap = new Map<string, ModelRow>(models.map((m) => [m.id, m]));
 
       for (const person of people) {
         const modelId = personModelMap[person.id];

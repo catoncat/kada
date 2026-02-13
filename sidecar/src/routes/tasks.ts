@@ -121,17 +121,20 @@ function buildTimeline(task: TaskRow, run: GenerationRunRow | null) {
 }
 
 function buildRecoveryContext(task: TaskRow, input: JsonObject | null) {
-  const owner = input?.owner;
+  const owner =
+    input?.owner && typeof input.owner === 'object'
+      ? (input.owner as Record<string, unknown>)
+      : null;
   const ownerType =
-    owner && typeof owner === 'object' && typeof owner.type === 'string'
+    owner && typeof owner.type === 'string'
       ? owner.type
       : null;
   const ownerId =
-    owner && typeof owner === 'object' && typeof owner.id === 'string'
+    owner && typeof owner.id === 'string'
       ? owner.id
       : null;
   const ownerSlot =
-    owner && typeof owner === 'object' && typeof owner.slot === 'string'
+    owner && typeof owner.slot === 'string'
       ? owner.slot
       : null;
 

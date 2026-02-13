@@ -23,9 +23,6 @@ export const projects = sqliteTable('projects', {
   projectPrompt: text('project_prompt'),
   status: text('status').notNull().default('draft'), // 'draft' | 'configured' | 'generated'
   selectedScene: text('selected_scene'), // 场景资产 ID（单选）
-  selectedOutfits: text('selected_outfits'), // JSON 数组
-  selectedProps: text('selected_props'), // JSON 数组
-  params: text('params'), // JSON（拍摄参数）
   customer: text('customer'), // JSON（客户信息：type, ageRange, count, relation, notes）
   selectedModels: text('selected_models'), // JSON（模特配置：{ personModelMap, autoMatch }）
   generatedPlan: text('generated_plan'), // JSON（AI 生成的预案结果）
@@ -39,9 +36,7 @@ export const sceneAssets = sqliteTable('scene_assets', {
   name: text('name').notNull(),
   description: text('description'),
   primaryImage: text('primary_image'), // 主图路径
-  supplementaryImages: text('supplementary_images'), // JSON 数组
   defaultLighting: text('default_lighting'),
-  recommendedProps: text('recommended_props'), // JSON 数组（道具 ID）
   tags: text('tags'), // JSON 数组
   isOutdoor: integer('is_outdoor', { mode: 'boolean' }).default(false),
   style: text('style'), // JSON（风格属性：colorTone, lightingMood, era）
@@ -56,12 +51,9 @@ export const modelAssets = sqliteTable('model_assets', {
   gender: text('gender'), // 'male' | 'female' | 'other'
   ageRangeMin: integer('age_range_min'),
   ageRangeMax: integer('age_range_max'),
-  description: text('description'),
   appearancePrompt: text('appearance_prompt'),
   primaryImage: text('primary_image'), // 主参考照片路径
   referenceImages: text('reference_images'), // JSON 数组（辅助参考照片）
-  tags: text('tags'), // JSON 数组
-  projectId: text('project_id'), // null=全局, 非null=项目专属
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
