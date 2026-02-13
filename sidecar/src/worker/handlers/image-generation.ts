@@ -144,6 +144,10 @@ export async function imageGenerationHandler(
   });
   const allReferenceImages = resolvedReferences.allImages;
   const referencePlan = buildReferencePlanSummary(resolvedReferences);
+  const resolvedGenerationOptions = await resolveImageGenerationOptions(
+    input.options,
+    resolvedReferences.sceneContextImages,
+  );
 
   (promptContext as any).referenceImagesCount = allReferenceImages.length;
   (promptContext as any).referenceImagesByRole = {
@@ -154,6 +158,7 @@ export async function imageGenerationHandler(
   if (resolvedReferences.droppedGeneratedImages.length > 0) {
     (promptContext as any).droppedReferenceImages = resolvedReferences.droppedGeneratedImages;
   }
+  (promptContext as any).options = resolvedGenerationOptions ?? null;
 
   // 1. 获取 provider（图片生成 + prompt 优化共用）
   let provider;
@@ -235,7 +240,7 @@ export async function imageGenerationHandler(
         identity: resolvedReferences.modelIdentityImages,
         scene: resolvedReferences.sceneContextImages,
       },
-      input.options,
+      resolvedGenerationOptions || undefined,
     );
     if (DEBUG_IMAGEGEN) {
       console.log(
@@ -341,6 +346,14 @@ interface ImageGenerationOptions {
   aspectRatio?: string;
 }
 
+const GEMINI_ASPECT_RATIOS: Array<{ label: string; value: number }> = [
+  { label: '1:1', value: 1 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '16:9', value: 16 / 9 },
+  { label: '3:4', value: 3 / 4 },
+  { label: '9:16', value: 9 / 16 },
+];
+
 function getDataDir(): string {
   return process.env.DATA_DIR || path.join(process.cwd(), 'data');
 }
@@ -352,6 +365,70 @@ function guessMimeTypeFromPath(filePath: string): string {
   if (ext === '.webp') return 'image/webp';
   if (ext === '.gif') return 'image/gif';
   return 'image/jpeg';
+}
+
+function pickClosestGeminiAspectRatio(width: number, height: number): string {
+  const ratio = width / height;
+  let best = GEMINI_ASPECT_RATIOS[0];
+  let bestDistance = Math.abs(ratio - best.value);
+  for (const candidate of GEMINI_ASPECT_RATIOS.slice(1)) {
+    const distance = Math.abs(ratio - candidate.value);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best.label;
+}
+
+async function inferAspectRatioFromSceneReferences(sceneImages: string[]): Promise<string | undefined> {
+  for (const image of sceneImages) {
+    const localUploadPath = normalizeLocalUploadPath(image);
+    if (!localUploadPath) continue;
+    const fullPath = path.join(getDataDir(), localUploadPath);
+    if (!existsSync(fullPath)) continue;
+    try {
+      const metadata = await sharp(fullPath, { failOn: 'none' }).metadata();
+      if (
+        typeof metadata.width === 'number' &&
+        metadata.width > 0 &&
+        typeof metadata.height === 'number' &&
+        metadata.height > 0
+      ) {
+        return pickClosestGeminiAspectRatio(metadata.width, metadata.height);
+      }
+    } catch {
+      // ignore metadata errors and try next scene reference
+    }
+  }
+  return undefined;
+}
+
+async function resolveImageGenerationOptions(
+  rawOptions: Record<string, unknown> | undefined,
+  sceneImages: string[],
+): Promise<ImageGenerationOptions | null> {
+  const baseOptions =
+    rawOptions && typeof rawOptions === 'object'
+      ? (rawOptions as ImageGenerationOptions)
+      : null;
+  const explicitAspectRatio =
+    typeof baseOptions?.aspectRatio === 'string' && baseOptions.aspectRatio.trim()
+      ? baseOptions.aspectRatio.trim()
+      : null;
+
+  let aspectRatio = explicitAspectRatio;
+  if (!aspectRatio) {
+    aspectRatio = await inferAspectRatioFromSceneReferences(sceneImages);
+  }
+
+  const resolved: ImageGenerationOptions = {
+    ...(typeof baseOptions?.width === 'number' ? { width: baseOptions.width } : null),
+    ...(typeof baseOptions?.height === 'number' ? { height: baseOptions.height } : null),
+    ...(aspectRatio ? { aspectRatio } : null),
+  };
+
+  return Object.keys(resolved).length > 0 ? resolved : null;
 }
 
 async function optimizeReferenceImageBuffer(
@@ -443,27 +520,33 @@ async function buildGeminiReferenceParts(referenceImages?: GeminiReferenceImages
 
   if (sceneImages.length > 0) {
     parts.push({
-      text: '以下是场景主题参考图（最高优先级）：必须复现其布景主题、道具关系、色彩与光影氛围，输出应保持消费级影楼成片质感，避免普通生活抓拍感。',
+      text: '以下是场景主题参考图：必须复现其布景主题、道具关系、色彩与光影氛围，输出应保持消费级影楼成片质感，避免普通生活抓拍感。',
     });
     for (const image of sceneImages) {
       const part = await buildGeminiInlineDataPart(image);
       if (part) parts.push(part);
     }
+    parts.push({
+      text: '场景参考图里若包含人物，只能提取环境与光影，不得沿用其中人物的脸、发型、服装、动作与人数。',
+    });
   }
 
   if (identityImages.length > 0) {
     parts.push({
-      text: '以下是人物身份参考图（次优先级）：只用于锁定人物身份特征（脸型、五官、年龄感、发型、肤色），不得继承参考图里的背景、服装和构图。',
+      text: '以下是人物身份参考图（硬约束）：只用于锁定人物身份特征（脸型、五官、年龄感、发型、肤色），不得继承参考图里的背景、服装和构图。',
     });
     for (const image of identityImages) {
       const part = await buildGeminiInlineDataPart(image);
       if (part) parts.push(part);
     }
+    parts.push({
+      text: '最终出图的人物数量、年龄感、亲属关系必须与文字描述一致，不得复用场景参考图中的人物。',
+    });
   }
 
   if (sceneImages.length > 0) {
     parts.push({
-      text: '若文字描述与场景主题图冲突，以场景主题图为准；文字用于补充人物关系、动作与镜头细节。',
+      text: '场景主题用于锁定环境与氛围；文字用于补充人物关系、动作与镜头细节，不得改变身份约束。',
     });
   }
 
