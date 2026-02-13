@@ -238,7 +238,7 @@ export function SceneCard({
   return (
     <>
       <Card className="overflow-hidden">
-        <div className="flex flex-col md:flex-row">
+        <div className="flex flex-col md:flex-row md:items-start">
           <SceneCardImage
             currentImage={scene.previewArtifactPath}
             sceneAssetImage={scene.sceneAssetImage}

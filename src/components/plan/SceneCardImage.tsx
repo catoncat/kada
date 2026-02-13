@@ -27,11 +27,11 @@ export function SceneCardImage({
   const imageUrl = displayImage ? getImageUrl(displayImage) : null;
 
   return (
-    <div className="relative w-full flex-shrink-0 md:w-64 lg:w-72">
+    <div className="relative w-full flex-shrink-0 md:w-64 md:self-start lg:w-72">
       <PhotoFrame
         src={imageUrl}
         alt={sceneName}
-        className="h-full min-h-56"
+        className="w-full min-h-56 max-w-full"
         fallback={
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageIcon className="h-10 w-10" />
