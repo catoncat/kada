@@ -1,14 +1,13 @@
 'use client';
 
-import { Search, LayoutGrid, List } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { LayoutGrid, List } from 'lucide-react';
 import {
   Select,
-  SelectTrigger,
-  SelectPopup,
   SelectItem,
+  SelectPopup,
+  SelectTrigger,
 } from '@/components/ui/select';
-import { ToggleGroup, Toggle } from '@/components/ui/toggle-group';
+import { Toggle, ToggleGroup } from '@/components/ui/toggle-group';
 import type { ProjectStatus } from '@/types/project';
 
 export type ViewMode = 'card' | 'list';
@@ -16,8 +15,6 @@ export type SortBy = 'updatedAt' | 'createdAt' | 'title';
 export type StatusFilter = 'all' | ProjectStatus;
 
 interface ProjectListToolbarProps {
-  search: string;
-  onSearchChange: (value: string) => void;
   statusFilter: StatusFilter;
   onStatusChange: (value: StatusFilter) => void;
   sortBy: SortBy;
@@ -40,8 +37,6 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
 ];
 
 export function ProjectListToolbar({
-  search,
-  onSearchChange,
   statusFilter,
   onStatusChange,
   sortBy,
@@ -49,24 +44,13 @@ export function ProjectListToolbar({
   viewMode,
   onViewModeChange,
 }: ProjectListToolbarProps) {
-  const statusLabel = STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label || '全部状态';
-  const sortLabel = SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
+  const statusLabel =
+    STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label || '全部状态';
+  const sortLabel =
+    SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
 
   return (
     <div className="flex items-center gap-3 mb-6">
-      {/* 搜索框 */}
-      <div className="relative w-[240px]">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-        <Input
-          type="search"
-          placeholder="搜索项目..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="pl-9"
-          size="sm"
-        />
-      </div>
-
       {/* 状态筛选 */}
       <Select
         value={statusFilter}

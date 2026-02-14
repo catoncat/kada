@@ -2,9 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Check, ImageIcon, Loader2, Search } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { PhotoFrame } from '@/components/PhotoFrame';
+import { ArrowLeft, Check, ImageIcon, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { SceneListItem } from '@/components/assets/SceneListItem';
 import {
   ThreeColumnDetailPane,
@@ -12,9 +11,9 @@ import {
   ThreeColumnListPane,
 } from '@/components/layout/ThreeColumnLayout';
 import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
+import { PhotoFrame } from '@/components/PhotoFrame';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { getProject, updateProject } from '@/lib/projects-api';
 import { getImageUrl, getSceneAssets } from '@/lib/scene-assets-api';
 import type { SceneAsset } from '@/types/scene-asset';
@@ -28,7 +27,6 @@ function ProjectScenesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [search, setSearch] = useState('');
   const [optimisticSelectedId, setOptimisticSelectedId] = useState<
     string | null | undefined
   >(undefined);
@@ -72,19 +70,6 @@ function ProjectScenesPage() {
 
   const scenes = scenesData?.data || [];
 
-  const filteredScenes = useMemo(() => {
-    if (!search.trim()) return scenes;
-    const q = search.toLowerCase();
-    return scenes.filter((scene) => {
-      return (
-        scene.name.toLowerCase().includes(q) ||
-        scene.description?.toLowerCase().includes(q) ||
-        scene.defaultLighting?.toLowerCase().includes(q) ||
-        scene.tags?.some((tag) => tag.toLowerCase().includes(q))
-      );
-    });
-  }, [scenes, search]);
-
   const selectedSceneId =
     optimisticSelectedId !== undefined
       ? optimisticSelectedId
@@ -127,7 +112,9 @@ function ProjectScenesPage() {
         <Alert variant="error">
           <AlertTitle>项目加载失败</AlertTitle>
           <AlertDescription>
-            {projectError instanceof Error ? projectError.message : '项目不存在'}
+            {projectError instanceof Error
+              ? projectError.message
+              : '项目不存在'}
           </AlertDescription>
         </Alert>
       </div>
@@ -149,7 +136,9 @@ function ProjectScenesPage() {
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-sm font-semibold text-foreground">场景配置</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground">单选，用于当前项目</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              单选，用于当前项目
+            </p>
           </div>
           <Button
             size="sm"
@@ -159,20 +148,6 @@ function ProjectScenesPage() {
             <Check className="h-4 w-4" />
             确定
           </Button>
-        </div>
-      </div>
-
-      <div className="px-3 py-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="搜索场景..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="bg-muted/50 pl-8"
-            size="sm"
-          />
         </div>
       </div>
 
@@ -219,15 +194,9 @@ function ProjectScenesPage() {
           </div>
         )}
 
-        {!scenesError && scenes.length > 0 && filteredScenes.length === 0 && (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            没有匹配的场景
-          </div>
-        )}
-
-        {!scenesError && filteredScenes.length > 0 && (
+        {!scenesError && scenes.length > 0 && (
           <div className="px-2 py-1">
-            {filteredScenes.map((scene) => (
+            {scenes.map((scene) => (
               <SceneListItem
                 key={scene.id}
                 scene={scene}
@@ -256,7 +225,11 @@ function ProjectScenesPage() {
         <div className="mx-auto max-w-3xl px-6 py-6">
           <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
             <PhotoFrame
-              src={selectedScene.primaryImage ? getImageUrl(selectedScene.primaryImage) : null}
+              src={
+                selectedScene.primaryImage
+                  ? getImageUrl(selectedScene.primaryImage)
+                  : null
+              }
               alt={selectedScene.name}
               className="max-h-[380px]"
               fallback={
@@ -268,7 +241,9 @@ function ProjectScenesPage() {
 
             <div className="space-y-4 px-5 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">{selectedScene.name}</h2>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {selectedScene.name}
+                </h2>
                 {selectedScene.description && (
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                     {selectedScene.description}
@@ -280,7 +255,9 @@ function ProjectScenesPage() {
                 {selectedScene.defaultLighting && (
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground">默认灯光：</span>
-                    <span className="text-foreground">{selectedScene.defaultLighting}</span>
+                    <span className="text-foreground">
+                      {selectedScene.defaultLighting}
+                    </span>
                   </div>
                 )}
 

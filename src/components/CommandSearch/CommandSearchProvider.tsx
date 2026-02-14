@@ -4,20 +4,20 @@
  * Command Search Provider - 全局状态管理和快捷键监听
  */
 
+import { useQuery } from '@tanstack/react-query';
+import { useLocation } from '@tanstack/react-router';
 import {
   createContext,
-  useContext,
-  useReducer,
-  useEffect,
   useCallback,
+  useContext,
+  useEffect,
+  useReducer,
   type ReactNode,
 } from 'react';
-import { useLocation } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { getProject } from '@/lib/projects-api';
 import type {
-  CommandSearchState,
   CommandSearchContextValue,
+  CommandSearchState,
   SearchScope,
 } from '@/lib/command-search/types';
 
@@ -72,35 +72,59 @@ interface CommandSearchProviderProps {
   children: ReactNode;
 }
 
+function readProjectIdFromSearch(): string | null {
+  if (typeof window === 'undefined') return null;
+  const value = new URLSearchParams(window.location.search).get('project');
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function CommandSearchProvider({ children }: CommandSearchProviderProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const location = useLocation();
 
   // 从路由计算自动 Scope
-  const projectIdMatch = location.pathname.match(/^\/project\/([^/]+)/);
-  const projectId = projectIdMatch?.[1];
-  const isScenePage = location.pathname.startsWith('/assets/scenes');
+  const projectIdFromPath = location.pathname.match(/^\/project\/([^/]+)/)?.[1] ?? null;
+  const projectIdFromSearch = readProjectIdFromSearch();
+  const projectContextId = projectIdFromPath ?? projectIdFromSearch;
 
   // 获取项目名称（用于 Scope 标签显示）
   const { data: project } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
+    queryKey: ['project', projectContextId],
+    queryFn: () => getProject(projectContextId!),
+    enabled: Boolean(projectContextId),
     staleTime: 60_000,
   });
 
   // 打开时自动设置 Scope
   useEffect(() => {
-    if (state.open) {
-      if (projectId && project) {
-        dispatch({ type: 'SET_SCOPE', scope: { type: 'project', id: projectId, name: project.title } });
-      } else if (isScenePage) {
-        dispatch({ type: 'SET_SCOPE', scope: { type: 'scenes' } });
-      } else {
-        dispatch({ type: 'SET_SCOPE', scope: { type: 'global' } });
-      }
+    if (!state.open) return;
+
+    if (projectContextId) {
+      dispatch({
+        type: 'SET_SCOPE',
+        scope: {
+          type: 'project',
+          id: projectContextId,
+          name: project?.title || '当前项目',
+        },
+      });
+      return;
     }
-  }, [state.open, projectId, project, isScenePage]);
+
+    if (location.pathname.startsWith('/assets/models')) {
+      dispatch({ type: 'SET_SCOPE', scope: { type: 'assets-models' } });
+      return;
+    }
+
+    if (location.pathname.startsWith('/assets/scenes')) {
+      dispatch({ type: 'SET_SCOPE', scope: { type: 'assets-scenes' } });
+      return;
+    }
+
+    dispatch({ type: 'SET_SCOPE', scope: { type: 'global' } });
+  }, [location.pathname, project?.title, projectContextId, state.open]);
 
   // 全局快捷键监听 Cmd/Ctrl + K
   useEffect(() => {

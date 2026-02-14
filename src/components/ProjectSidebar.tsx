@@ -1,9 +1,8 @@
 'use client';
 
-import { Plus, Search } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { ProjectListItem } from '@/components/ProjectListItem';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectItem,
@@ -24,9 +23,6 @@ interface ProjectSidebarProps {
   onCreateProject: () => void;
   onRenameProject?: (project: ProjectWithMeta) => void;
   onDeleteProject?: (project: ProjectWithMeta) => void;
-  // 筛选状态
-  search: string;
-  onSearchChange: (value: string) => void;
   statusFilter: StatusFilter;
   onStatusChange: (value: StatusFilter) => void;
   sortBy: SortBy;
@@ -63,8 +59,6 @@ export function ProjectSidebar({
   onCreateProject,
   onRenameProject,
   onDeleteProject,
-  search,
-  onSearchChange,
   statusFilter,
   onStatusChange,
   sortBy,
@@ -77,44 +71,27 @@ export function ProjectSidebar({
     SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '更新时间';
 
   return (
-    <aside className="h-full w-full flex min-h-0 flex-col bg-background">
-      {/* 新建按钮 */}
-      <div className="p-3">
+    <aside className="flex h-full min-h-0 w-full flex-col bg-background">
+      <div className="border-b border-border/60 p-3">
         <Button onClick={onCreateProject} className="w-full" size="sm">
           <Plus className="w-4 h-4" />
           新建项目
         </Button>
       </div>
 
-      {/* 搜索框 */}
-      <div className="px-3 pb-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-          <Input
-            type="search"
-            placeholder="搜索项目..."
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="pl-8 bg-muted/50"
-            size="sm"
-          />
-        </div>
-      </div>
-
-      {/* 状态筛选标签 */}
-      <div className="px-3 pb-2">
-        <div className="flex flex-col gap-0.5">
+      <div className="px-3 pb-2 pt-3">
+        <div className="grid grid-cols-2 gap-1">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value}
               type="button"
               onClick={() => onStatusChange(tab.value)}
               className={cn(
-                'flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors',
-                'hover:bg-accent',
+                'flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-sm transition-colors',
+                'hover:border-border hover:bg-accent/45',
                 statusFilter === tab.value
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-foreground',
+                  ? 'border-primary/30 bg-accent text-accent-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                  : 'border-transparent text-foreground',
               )}
             >
               <span>{tab.label}</span>
@@ -122,7 +99,7 @@ export function ProjectSidebar({
                 className={cn(
                   'text-xs tabular-nums',
                   statusFilter === tab.value
-                    ? 'text-accent-foreground'
+                    ? 'text-accent-foreground/90'
                     : 'text-muted-foreground',
                 )}
               >
@@ -133,15 +110,13 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      {/* 分隔线 */}
       <div className="mx-3 border-t" />
 
-      {/* 排序选择 */}
       <div className="px-3 py-2">
         <Select value={sortBy} onValueChange={(v) => onSortChange(v as SortBy)}>
           <SelectTrigger
             size="sm"
-            className="w-full bg-transparent border-0 shadow-none"
+            className="w-full border-0 bg-transparent shadow-none"
           >
             <span className="text-xs text-muted-foreground">
               排序：{sortLabel}
@@ -157,7 +132,6 @@ export function ProjectSidebar({
         </Select>
       </div>
 
-      {/* 项目列表 */}
       <div
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
         onWheel={(e) => e.stopPropagation()}
@@ -176,12 +150,12 @@ export function ProjectSidebar({
 
         {!isLoading && !isEmpty && projects.length === 0 && (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            没有匹配的项目
+            当前筛选下暂无项目
           </div>
         )}
 
         {!isLoading && projects.length > 0 && (
-          <div className="px-2">
+          <div className="px-2 pb-2">
             {projects.map((project) => (
               <ProjectListItem
                 key={project.id}

@@ -2,7 +2,7 @@
  * Quick Actions 定义
  */
 
-import { Plus, Settings, Image } from 'lucide-react';
+import { Image, Plus } from 'lucide-react';
 import type { SearchItem } from './types';
 
 /** 创建 Quick Actions 列表 */
@@ -28,15 +28,6 @@ export function getQuickActions(callbacks: {
       icon: Image,
       keywords: ['new', 'scene', 'create', '场景', '新建', '创建'],
       action: { type: 'callback', handler: callbacks.onCreateScene },
-    },
-    {
-      id: 'action:open-settings',
-      type: 'action',
-      title: '打开设置',
-      subtitle: '配置应用设置',
-      icon: Settings,
-      keywords: ['settings', 'preferences', 'config', '设置', '配置'],
-      action: { type: 'navigate', to: '/settings' },
     },
   ];
 }

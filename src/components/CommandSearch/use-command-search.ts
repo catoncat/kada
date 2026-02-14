@@ -3,7 +3,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { Clock, FolderKanban, Image } from 'lucide-react';
+import { Clock, FolderKanban, Image, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import {
   getQuickActions,
@@ -13,19 +13,14 @@ import {
   type SearchResultGroup,
   type SearchScope,
 } from '@/lib/command-search';
+import { getModelAssets } from '@/lib/model-assets-api';
 import { getProjects } from '@/lib/projects-api';
 import { getSceneAssets } from '@/lib/scene-assets-api';
 
-const MAX_RESULTS_PER_GROUP = 5;
-
-/** 搜索匹配函数 */
-function matchesQuery(item: SearchItem, query: string): boolean {
-  const q = query.toLowerCase();
-  if (item.title.toLowerCase().includes(q)) return true;
-  if (item.subtitle?.toLowerCase().includes(q)) return true;
-  if (item.keywords?.some((k) => k.toLowerCase().includes(q))) return true;
-  return false;
-}
+const MAX_RECENTS = 5;
+const MAX_BEST_MATCHES = 3;
+const MAX_OBJECT_RESULTS = 8;
+const MAX_ACTION_RESULTS = 6;
 
 interface UseCommandSearchOptions {
   query: string;
@@ -34,23 +29,113 @@ interface UseCommandSearchOptions {
   onCreateScene: () => void;
 }
 
+interface ScoredItem {
+  item: SearchItem;
+  score: number;
+}
+
+function extractEntityId(id: string): string {
+  const idx = id.indexOf(':');
+  return idx >= 0 ? id.slice(idx + 1) : id;
+}
+
+function canIncludeObject(
+  scope: SearchScope,
+  type: 'project' | 'scene' | 'model',
+) {
+  if (scope.type === 'global') return true;
+  if (scope.type === 'project') return type === 'project';
+  if (scope.type === 'assets-scenes') return type === 'scene';
+  if (scope.type === 'assets-models') return type === 'model';
+  return true;
+}
+
+function canIncludeRecent(
+  scope: SearchScope,
+  type: 'project' | 'scene' | 'model',
+) {
+  if (scope.type === 'global') return true;
+  if (scope.type === 'project') return type === 'project';
+  if (scope.type === 'assets-scenes') return type === 'scene';
+  if (scope.type === 'assets-models') return type === 'model';
+  return true;
+}
+
+function getMatchScore(item: SearchItem, query: string): number {
+  const q = query.toLowerCase();
+  const title = item.title.toLowerCase();
+  const subtitle = item.subtitle?.toLowerCase();
+  const keywords = item.keywords?.map((k) => k.toLowerCase()) ?? [];
+
+  if (title === q) return 140;
+  if (title.startsWith(q)) return 110;
+  if (title.includes(q)) return 80;
+  if (subtitle?.startsWith(q)) return 60;
+  if (subtitle?.includes(q)) return 50;
+  if (keywords.some((k) => k === q)) return 45;
+  if (keywords.some((k) => k.includes(q))) return 35;
+  return 0;
+}
+
+function withScopeBoost(
+  item: SearchItem,
+  scope: SearchScope,
+  score: number,
+): number {
+  if (scope.type === 'project' && item.type === 'project') {
+    return extractEntityId(item.id) === scope.id ? score + 30 : score + 10;
+  }
+
+  if (scope.type === 'assets-scenes' && item.type === 'scene') {
+    return score + 20;
+  }
+
+  if (scope.type === 'assets-models' && item.type === 'model') {
+    return score + 20;
+  }
+
+  return score;
+}
+
+function rankItems(
+  items: SearchItem[],
+  query: string,
+  scope: SearchScope,
+): ScoredItem[] {
+  return items
+    .map((item) => {
+      const score = getMatchScore(item, query);
+      if (score <= 0) return null;
+      return { item, score: withScopeBoost(item, scope, score) };
+    })
+    .filter((v): v is ScoredItem => Boolean(v))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.item.title.localeCompare(b.item.title, 'zh-CN');
+    });
+}
+
 export function useCommandSearch({
   query,
   scope,
   onCreateProject,
   onCreateScene,
 }: UseCommandSearchOptions): SearchResultGroup[] {
-  // 获取项目列表
-  const { data: projectsData } = useQuery({
+  const projectsQuery = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
     staleTime: 30_000,
   });
 
-  // 获取场景列表
-  const { data: scenesData } = useQuery({
+  const scenesQuery = useQuery({
     queryKey: ['sceneAssets'],
     queryFn: getSceneAssets,
+    staleTime: 30_000,
+  });
+
+  const modelsQuery = useQuery({
+    queryKey: ['modelAssets'],
+    queryFn: getModelAssets,
     staleTime: 30_000,
   });
 
@@ -59,131 +144,247 @@ export function useCommandSearch({
     const trimmedQuery = query.trim();
     const hasQuery = trimmedQuery.length > 0;
 
-    // Quick Actions - 始终显示
-    const actions = getQuickActions({ onCreateProject, onCreateScene });
-    const filteredActions = hasQuery
-      ? actions.filter((a) => matchesQuery(a, trimmedQuery))
-      : actions;
+    const quickActions = getQuickActions({ onCreateProject, onCreateScene });
 
-    if (filteredActions.length > 0) {
-      groups.push({
-        id: 'actions',
-        label: '快捷操作',
-        items: filteredActions.slice(0, MAX_RESULTS_PER_GROUP),
-      });
-    }
+    const recentItems: SearchItem[] = getRecents()
+      .filter((r) => canIncludeRecent(scope, r.type))
+      .slice(0, MAX_RECENTS)
+      .map((r) => ({
+        id: `recent:${r.type}:${r.id}`,
+        type: 'recent',
+        title: r.title,
+        subtitle:
+          r.type === 'project'
+            ? '最近项目'
+            : r.type === 'scene'
+              ? '最近场景'
+              : '最近模特',
+        icon: Clock,
+        action: {
+          type: 'navigate',
+          target:
+            r.type === 'project'
+              ? { to: '/', search: { project: r.id } }
+              : r.type === 'scene'
+                ? { to: '/assets/scenes', search: { sceneId: r.id } }
+                : { to: '/assets/models', search: { modelId: r.id } },
+        },
+      }));
 
-    // Recent - 无输入时显示
+    const projects = (projectsQuery.data?.data || []).map((p) => ({
+      id: `project:${p.id}`,
+      type: 'project' as const,
+      title: p.title,
+      subtitle:
+        p.status === 'generated'
+          ? '已生成方案'
+          : p.status === 'configured'
+            ? '已配置'
+            : '草稿',
+      icon: FolderKanban,
+      keywords: [
+        p.customer?.notes || '',
+        p.status,
+        p.projectPrompt || '',
+      ].filter(Boolean),
+      action: {
+        type: 'navigate' as const,
+        target: {
+          to: '/',
+          search: { project: p.id },
+        },
+      },
+    }));
+
+    const scenes = (scenesQuery.data?.data || []).map((s) => ({
+      id: `scene:${s.id}`,
+      type: 'scene' as const,
+      title: s.name,
+      subtitle: s.tags?.slice(0, 2).join('，') || '场景资产',
+      icon: Image,
+      keywords: [
+        s.description || '',
+        s.defaultLighting || '',
+        ...(s.tags || []),
+      ].filter(Boolean),
+      action: {
+        type: 'navigate' as const,
+        target: {
+          to: '/assets/scenes',
+          search: { sceneId: s.id },
+        },
+      },
+    }));
+
+    const models = (modelsQuery.data?.data || []).map((m) => ({
+      id: `model:${m.id}`,
+      type: 'model' as const,
+      title: m.name,
+      subtitle:
+        m.gender === 'male' ? '男' : m.gender === 'female' ? '女' : '模特资产',
+      icon: Users,
+      keywords: [
+        m.appearancePrompt || '',
+        m.gender || '',
+        m.gender === 'male'
+          ? '男'
+          : m.gender === 'female'
+            ? '女'
+            : m.gender === 'other'
+              ? '其他'
+              : '',
+        m.ageRangeMin != null ? String(m.ageRangeMin) : '',
+        m.ageRangeMax != null ? String(m.ageRangeMax) : '',
+        m.ageRangeMin != null || m.ageRangeMax != null
+          ? `${m.ageRangeMin ?? ''}-${m.ageRangeMax ?? ''}`.replace(
+              /^-|-$/g,
+              '',
+            )
+          : '',
+      ].filter(Boolean),
+      action: {
+        type: 'navigate' as const,
+        target: {
+          to: '/assets/models',
+          search: { modelId: m.id },
+        },
+      },
+    }));
+
     if (!hasQuery) {
-      const recents = getRecents();
-      if (recents.length > 0) {
-        const recentItems: SearchItem[] = recents.map((r) => ({
-          id: `recent:${r.type}:${r.id}`,
-          type: 'recent' as const,
-          title: r.title,
-          subtitle: r.type === 'project' ? '项目' : '场景',
-          icon: Clock,
-          action: {
-            type: 'navigate' as const,
-            to: r.type === 'project' ? `/?project=${r.id}` : `/assets/scenes`,
-          },
-        }));
-
+      if (recentItems.length > 0) {
         groups.push({
           id: 'recents',
-          label: '最近访问',
+          label: '继续工作',
           items: recentItems,
         });
       }
+
+      groups.push({
+        id: 'quick-actions',
+        label: '常用操作',
+        items: quickActions,
+      });
+
+      return groups;
     }
 
-    // Projects - 有输入时搜索
-    if (hasQuery && scope.type !== 'scenes') {
-      const projects = projectsData?.data || [];
-      const projectItems: SearchItem[] = projects
-        .filter((p) => {
-          // Scope 过滤
-          if (scope.type === 'project' && p.id !== scope.id) return false;
+    const objectCandidates: SearchItem[] = [
+      ...(canIncludeObject(scope, 'project')
+        ? projects.filter((item) =>
+            scope.type === 'project'
+              ? extractEntityId(item.id) === scope.id
+              : true,
+          )
+        : []),
+      ...(canIncludeObject(scope, 'scene') ? scenes : []),
+      ...(canIncludeObject(scope, 'model') ? models : []),
+    ];
 
-          // 关键词匹配
-          const q = trimmedQuery.toLowerCase();
-          return (
-            p.title.toLowerCase().includes(q) ||
-            (p.customer?.notes?.toLowerCase().includes(q) ?? false)
-          );
-        })
-        .slice(0, MAX_RESULTS_PER_GROUP)
-        .map((p) => ({
-          id: `project:${p.id}`,
-          type: 'project' as const,
-          title: p.title,
-          subtitle:
-            p.status === 'generated'
-              ? '已生成方案'
-              : p.status === 'configured'
-                ? '已配置'
-                : '草稿',
-          icon: FolderKanban,
-          action: { type: 'navigate' as const, to: `/?project=${p.id}` },
-        }));
+    const scoredObjects = rankItems(objectCandidates, trimmedQuery, scope);
+    const bestMatches = scoredObjects
+      .slice(0, MAX_BEST_MATCHES)
+      .map((entry) => entry.item);
+    const remainingObjects = scoredObjects
+      .slice(MAX_BEST_MATCHES, MAX_BEST_MATCHES + MAX_OBJECT_RESULTS)
+      .map((entry) => entry.item);
 
-      if (projectItems.length > 0) {
-        groups.push({
-          id: 'projects',
-          label: '项目',
-          items: projectItems,
-        });
-      }
+    if (bestMatches.length > 0) {
+      groups.push({
+        id: 'best-matches',
+        label: '最佳匹配',
+        items: bestMatches,
+      });
     }
 
-    // Scenes - 有输入时搜索
-    if (hasQuery && scope.type !== 'project') {
-      const scenes = scenesData?.data || [];
-      const sceneItems: SearchItem[] = scenes
-        .filter((s) => {
-          const q = trimmedQuery.toLowerCase();
-          return (
-            s.name.toLowerCase().includes(q) ||
-            (s.description?.toLowerCase().includes(q) ?? false) ||
-            (s.tags?.some((t) => t.toLowerCase().includes(q)) ?? false)
-          );
-        })
-        .slice(0, MAX_RESULTS_PER_GROUP)
-        .map((s) => ({
-          id: `scene:${s.id}`,
-          type: 'scene' as const,
-          title: s.name,
-          subtitle: s.tags?.slice(0, 2).join(', ') || '场景资产',
-          icon: Image,
-          action: { type: 'navigate' as const, to: `/assets/scenes` },
-        }));
+    const objectErrors: string[] = [];
+    const retryActions: Array<() => void> = [];
 
-      if (sceneItems.length > 0) {
-        groups.push({
-          id: 'scenes',
-          label: '场景资产',
-          items: sceneItems,
-        });
-      }
+    if (canIncludeObject(scope, 'project') && projectsQuery.error) {
+      objectErrors.push('项目数据加载失败');
+      retryActions.push(() => {
+        void projectsQuery.refetch();
+      });
     }
 
-    // Navigation - 有输入时显示
-    if (hasQuery) {
-      const filteredNav = navigationItems.filter((n) =>
-        matchesQuery(n, trimmedQuery),
-      );
+    if (canIncludeObject(scope, 'scene') && scenesQuery.error) {
+      objectErrors.push('场景数据加载失败');
+      retryActions.push(() => {
+        void scenesQuery.refetch();
+      });
+    }
 
-      if (filteredNav.length > 0) {
-        groups.push({
-          id: 'navigation',
-          label: '导航',
-          items: filteredNav,
-        });
-      }
+    if (canIncludeObject(scope, 'model') && modelsQuery.error) {
+      objectErrors.push('模特数据加载失败');
+      retryActions.push(() => {
+        void modelsQuery.refetch();
+      });
+    }
+
+    const objectLoading =
+      (canIncludeObject(scope, 'project') && projectsQuery.isFetching) ||
+      (canIncludeObject(scope, 'scene') && scenesQuery.isFetching) ||
+      (canIncludeObject(scope, 'model') && modelsQuery.isFetching);
+
+    if (
+      remainingObjects.length > 0 ||
+      objectLoading ||
+      objectErrors.length > 0
+    ) {
+      groups.push({
+        id: 'objects',
+        label: bestMatches.length > 0 ? '更多对象' : '对象结果',
+        items: remainingObjects,
+        loading: objectLoading,
+        error:
+          objectErrors.length > 0
+            ? {
+                message: objectErrors.join('；'),
+                actionLabel: '重试',
+                onAction: () => {
+                  retryActions.forEach((retry) => {
+                    retry();
+                  });
+                },
+              }
+            : undefined,
+      });
+    }
+
+    const actionCandidates = [...quickActions, ...navigationItems];
+    const actionResults = rankItems(actionCandidates, trimmedQuery, {
+      type: 'global',
+    })
+      .slice(0, MAX_ACTION_RESULTS)
+      .map((entry) => entry.item);
+
+    if (actionResults.length > 0) {
+      groups.push({
+        id: 'actions',
+        label: '操作',
+        items: actionResults,
+      });
     }
 
     return groups;
-  }, [query, scope, projectsData, scenesData, onCreateProject, onCreateScene]);
+  }, [
+    modelsQuery.data,
+    modelsQuery.error,
+    modelsQuery.isFetching,
+    modelsQuery.refetch,
+    onCreateProject,
+    onCreateScene,
+    projectsQuery.data,
+    projectsQuery.error,
+    projectsQuery.isFetching,
+    projectsQuery.refetch,
+    query,
+    scenesQuery.data,
+    scenesQuery.error,
+    scenesQuery.isFetching,
+    scenesQuery.refetch,
+    scope,
+  ]);
 
   return results;
 }

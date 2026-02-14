@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { ImageIcon, Plus, Search } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ImageIcon, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { SceneForm } from '@/components/assets/SceneForm';
 import { SceneListItem } from '@/components/assets/SceneListItem';
 import {
@@ -12,6 +12,7 @@ import {
   ThreeColumnListPane,
 } from '@/components/layout/ThreeColumnLayout';
 import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -21,9 +22,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   createSceneAsset,
   deleteSceneAsset,
@@ -34,6 +33,7 @@ import type { CreateSceneAssetInput, SceneAsset } from '@/types/scene-asset';
 
 interface ScenesSearchParams {
   action?: 'create';
+  sceneId?: string;
 }
 
 type PanelMode = 'empty' | 'detail' | 'create';
@@ -42,54 +42,52 @@ export const Route = createFileRoute('/assets/scenes')({
   component: ScenesAssetPage,
   validateSearch: (search: Record<string, unknown>): ScenesSearchParams => ({
     action: search.action === 'create' ? 'create' : undefined,
+    sceneId:
+      typeof search.sceneId === 'string' && search.sceneId.trim()
+        ? search.sceneId
+        : undefined,
   }),
 });
 
 function ScenesAssetPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { action } = Route.useSearch();
+  const { action, sceneId: searchSceneId } = Route.useSearch();
 
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>('empty');
-  const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<SceneAsset | null>(null);
   const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
+    let shouldClearSearch = false;
+
     if (action === 'create') {
       setSelectedSceneId(null);
       setPanelMode('create');
+      shouldClearSearch = true;
+    }
+
+    if (searchSceneId) {
+      setSelectedSceneId(searchSceneId);
+      setPanelMode('detail');
+      shouldClearSearch = true;
+    }
+
+    if (shouldClearSearch) {
       navigate({ to: '/assets/scenes', search: {}, replace: true });
     }
-  }, [action, navigate]);
+  }, [action, navigate, searchSceneId]);
 
-  const {
-    data,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['sceneAssets'],
     queryFn: getSceneAssets,
   });
 
   const scenes = data?.data || [];
 
-  const filteredScenes = useMemo(() => {
-    if (!search.trim()) return scenes;
-    const q = search.toLowerCase();
-    return scenes.filter((scene) => {
-      return (
-        scene.name.toLowerCase().includes(q) ||
-        scene.description?.toLowerCase().includes(q) ||
-        scene.defaultLighting?.toLowerCase().includes(q) ||
-        scene.tags?.some((tag) => tag.toLowerCase().includes(q))
-      );
-    });
-  }, [scenes, search]);
-
-  const selectedScene = scenes.find((scene) => scene.id === selectedSceneId) ?? null;
+  const selectedScene =
+    scenes.find((scene) => scene.id === selectedSceneId) ?? null;
 
   useEffect(() => {
     if (panelMode === 'create' || isLoading) return;
@@ -177,22 +175,6 @@ function ScenesAssetPage() {
         </Button>
       </div>
 
-      {scenes.length > 0 && (
-        <div className="px-3 pb-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索场景..."
-              className="bg-muted/50 pl-8"
-              size="sm"
-            />
-          </div>
-        </div>
-      )}
-
       {scenes.length > 0 && <div className="mx-3 border-t" />}
 
       <div
@@ -210,7 +192,9 @@ function ScenesAssetPage() {
             <Alert variant="error">
               <AlertTitle>加载失败</AlertTitle>
               <AlertDescription className="mt-2">
-                <p>{error instanceof Error ? error.message : '场景列表加载失败'}</p>
+                <p>
+                  {error instanceof Error ? error.message : '场景列表加载失败'}
+                </p>
                 <Button
                   size="sm"
                   variant="outline"
@@ -230,15 +214,9 @@ function ScenesAssetPage() {
           </div>
         )}
 
-        {!isLoading && !error && scenes.length > 0 && filteredScenes.length === 0 && (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            没有匹配的场景
-          </div>
-        )}
-
-        {!isLoading && !error && filteredScenes.length > 0 && (
+        {!isLoading && !error && scenes.length > 0 && (
           <div className="px-2 py-1">
-            {filteredScenes.map((scene) => (
+            {scenes.map((scene) => (
               <SceneListItem
                 key={scene.id}
                 scene={scene}

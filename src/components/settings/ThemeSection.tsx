@@ -1,8 +1,7 @@
 'use client';
 
 import { Loader2, MonitorCog, MoonStar, Plus, Sun, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,7 +18,6 @@ import {
 } from '@/lib/dock-icon';
 import {
   getThemePreference,
-  resolveTheme,
   setThemePreference,
   type ThemePreference,
 } from '@/lib/theme';
@@ -76,10 +74,6 @@ const EMPTY_NEW_ICON: NewIconDraft = {
   darkIconPath: '',
 };
 
-function getCurrentMode(preference: ThemePreference): 'light' | 'dark' {
-  return resolveTheme(preference);
-}
-
 function toSelectedIconIdForPreset(presetId: PresetId) {
   return `preset:${presetId}`;
 }
@@ -96,14 +90,8 @@ export function ThemeSection() {
   const [isSaving, setIsSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newIcon, setNewIcon] = useState<NewIconDraft>(EMPTY_NEW_ICON);
-  const [status, setStatus] = useState<{
-    type: 'success' | 'error';
-    message: string;
-  } | null>(null);
 
   const canApplyDockIcon = canApplyRuntimeDockIcon();
-  const currentMode = useMemo(() => getCurrentMode(themePreference), [themePreference]);
-
   useEffect(() => {
     async function init() {
       try {
@@ -129,27 +117,20 @@ export function ThemeSection() {
 
   const applyCurrentIcon = async (nextConfig?: DockIconConfig) => {
     if (!canApplyDockIcon) {
-      setStatus({
-        type: 'error',
-        message: '仅支持 macOS + Tauri 运行态',
-      });
       return;
     }
 
     setIsApplying(true);
     try {
       await applyDockIconForCurrentTheme(nextConfig);
-      setStatus({ type: 'success', message: `已应用${currentMode === 'dark' ? '暗色' : '亮色'}图标` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setStatus({ type: 'error', message: `应用失败：${message}` });
+      console.error('应用图标失败:', error);
     } finally {
       setIsApplying(false);
     }
   };
 
   const handleThemeChange = async (nextPreference: ThemePreference) => {
-    setStatus(null);
     setThemePreferenceState(nextPreference);
     setThemePreference(nextPreference);
     if (canApplyDockIcon) {
@@ -158,7 +139,6 @@ export function ThemeSection() {
   };
 
   const handleSelectPreset = async (presetId: PresetId) => {
-    setStatus(null);
     const next: DockIconConfig = {
       ...config,
       selectedIconId: toSelectedIconIdForPreset(presetId),
@@ -171,7 +151,6 @@ export function ThemeSection() {
   };
 
   const handleSelectCustom = async (customId: string) => {
-    setStatus(null);
     const next: DockIconConfig = {
       ...config,
       selectedIconId: toSelectedIconIdForCustom(customId),
@@ -184,13 +163,11 @@ export function ThemeSection() {
   };
 
   const handleAddCustomIcon = async () => {
-    setStatus(null);
     const name = newIcon.name.trim();
     const lightIconPath = newIcon.lightIconPath.trim();
     const darkIconPath = newIcon.darkIconPath.trim();
 
     if (!name || !lightIconPath || !darkIconPath) {
-      setStatus({ type: 'error', message: '请填写完整信息' });
       return;
     }
 
@@ -213,13 +190,10 @@ export function ThemeSection() {
 
     if (canApplyDockIcon) {
       await applyCurrentIcon(next);
-    } else {
-      setStatus({ type: 'success', message: '已新增图标' });
     }
   };
 
   const handleRemoveCustomIcon = async (customId: string) => {
-    setStatus(null);
     const remaining = config.customIcons.filter((item) => item.id !== customId);
     const removedIsSelected = config.selectedIconId === toSelectedIconIdForCustom(customId);
     const next: DockIconConfig = {
@@ -427,11 +401,6 @@ export function ThemeSection() {
 
       </div>
 
-      {status && (
-        <Alert variant={status.type === 'success' ? 'success' : 'error'}>
-          <AlertDescription>{status.message}</AlertDescription>
-        </Alert>
-      )}
     </div>
   );
 }

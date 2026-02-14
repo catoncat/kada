@@ -7,7 +7,7 @@ const MAX_RECENTS = 5;
 
 /** 最近访问项 */
 export interface RecentItem {
-  type: 'project' | 'scene';
+  type: 'project' | 'scene' | 'model';
   id: string;
   title: string;
   timestamp: number;
@@ -36,7 +36,7 @@ export function addRecent(item: Omit<RecentItem, 'timestamp'>): void {
 
   // 移除已存在的相同项
   const filtered = recents.filter(
-    (r) => !(r.type === item.type && r.id === item.id)
+    (r) => !(r.type === item.type && r.id === item.id),
   );
 
   // 添加到开头
@@ -55,13 +55,14 @@ export function addRecent(item: Omit<RecentItem, 'timestamp'>): void {
 }
 
 /** 移除访问记录 */
-export function removeRecent(type: 'project' | 'scene', id: string): void {
+export function removeRecent(
+  type: 'project' | 'scene' | 'model',
+  id: string,
+): void {
   if (typeof window === 'undefined') return;
 
   const recents = getRecents();
-  const filtered = recents.filter(
-    (r) => !(r.type === type && r.id === id)
-  );
+  const filtered = recents.filter((r) => !(r.type === type && r.id === id));
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));

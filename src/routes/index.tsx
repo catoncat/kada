@@ -4,13 +4,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ThreeColumnDetailPane,
+  ThreeColumnLayout,
+} from '@/components/layout/ThreeColumnLayout';
+import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
+import {
   ProjectSidebar,
   type SortBy,
   type StatusFilter,
 } from '@/components/ProjectSidebar';
 import { ProjectWorkspace } from '@/components/ProjectWorkspace';
-import { ThreeColumnLayout } from '@/components/layout/ThreeColumnLayout';
-import { THREE_COLUMN_PRESETS } from '@/components/layout/three-column-presets';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -70,8 +73,7 @@ function ProjectListPage() {
   } | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
 
-  // 筛选状态
-  const [search, setSearch] = useState('');
+  // 列表筛选状态
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('updatedAt');
 
@@ -185,14 +187,6 @@ function ProjectListPage() {
   const filteredProjects = useMemo(() => {
     let result = [...projects];
 
-    // 搜索过滤
-    if (search.trim()) {
-      const searchLower = search.toLowerCase();
-      result = result.filter((p) =>
-        p.title.toLowerCase().includes(searchLower),
-      );
-    }
-
     // 状态过滤
     if (statusFilter !== 'all') {
       result = result.filter((p) => p.status === statusFilter);
@@ -219,7 +213,7 @@ function ProjectListPage() {
     });
 
     return result;
-  }, [projects, search, statusFilter, sortBy]);
+  }, [projects, statusFilter, sortBy]);
 
   // 如果有筛选结果但当前选中项不在列表中，自动选中第一个
   useEffect(() => {
@@ -248,8 +242,6 @@ function ProjectListPage() {
         setProjectToDelete({ id: project.id, title: project.title });
         setDeleteDialogOpen(true);
       }}
-      search={search}
-      onSearchChange={setSearch}
       statusFilter={statusFilter}
       onStatusChange={setStatusFilter}
       sortBy={sortBy}
@@ -261,9 +253,9 @@ function ProjectListPage() {
   );
 
   const workspacePanel = (
-    <main className="h-full min-h-0 min-w-0 overflow-hidden">
+    <ThreeColumnDetailPane>
       <ProjectWorkspace projectId={selectedProjectId} />
-    </main>
+    </ThreeColumnDetailPane>
   );
 
   return (
@@ -273,7 +265,6 @@ function ProjectListPage() {
       list={listPanel}
       detail={workspacePanel}
     >
-
       {/* 新建项目对话框 */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogPopup className="w-full max-w-md p-6" showCloseButton={false}>
