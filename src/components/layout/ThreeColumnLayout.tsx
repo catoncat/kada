@@ -39,9 +39,7 @@ export function ThreeColumnLayout({
   children,
 }: ThreeColumnLayoutProps) {
   return (
-    <div
-      className={cn('h-full min-h-0 overflow-hidden bg-transparent', className)}
-    >
+    <div className={cn('h-full min-h-0 overflow-hidden bg-background', className)}>
       <ResizableSplitPane
         storageKey={preset.storageKey}
         legacyStorageKeys={preset.legacyStorageKeys}
@@ -58,17 +56,9 @@ export function ThreeColumnLayout({
   );
 }
 
-export function ThreeColumnListPane({
-  children,
-  className,
-}: ThreeColumnPaneProps) {
+export function ThreeColumnListPane({ children, className }: ThreeColumnPaneProps) {
   return (
-    <aside
-      className={cn(
-        'h-full w-full flex min-h-0 flex-col bg-background/60 backdrop-blur-sm',
-        className,
-      )}
-    >
+    <aside className={cn('h-full w-full flex min-h-0 flex-col bg-background', className)}>
       {children}
     </aside>
   );
@@ -83,7 +73,9 @@ export function ThreeColumnDetailPane({
     <main
       className={cn(
         'h-full min-h-0 min-w-0',
-        tone === 'muted' ? 'bg-background/35' : 'bg-background',
+        tone === 'muted'
+          ? 'bg-[#F5F5F7] dark:bg-[#1C1C1E]'
+          : 'bg-background',
         className,
       )}
     >

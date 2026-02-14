@@ -5,35 +5,27 @@
 
 :root {
   --titlebar-h: 0px;
-  --toolbar-h: 2.375rem;
-  --traffic-lights-safe: 4.25rem;
-  --control-h: 22px;
-  --control-h-sm: 19px;
-  --control-h-lg: 28px;
-  --ink: #1d1d1f;
-  --ink-2: #4a4a4f;
-  --ink-3: #8f8f96;
-  --paper: #f6f6f8;
-  --paper-2: #efeff2;
-  --line: #d7d7dd;
-  --window-material: color-mix(in srgb, var(--color-white) 92%, #ececf1);
-  --toolbar-material: color-mix(in srgb, var(--color-white) 89%, #e9e9ef);
-  --content-material: color-mix(in srgb, var(--color-white) 97%, #f0f0f4);
+  --ink: #1a1a1a;
+  --ink-2: #4a4a4a;
+  --ink-3: #8a8a8a;
+  --paper: #fafafa;
+  --paper-2: #f0f0f0;
+  --line: #e5e5e5;
   --accent: --alpha(var(--color-black) / 4%);
-  --radius-xl: 10px;
-  --radius-2xl: 14px;
-  --radius: 0.375rem;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius: 0.5rem;
   --background: var(--color-white);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
   --popover: var(--color-white);
   --popover-foreground: var(--color-neutral-800);
-  --primary: #0a84ff;
-  --primary-foreground: #ffffff;
-  --secondary: --alpha(var(--color-black) / 2.5%);
+  --primary: var(--color-neutral-800);
+  --primary-foreground: var(--color-neutral-50);
+  --secondary: --alpha(var(--color-black) / 4%);
   --secondary-foreground: var(--color-neutral-800);
-  --muted: --alpha(var(--color-black) / 2.8%);
+  --muted: --alpha(var(--color-black) / 4%);
   --muted-foreground: color-mix(
     in srgb,
     var(--color-neutral-500) 90%,
@@ -43,22 +35,20 @@
   --destructive: var(--color-red-500);
   --border: --alpha(var(--color-black) / 8%);
   --input: --alpha(var(--color-black) / 10%);
-  --ring: #0a84ff;
+  --ring: var(--color-neutral-400);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: color-mix(in srgb, var(--color-white) 90%, #ebebf2);
-  --sidebar-foreground: #2a2f37;
-  --sidebar-primary: #0a84ff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: --alpha(var(--color-black) / 5%);
-  --sidebar-accent-foreground: #1f242d;
-  --sidebar-border: --alpha(var(--color-black) / 10%);
-  --sidebar-ring: #5b8dff;
-  --sidebar-selection: color-mix(in srgb, #0a84ff 58%, transparent);
-  --sidebar-selection-foreground: var(--foreground);
+  --sidebar: oklch(0.965 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.94 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.915 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-700);
@@ -72,11 +62,9 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
-  font-size: 0.8125rem;
-  line-height: 1.23;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(180deg, var(--paper) 0%, var(--paper-2) 100%);
+  background: var(--paper);
   color: var(--ink);
   margin: 0;
 }
@@ -84,7 +72,6 @@ body {
 /* Tauri: overlay 标题栏偏移 */
 html[data-tauri] {
   --titlebar-h: 30px;
-  --traffic-lights-safe: 4.5rem;
 }
 
 /* App 采用"内滚动容器"策略：避免 body 滚动干扰各面板独立滚动 */
@@ -101,7 +88,7 @@ body,
 
 /* Tauri: sidebar 内容向下偏移，避开红绿灯 */
 html[data-tauri] [data-slot="sidebar-content"] {
-  padding-top: calc(var(--titlebar-h) + 0.25rem);
+  padding-top: calc(var(--titlebar-h) - 0.5rem);
 }
 
 body {
@@ -126,42 +113,14 @@ body {
   background: var(--ink-3);
 }
 
-.app-toolbar {
-  border-color: color-mix(in srgb, var(--line) 74%, transparent);
-  background: color-mix(in srgb, var(--toolbar-material) 93%, transparent);
-  backdrop-filter: saturate(125%) blur(14px);
-}
-
-.app-toolbar-row {
-  min-height: var(--toolbar-h);
-}
-
-html[data-tauri] .app-toolbar-row {
-  padding-inline-start: calc(var(--traffic-lights-safe) + 0.75rem);
-}
-
-.app-shell-content {
-  background: var(--content-material);
-}
-
-.app-sidebar-surface {
-  background: color-mix(in srgb, var(--sidebar) 96%, transparent);
-  backdrop-filter: saturate(120%) blur(12px);
-}
-
-.app-context-panel {
-  background: color-mix(in srgb, var(--window-material) 95%, transparent);
-  backdrop-filter: saturate(120%) blur(12px);
-}
-
 @theme inline {
   /* ── macOS HIG 字号映射 ── */
-  --font-size-2xs: 0.625rem; /* 10px — HIG Footnote/Caption */
+  --font-size-2xs: 0.625rem;           /* 10px — HIG Footnote/Caption */
   --font-size-2xs--line-height: 0.8125rem; /* 13px */
-  --font-size-xs: 0.6875rem; /* 11px — HIG Subheadline */
+  --font-size-xs: 0.6875rem;           /* 11px — HIG Subheadline */
   --font-size-xs--line-height: 0.875rem; /* 14px */
-  --font-size-sm: 0.8125rem; /* 13px — HIG Body */
-  --font-size-sm--line-height: 1rem; /* 16px */
+  --font-size-sm: 0.8125rem;           /* 13px — HIG Body */
+  --font-size-sm--line-height: 1rem;   /* 16px */
 
   /* ── 圆角（基于 --radius: 0.5rem = 8px） ── */
   --radius-sm: calc(var(--radius) - 4px);
@@ -202,8 +161,6 @@ html[data-tauri] .app-toolbar-row {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-selection: var(--sidebar-selection);
-  --color-sidebar-selection-foreground: var(--sidebar-selection-foreground);
   --animate-skeleton: skeleton 2s -1s infinite linear;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
@@ -228,21 +185,6 @@ html[data-tauri] .app-toolbar-row {
   --ink-3: color-mix(in srgb, var(--foreground) 62%, var(--color-neutral-500));
   --line: var(--border);
 
-  --window-material: color-mix(
-    in srgb,
-    var(--color-neutral-900) 90%,
-    var(--color-neutral-700)
-  );
-  --toolbar-material: color-mix(
-    in srgb,
-    var(--color-neutral-900) 92%,
-    var(--color-neutral-700)
-  );
-  --content-material: color-mix(
-    in srgb,
-    var(--color-neutral-950) 96%,
-    var(--color-neutral-700)
-  );
   --background: color-mix(
     in srgb,
     var(--color-neutral-950) 95%,
@@ -253,8 +195,8 @@ html[data-tauri] .app-toolbar-row {
   --card-foreground: var(--color-neutral-100);
   --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
   --popover-foreground: var(--color-neutral-100);
-  --primary: #0a84ff;
-  --primary-foreground: #ffffff;
+  --primary: var(--color-neutral-100);
+  --primary-foreground: var(--color-neutral-800);
   --secondary: --alpha(var(--color-white) / 4%);
   --secondary-foreground: var(--color-neutral-100);
   --muted: --alpha(var(--color-white) / 4%);
@@ -272,26 +214,20 @@ html[data-tauri] .app-toolbar-row {
   );
   --border: --alpha(var(--color-white) / 6%);
   --input: --alpha(var(--color-white) / 8%);
-  --ring: #64b0ff;
+  --ring: var(--color-neutral-500);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: color-mix(
-    in srgb,
-    var(--color-neutral-900) 88%,
-    var(--color-neutral-800)
-  );
-  --sidebar-foreground: var(--color-neutral-100);
-  --sidebar-primary: #0a84ff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: --alpha(var(--color-white) / 5%);
-  --sidebar-accent-foreground: var(--color-neutral-100);
-  --sidebar-border: --alpha(var(--color-white) / 9%);
-  --sidebar-ring: #64b0ff;
-  --sidebar-selection: color-mix(in srgb, #0a84ff 50%, #1a2d4d);
-  --sidebar-selection-foreground: #ffffff;
+  --sidebar: oklch(0.17 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.235 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.556 0 0);
   --destructive-foreground: var(--color-red-400);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-400);
