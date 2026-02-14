@@ -42,7 +42,13 @@ export function ResizableSplitPane({
 
   return (
     <div className={cn('flex h-full min-h-0 overflow-hidden', className)}>
-      <div className={cn('relative shrink-0', leftClassName)} style={{ width: pane.width }}>
+      <div
+        className={cn(
+          'relative shrink-0 border-r border-border/55',
+          leftClassName,
+        )}
+        style={{ width: pane.width }}
+      >
         <div className="h-full min-h-0 w-full">{left}</div>
         <SidebarResizeHandle
           width={pane.width}
@@ -56,7 +62,9 @@ export function ResizableSplitPane({
         />
       </div>
 
-      <div className={cn('min-h-0 min-w-0 flex-1', rightClassName)}>{right}</div>
+      <div className={cn('min-h-0 min-w-0 flex-1', rightClassName)}>
+        {right}
+      </div>
     </div>
   );
 }

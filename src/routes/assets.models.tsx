@@ -174,7 +174,7 @@ function ModelsAssetPage() {
           onClick={handleCreate}
           className="w-full justify-center"
           size="sm"
-          variant="outline"
+          variant="secondary"
         >
           <Plus className="w-4 h-4" />
           新建模特
@@ -190,14 +190,14 @@ function ModelsAssetPage() {
               placeholder="搜索模特..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 bg-muted/50"
+              className="pl-8"
               size="sm"
             />
           </div>
         </div>
       )}
 
-      {models.length > 0 && <div className="mx-3 border-t" />}
+      {models.length > 0 && <div className="mx-3 border-t border-border/55" />}
 
       <div
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
@@ -344,8 +344,10 @@ function ModelListItem({
     <ContextMenu>
       <ContextMenuTrigger
         className={cn(
-          'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
-          selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+          'w-full flex items-center gap-3 px-2.5 py-2 rounded-md text-left transition-colors',
+          selected
+            ? 'bg-primary/22 text-foreground ring-1 ring-primary/30'
+            : 'hover:bg-muted/65',
         )}
         onClick={onSelect}
       >
@@ -386,10 +388,10 @@ function ModelListItem({
 // ── 属性面板（统一创建/编辑，始终可编辑） ──────────────────
 
 const fieldCls =
-  'h-8 w-full rounded-lg border border-transparent bg-background/92 px-2.5 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70';
+  'h-[var(--control-h)] w-full rounded-md border border-input bg-background/75 px-2.5 text-sm text-foreground transition placeholder:text-muted-foreground/68 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/24 dark:bg-background/28';
 
 const textareaCls =
-  'w-full rounded-lg border border-transparent bg-background/92 px-3 py-2 text-sm text-foreground leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70 resize-none';
+  'w-full rounded-md border border-input bg-background/75 px-3 py-2 text-sm text-foreground leading-relaxed transition placeholder:text-muted-foreground/68 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/24 dark:bg-background/28 resize-none';
 
 const noSpinCls =
   '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
@@ -502,7 +504,7 @@ function ModelPropertyPanel({
     <div className="h-full flex flex-col">
       {/* 创建模式标题栏 */}
       {isCreate && (
-        <div className="flex items-center justify-between px-6 py-3.5 border-b">
+        <div className="flex items-center justify-between border-b border-border/55 px-6 py-3.5">
           <h2 className="text-base font-semibold">新模特</h2>
           {onCancel && (
             <button
@@ -520,7 +522,7 @@ function ModelPropertyPanel({
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
           {/* ── 头部：对象身份 ── */}
-          <div className="rounded-xl border border-border/70 bg-card px-5 py-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+          <div className="rounded-lg border border-border/55 bg-card/72 px-5 py-5">
             <div className="flex gap-5">
               <div className="w-32 shrink-0">
                 <ImageUploader
@@ -539,7 +541,10 @@ function ModelPropertyPanel({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="模特名称"
-                  className="h-10 w-full rounded-lg border border-transparent bg-background/92 px-3 text-[1.1rem] font-semibold tracking-[-0.01em] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)]"
+                  className={cn(
+                    fieldCls,
+                    'h-[var(--control-h-lg)] text-[15px] font-semibold tracking-[-0.01em]',
+                  )}
                 />
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -586,7 +591,7 @@ function ModelPropertyPanel({
           </div>
 
           {/* ── 外观提示词 ── */}
-          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+          <div className="rounded-lg border border-border/55 bg-card/72 px-5 py-4">
             <label
               htmlFor="model-appearance"
               className="mb-1.5 block text-sm font-medium text-foreground"
@@ -604,7 +609,7 @@ function ModelPropertyPanel({
           </div>
 
           {/* ── 辅助参考照 ── */}
-          <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
+          <div className="rounded-lg border border-border/55 bg-card/72 px-5 py-4">
             <div className="mb-1.5 text-sm font-medium text-foreground">
               辅助参考照
             </div>
@@ -643,7 +648,7 @@ function ModelPropertyPanel({
 
           {/* ── 删除（仅编辑模式，沉入底部） ── */}
           {!isCreate && onDelete && (
-            <div className="pt-4 border-t border-border/60">
+            <div className="border-t border-border/55 pt-4">
               <button
                 type="button"
                 onClick={onDelete}
@@ -659,7 +664,7 @@ function ModelPropertyPanel({
       {/* ── 底部操作栏 ── */}
       {isCreate ? (
         /* 创建模式：固定底栏 */
-        <div className="border-t bg-background px-6 py-3 flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2 border-t border-border/55 bg-background/86 px-6 py-3 backdrop-blur-sm">
           {onCancel && (
             <Button variant="ghost" size="sm" onClick={onCancel}>
               取消
@@ -675,7 +680,7 @@ function ModelPropertyPanel({
         </div>
       ) : isDirty ? (
         /* 编辑模式：有修改时浮出变更栏 */
-        <div className="border-t bg-background/80 backdrop-blur-sm px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center justify-between border-t border-border/55 bg-background/80 px-6 py-3 backdrop-blur-sm">
           <span className="text-sm text-muted-foreground">有未保存的修改</span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleDiscard}>

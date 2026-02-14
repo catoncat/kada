@@ -54,6 +54,17 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
     pathname.startsWith('/assets/models') ||
     pathname.startsWith('/assets/scenes') ||
     isProjectScenesPage;
+  const currentSectionLabel = isProjectsPage
+    ? '项目'
+    : pathname.startsWith('/assets/scenes')
+      ? '场景资产'
+      : pathname.startsWith('/assets/models')
+        ? '模特资产'
+        : pathname.startsWith('/settings')
+          ? '设置'
+          : pathname.startsWith('/project/')
+            ? '项目详情'
+            : '工作台';
 
   const isActive = useCallback(
     (to: string, exact?: boolean) => {
@@ -147,47 +158,51 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
       <SidebarInset>
         <header
           data-tauri-drag-region
-          className="flex h-14 select-none items-center gap-2 border-b bg-background px-3"
+          className="app-toolbar select-none border-b"
         >
-          <SidebarTrigger className="shrink-0" />
-          <div className="hidden items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs font-medium text-foreground md:inline-flex">
-            <span>Kada</span>
-            <span className="text-muted-foreground">咔哒</span>
-          </div>
+          <div className="app-toolbar-row flex items-center gap-2 px-3">
+            <SidebarTrigger className="shrink-0" />
+            <div className="hidden min-w-[8.5rem] items-center gap-1 text-xs md:flex">
+              <span className="font-semibold text-foreground">Kada 咔哒</span>
+              <span className="text-muted-foreground">
+                {currentSectionLabel}
+              </span>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className={cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm text-muted-foreground shadow-xs/5',
-              'hover:bg-accent/50 hover:text-foreground',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            )}
-          >
-            <Search className="size-4 shrink-0 opacity-70" />
-            <span className="truncate">搜索…</span>
-            <span className="ms-auto shrink-0">
-              <KbdGroup>
-                <Kbd>⌘</Kbd>
-                <Kbd>K</Kbd>
-              </KbdGroup>
-            </span>
-          </button>
-
-          <div className="flex shrink-0 items-center gap-2">
-            <TaskQueueIndicator />
-            <Button
-              aria-label="设置"
-              onClick={handleOpenSettings}
-              size="icon"
-              variant="ghost"
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className={cn(
+                'flex h-[var(--control-h)] min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background/70 px-2.5 text-left text-sm text-muted-foreground',
+                'hover:border-border hover:bg-background hover:text-foreground',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+              )}
             >
-              <Settings2 className="size-4" />
-            </Button>
+              <Search className="size-3.5 shrink-0 opacity-70" />
+              <span className="truncate">搜索项目、场景、任务…</span>
+              <span className="ms-auto shrink-0">
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>K</Kbd>
+                </KbdGroup>
+              </span>
+            </button>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <TaskQueueIndicator />
+              <Button
+                aria-label="设置"
+                onClick={handleOpenSettings}
+                size="icon-sm"
+                variant="ghost"
+              >
+                <Settings2 className="size-3.5" />
+              </Button>
+            </div>
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1">
+        <div className="app-shell-content flex min-h-0 flex-1">
           <div
             className={cn(
               'min-w-0 min-h-0 flex-1',
@@ -197,7 +212,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
             {children}
           </div>
           {contextPanel ? (
-            <aside className="hidden w-80 shrink-0 border-l bg-background/60 p-4 lg:block">
+            <aside className="app-context-panel hidden w-80 shrink-0 border-l p-4 lg:block">
               {contextPanel}
             </aside>
           ) : null}

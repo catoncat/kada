@@ -37,8 +37,10 @@ export function SidebarResizeHandle({
       onDoubleClick={onReset}
       className={cn(
         'absolute inset-y-0 -right-2 z-20 w-4 cursor-col-resize bg-transparent outline-none touch-none',
+        'before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-transparent before:transition-colors',
+        'hover:before:bg-border/85',
         'focus-visible:ring-2 focus-visible:ring-ring/40',
-        isDragging && 'cursor-col-resize',
+        isDragging && 'cursor-col-resize before:bg-ring/55',
         className,
       )}
     />
