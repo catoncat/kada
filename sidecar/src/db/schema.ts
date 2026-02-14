@@ -9,6 +9,7 @@ export const providers = sqliteTable('providers', {
   apiKey: text('api_key').notNull(),
   textModel: text('text_model').notNull(),
   imageModel: text('image_model').notNull(),
+  capabilities: text('capabilities'), // JSON - provider capability probes and routing hints
   isDefault: integer('is_default', { mode: 'boolean' }).default(false),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }),

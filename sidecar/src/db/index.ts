@@ -185,6 +185,9 @@ function ensureColumns() {
 
   // generation_runs: 历史数据库可能缺少任务关联列
   addColumnIfMissing('generation_runs', 'task_id', 'TEXT');
+
+  // providers: 历史数据库可能缺少能力探测列
+  addColumnIfMissing('providers', 'capabilities', 'TEXT');
 }
 
 export function closeDatabase() {
