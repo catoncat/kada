@@ -14,6 +14,10 @@ function toCapabilitiesJson(value: ProviderCapabilities): string {
   return JSON.stringify(value);
 }
 
+function resolveRoutingProfile(capabilities: ProviderCapabilities): string {
+  return capabilities.routing_profile;
+}
+
 function toProbeInput(source: {
   format: string;
   baseUrl: string;
@@ -73,6 +77,7 @@ providerRoutes.post('/', async (c) => {
     id,
     name: body.name,
     format: body.format,
+    routingProfile: resolveRoutingProfile(capabilities),
     baseUrl: body.baseUrl,
     apiKey: body.apiKey,
     textModel: body.textModel,
@@ -116,10 +121,13 @@ providerRoutes.put('/:id', async (c) => {
     'textModel',
     'imageModel',
   ].some((key) => key in body);
-  const nextCapabilities =
-    capabilityRelevantChanged || !existing.capabilities
-      ? toCapabilitiesJson(await detectProviderCapabilities(mergedForProbe))
-      : existing.capabilities;
+  let nextCapabilities = existing.capabilities;
+  let nextRoutingProfile = existing.routingProfile || 'native';
+  if (capabilityRelevantChanged || !existing.capabilities) {
+    const detected = await detectProviderCapabilities(mergedForProbe);
+    nextCapabilities = toCapabilitiesJson(detected);
+    nextRoutingProfile = resolveRoutingProfile(detected);
+  }
 
   // 如果设为默认，先取消其他默认
   if (body.isDefault) {
@@ -128,6 +136,7 @@ providerRoutes.put('/:id', async (c) => {
 
   await db.update(providers).set({
     ...body,
+    routingProfile: nextRoutingProfile,
     capabilities: nextCapabilities,
     updatedAt: new Date(),
   }).where(eq(providers.id, id)).run();
@@ -162,6 +171,7 @@ providerRoutes.post('/:id/redetect', async (c) => {
   await db
     .update(providers)
     .set({
+      routingProfile: resolveRoutingProfile(capabilities),
       capabilities: toCapabilitiesJson(capabilities),
       updatedAt: new Date(),
     })
