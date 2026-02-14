@@ -23,11 +23,15 @@ import {
   normalizeLocalUploadPath,
   resolveReferenceImages,
 } from '../reference-image-planner';
-import { resolveOpenAIImageRouteFromCapabilities } from '../../services/provider-capabilities';
+import {
+  resolveOpenAIImageRouteFromCapabilities,
+  resolveReferenceImageSupportFromCapabilities,
+} from '../../services/provider-capabilities';
 
 const DEBUG_IMAGEGEN = process.env.SIDECAR_DEBUG_IMAGEGEN === '1';
 const REFERENCE_IMAGE_MAX_EDGE = 1024;
 const REFERENCE_IMAGE_JPEG_QUALITY = 78;
+const ASPECT_RATIO_TOLERANCE = 0.08;
 
 export interface ImageGenerationInput {
   prompt: string;
@@ -68,6 +72,36 @@ interface GeminiReferenceImages {
   identityCollageUsed?: boolean;
 }
 
+interface GenerationRunDiagnostics {
+  effective_route: string | null;
+  reference_count_sent: number;
+  reference_support_status?: 'supported' | 'unsupported' | 'unknown';
+  aspect_requested: string | null;
+  aspect_actual: string | null;
+  aspect_param_degraded: boolean;
+  validation_fail_reasons: string[];
+}
+
+interface ValidationCheckResult {
+  status: 'pass' | 'fail' | 'skip';
+  reason: string;
+}
+
+interface GenerationValidation {
+  overall: 'pass' | 'fail';
+  checks: {
+    non_empty_file: ValidationCheckResult;
+    decodable_image: ValidationCheckResult;
+    single_frame: ValidationCheckResult;
+    width_height: ValidationCheckResult;
+    aspect_ratio: ValidationCheckResult;
+  };
+  expected_aspect_ratio: number | null;
+  actual_aspect_ratio: number | null;
+  tolerance: number;
+  fail_reasons: string[];
+}
+
 // 获取上传目录
 function getUploadDir(): string {
   const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -96,6 +130,156 @@ function getExtension(mimeType: string): string {
     'image/gif': 'gif',
   };
   return map[mimeType] || 'png';
+}
+
+function resolveExpectedAspectRatio(options?: ImageGenerationOptions): number | null {
+  if (!options) return null;
+  if (
+    typeof options.width === 'number' &&
+    Number.isFinite(options.width) &&
+    options.width > 0 &&
+    typeof options.height === 'number' &&
+    Number.isFinite(options.height) &&
+    options.height > 0
+  ) {
+    return options.width / options.height;
+  }
+
+  const aspect = normalizeAspectRatioLabel(options.aspectRatio);
+  if (!aspect) return null;
+  switch (aspect) {
+    case 'photo':
+    case 'portrait':
+    case '3:4':
+    case '3/4':
+      return 3 / 4;
+    case '9:16':
+    case '9/16':
+      return 9 / 16;
+    case 'landscape':
+    case '4:3':
+    case '4/3':
+      return 4 / 3;
+    case '16:9':
+    case '16/9':
+      return 16 / 9;
+    case 'square':
+    case '1:1':
+    case '1/1':
+      return 1;
+    default:
+      return null;
+  }
+}
+
+function resolveRequestedAspectLabel(options?: ImageGenerationOptions): string | null {
+  if (!options) return null;
+  if (
+    typeof options.width === 'number' &&
+    Number.isFinite(options.width) &&
+    options.width > 0 &&
+    typeof options.height === 'number' &&
+    Number.isFinite(options.height) &&
+    options.height > 0
+  ) {
+    return `${Math.round(options.width)}x${Math.round(options.height)}`;
+  }
+  return buildAspectRatioInstruction(options.aspectRatio);
+}
+
+function buildImageValidation(params: {
+  mimeType: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+  metadata: sharp.Metadata | null;
+  options?: ImageGenerationOptions;
+}): GenerationValidation {
+  const checks: GenerationValidation['checks'] = {
+    non_empty_file: { status: 'pass', reason: '文件字节数大于 0。' },
+    decodable_image: { status: 'pass', reason: '图片可解码。' },
+    single_frame: { status: 'pass', reason: '产物为单帧静态图。' },
+    width_height: { status: 'pass', reason: '宽高信息有效。' },
+    aspect_ratio: { status: 'skip', reason: '未请求明确画幅，跳过比例校验。' },
+  };
+
+  if (!(params.sizeBytes > 0)) {
+    checks.non_empty_file = { status: 'fail', reason: '文件字节数为 0。' };
+  }
+
+  const decodedWidth = params.metadata?.width;
+  const decodedHeight = params.metadata?.height;
+  const decodable =
+    typeof decodedWidth === 'number' &&
+    decodedWidth > 0 &&
+    typeof decodedHeight === 'number' &&
+    decodedHeight > 0;
+  if (!decodable) {
+    checks.decodable_image = {
+      status: 'fail',
+      reason: '图片无法解码或缺少宽高元数据。',
+    };
+  }
+
+  const pages =
+    typeof params.metadata?.pages === 'number' ? params.metadata.pages : 1;
+  const isAnimatedMime = params.mimeType === 'image/gif';
+  if (isAnimatedMime || pages > 1) {
+    checks.single_frame = {
+      status: 'fail',
+      reason: `检测到多帧产物（mime=${params.mimeType}, pages=${pages}）。`,
+    };
+  }
+
+  const widthValid =
+    typeof params.width === 'number' &&
+    params.width > 0 &&
+    typeof params.height === 'number' &&
+    params.height > 0;
+  if (!widthValid) {
+    checks.width_height = { status: 'fail', reason: '宽高为空或非正数。' };
+  }
+
+  const expectedAspect = resolveExpectedAspectRatio(params.options);
+  const actualAspect =
+    widthValid && typeof params.width === 'number' && typeof params.height === 'number'
+      ? params.width / params.height
+      : null;
+
+  if (expectedAspect !== null) {
+    if (actualAspect === null) {
+      checks.aspect_ratio = {
+        status: 'fail',
+        reason: '已请求画幅但无法读取实际宽高。',
+      };
+    } else {
+      const diff = Math.abs(actualAspect - expectedAspect);
+      if (diff > ASPECT_RATIO_TOLERANCE) {
+        checks.aspect_ratio = {
+          status: 'fail',
+          reason: `实际比例偏差过大（expected=${expectedAspect.toFixed(4)}, actual=${actualAspect.toFixed(4)}, diff=${diff.toFixed(4)}）。`,
+        };
+      } else {
+        checks.aspect_ratio = {
+          status: 'pass',
+          reason: `画幅比例符合要求（expected=${expectedAspect.toFixed(4)}, actual=${actualAspect.toFixed(4)}）。`,
+        };
+      }
+    }
+  }
+
+  const failReasons = Object.values(checks)
+    .filter((item) => item.status === 'fail')
+    .map((item) => item.reason);
+
+  return {
+    overall: failReasons.length > 0 ? 'fail' : 'pass',
+    checks,
+    expected_aspect_ratio: expectedAspect,
+    actual_aspect_ratio: actualAspect,
+    tolerance: ASPECT_RATIO_TOLERANCE,
+    fail_reasons: failReasons,
+  };
 }
 
 export async function imageGenerationHandler(
@@ -222,6 +406,17 @@ export async function imageGenerationHandler(
     renderPrompt,
   };
   const effectivePrompt = renderPrompt;
+  const diagnostics: GenerationRunDiagnostics = {
+    effective_route: null,
+    reference_count_sent: 0,
+    aspect_requested: resolveRequestedAspectLabel(
+      resolvedGenerationOptions || undefined,
+    ),
+    aspect_actual: null,
+    aspect_param_degraded: false,
+    validation_fail_reasons: [],
+  };
+  let validation: GenerationValidation | null = null;
 
   // 3. 创建 GenerationRun 记录
   const runId = `gr_${randomUUID()}`;
@@ -236,6 +431,8 @@ export async function imageGenerationHandler(
     relatedId: owner?.id,
     effectivePrompt,
     promptContext: JSON.stringify(promptContext),
+    diagnostics: JSON.stringify(diagnostics),
+    validation: null,
     parentRunId: null,
     taskId: taskId || null,
     createdAt: now,
@@ -243,6 +440,30 @@ export async function imageGenerationHandler(
   });
 
   try {
+    if (provider.format === 'openai') {
+      const hasReferences = allReferenceImages.length > 0;
+      diagnostics.effective_route = resolveOpenAIImageRouteFromCapabilities(
+        provider.capabilities,
+        hasReferences,
+      );
+      diagnostics.reference_support_status =
+        resolveReferenceImageSupportFromCapabilities(provider.capabilities);
+      if (
+        hasReferences &&
+        diagnostics.reference_support_status !== 'supported'
+      ) {
+        diagnostics.validation_fail_reasons = [
+          `当前 provider 不支持“带参考图”生图（status=${diagnostics.reference_support_status}）。`,
+        ];
+        throw new Error(
+          `IMAGE_REFERENCE_UNSUPPORTED: current provider does not support image generation with references (status=${diagnostics.reference_support_status})`,
+        );
+      }
+    } else {
+      diagnostics.effective_route = `${provider.format}-native`;
+      diagnostics.reference_count_sent = allReferenceImages.length;
+    }
+
     // 4. 调用图片生成 API
     if (DEBUG_IMAGEGEN) console.log('[ImageGen] Calling generateImage API...');
     const result = await generateImage(
@@ -261,8 +482,21 @@ export async function imageGenerationHandler(
       },
       resolvedGenerationOptions || undefined,
     );
+    if (result.runtimeDiagnostics?.effectiveRoute) {
+      diagnostics.effective_route = result.runtimeDiagnostics.effectiveRoute;
+    }
+    if (typeof result.runtimeDiagnostics?.referenceCountSent === 'number') {
+      diagnostics.reference_count_sent = result.runtimeDiagnostics.referenceCountSent;
+    }
     if (result.aspectRatioRuntime) {
       (promptContext as any).aspectRatioRuntime = result.aspectRatioRuntime;
+      diagnostics.aspect_requested = result.aspectRatioRuntime.requested;
+      if (
+        result.aspectRatioRuntime.retriedWithoutImageConfig ||
+        result.aspectRatioRuntime.retriedWithoutSize
+      ) {
+        diagnostics.aspect_param_degraded = true;
+      }
     }
     if (DEBUG_IMAGEGEN) {
       console.log(
@@ -284,17 +518,40 @@ export async function imageGenerationHandler(
     }
     let outputWidth = result.width;
     let outputHeight = result.height;
-    if ((!outputWidth || !outputHeight) && buffer.length > 0) {
-      try {
-        const metadata = await sharp(buffer, { failOn: 'none' }).metadata();
-        if (!outputWidth && typeof metadata.width === 'number')
-          outputWidth = metadata.width;
-        if (!outputHeight && typeof metadata.height === 'number')
-          outputHeight = metadata.height;
-      } catch {
-        // ignore metadata errors and keep nullable width/height
-      }
+    let decodedMetadata: sharp.Metadata | null = null;
+    try {
+      decodedMetadata = await sharp(buffer, { failOn: 'none' }).metadata();
+      if (!outputWidth && typeof decodedMetadata.width === 'number')
+        outputWidth = decodedMetadata.width;
+      if (!outputHeight && typeof decodedMetadata.height === 'number')
+        outputHeight = decodedMetadata.height;
+    } catch {
+      // ignore metadata errors and keep nullable width/height
     }
+
+    diagnostics.aspect_actual =
+      typeof outputWidth === 'number' &&
+      outputWidth > 0 &&
+      typeof outputHeight === 'number' &&
+      outputHeight > 0
+        ? `${outputWidth}:${outputHeight}`
+        : null;
+
+    validation = buildImageValidation({
+      mimeType: result.mimeType,
+      sizeBytes,
+      width: outputWidth,
+      height: outputHeight,
+      metadata: decodedMetadata,
+      options: resolvedGenerationOptions || undefined,
+    });
+    diagnostics.validation_fail_reasons = validation.fail_reasons;
+    if (validation.overall === 'fail') {
+      throw new Error(
+        `IMAGE_VALIDATION_FAILED: ${validation.fail_reasons.join(' | ')}`,
+      );
+    }
+
     const ext = getExtension(result.mimeType);
     const filename = `${randomUUID()}.${ext}`;
     const uploadDir = getUploadDir();
@@ -334,6 +591,8 @@ export async function imageGenerationHandler(
       .update(generationRuns)
       .set({
         status: 'succeeded',
+        diagnostics: JSON.stringify(diagnostics),
+        validation: JSON.stringify(validation),
         updatedAt: new Date(),
       })
       .where(eq(generationRuns.id, runId));
@@ -357,10 +616,15 @@ export async function imageGenerationHandler(
     // 更新 Run 状态为失败
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
+    if (diagnostics.validation_fail_reasons.length === 0 && errorMessage) {
+      diagnostics.validation_fail_reasons = [errorMessage];
+    }
     await db
       .update(generationRuns)
       .set({
         status: 'failed',
+        diagnostics: JSON.stringify(diagnostics),
+        validation: validation ? JSON.stringify(validation) : null,
         error: JSON.stringify({ message: errorMessage }),
         updatedAt: new Date(),
       })
@@ -385,9 +649,16 @@ interface GenerateImageResult {
   height?: number;
   aspectRatioRuntime?: {
     requested: string | null;
-    attemptedWithImageConfig: boolean;
-    retriedWithoutImageConfig: boolean;
-    appliedWithImageConfig: boolean;
+    attemptedWithImageConfig?: boolean;
+    retriedWithoutImageConfig?: boolean;
+    appliedWithImageConfig?: boolean;
+    attemptedWithSize?: boolean;
+    retriedWithoutSize?: boolean;
+    appliedWithSize?: boolean;
+  };
+  runtimeDiagnostics?: {
+    effectiveRoute: string;
+    referenceCountSent: number;
   };
 }
 
@@ -1008,9 +1279,23 @@ async function tryGenerateImageViaOpenAIChatCompletions(
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: unknown } }>;
   };
-  return parseImageFromOpenAIChatResponseContent(
+  const parsed = await parseImageFromOpenAIChatResponseContent(
     data.choices?.[0]?.message?.content,
   );
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    aspectRatioRuntime: {
+      requested: resolveRequestedAspectLabel(options),
+      attemptedWithSize: false,
+      retriedWithoutSize: false,
+      appliedWithSize: false,
+    },
+    runtimeDiagnostics: {
+      effectiveRoute: 'openai-chat',
+      referenceCountSent: sceneAdded + identityAdded,
+    },
+  };
 }
 
 async function generateImage(
@@ -1140,11 +1425,15 @@ async function generateImage(
           imageBase64: data,
           mimeType: part.inlineData.mimeType || 'image/png',
           aspectRatioRuntime: {
-            requested: requestedAspectRatio,
+            requested: resolveRequestedAspectLabel(parsedOptions || undefined),
             attemptedWithImageConfig,
             retriedWithoutImageConfig,
             appliedWithImageConfig:
               attemptedWithImageConfig && !retriedWithoutImageConfig,
+          },
+          runtimeDiagnostics: {
+            effectiveRoute: 'gemini-native',
+            referenceCountSent: flattenReferenceImageList(referenceImages).length,
           },
         };
       }
@@ -1166,6 +1455,9 @@ async function generateImage(
     }> => {
       const url = `${provider.baseUrl}/images/generations`;
       if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI URL:', url);
+      const requestedAspectLabel = resolveRequestedAspectLabel(options);
+      const attemptedWithSize = Boolean(requestedOpenAIImageSize);
+      let retriedWithoutSize = false;
       const callImages = async (withSize: boolean) =>
         fetch(url, {
           method: 'POST',
@@ -1204,6 +1496,7 @@ async function generateImage(
               requestedOpenAIImageSize,
             );
           }
+          retriedWithoutSize = true;
           res = await callImages(false);
           if (!res.ok) {
             errorData = await res.json().catch(() => ({}));
@@ -1238,6 +1531,16 @@ async function generateImage(
             image: {
               imageBase64: b64,
               mimeType: 'image/png',
+              aspectRatioRuntime: {
+                requested: requestedAspectLabel,
+                attemptedWithSize,
+                retriedWithoutSize,
+                appliedWithSize: attemptedWithSize && !retriedWithoutSize,
+              },
+              runtimeDiagnostics: {
+                effectiveRoute: 'openai-images',
+                referenceCountSent: 0,
+              },
             },
             reason: null,
           };
@@ -1255,13 +1558,40 @@ async function generateImage(
             image: {
               imageBase64: dataUri.data,
               mimeType: dataUri.mimeType,
+              aspectRatioRuntime: {
+                requested: requestedAspectLabel,
+                attemptedWithSize,
+                retriedWithoutSize,
+                appliedWithSize: attemptedWithSize && !retriedWithoutSize,
+              },
+              runtimeDiagnostics: {
+                effectiveRoute: 'openai-images',
+                referenceCountSent: 0,
+              },
             },
             reason: null,
           };
         }
 
         const remoteImage = await fetchRemoteImageAsGenerateResult(maybeUrl);
-        if (remoteImage) return { image: remoteImage, reason: null };
+        if (remoteImage) {
+          return {
+            image: {
+              ...remoteImage,
+              aspectRatioRuntime: {
+                requested: requestedAspectLabel,
+                attemptedWithSize,
+                retriedWithoutSize,
+                appliedWithSize: attemptedWithSize && !retriedWithoutSize,
+              },
+              runtimeDiagnostics: {
+                effectiveRoute: 'openai-images',
+                referenceCountSent: 0,
+              },
+            },
+            reason: null,
+          };
+        }
       }
 
       return {
@@ -1292,15 +1622,6 @@ async function generateImage(
     const primaryResult =
       primaryRoute === 'chat' ? await tryChatRoute() : await tryImagesRoute();
     if (primaryResult.image) return primaryResult.image;
-
-    const secondaryRoute: 'images' | 'chat' =
-      primaryRoute === 'chat' ? 'images' : 'chat';
-    const secondaryResult =
-      secondaryRoute === 'chat' ? await tryChatRoute() : await tryImagesRoute();
-    if (secondaryResult.image) return secondaryResult.image;
-
-    throw new Error(
-      secondaryResult.reason || primaryResult.reason || 'OpenAI image generation failed',
-    );
+    throw new Error(primaryResult.reason || 'OpenAI image generation failed');
   }
 }
