@@ -5,6 +5,7 @@ export const providers = sqliteTable('providers', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   format: text('format').notNull(), // 'gemini' | 'openai' | 'local'
+  routingProfile: text('routing_profile').default('native'), // 'native' | 'openai_compat_chat_only' | 'openai_compat_full'
   baseUrl: text('base_url').notNull(),
   apiKey: text('api_key').notNull(),
   textModel: text('text_model').notNull(),
@@ -90,6 +91,8 @@ export const generationRuns = sqliteTable('generation_runs', {
   relatedId: text('related_id'),
   effectivePrompt: text('effective_prompt'), // 最终用于出图的提示词
   promptContext: text('prompt_context'), // JSON - 结构化上下文
+  diagnostics: text('diagnostics'), // JSON - 执行观测信息（路由、参考图数量、画幅等）
+  validation: text('validation'), // JSON - 产物硬验收结果
   parentRunId: text('parent_run_id'), // 可选：父 run（用于表达 run 的继承关系）
   taskId: text('task_id'), // 关联的 task ID（如果是通过 task 触发的）
   error: text('error'), // JSON - 失败时的错误信息

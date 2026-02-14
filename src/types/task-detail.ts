@@ -68,6 +68,8 @@ export interface TaskDetailRun {
   relatedId: string | null;
   effectivePrompt: string | null;
   promptContext: TaskPromptContext | null;
+  diagnostics?: Record<string, unknown> | null;
+  validation?: Record<string, unknown> | null;
   parentRunId: string | null;
   taskId: string | null;
   error: Record<string, unknown> | null;

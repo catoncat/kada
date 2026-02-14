@@ -248,6 +248,8 @@ taskRoutes.get('/:id/detail', async (c) => {
         ? {
             ...run,
             promptContext: parseJsonSafely<JsonObject>(run.promptContext),
+            diagnostics: parseJsonSafely<JsonObject>(run.diagnostics),
+            validation: parseJsonSafely<JsonObject>(run.validation),
             error: parseJsonSafely<JsonObject>(run.error) || (run.error ? { message: run.error } : null),
             createdAt: toIso(run.createdAt),
             updatedAt: toIso(run.updatedAt),

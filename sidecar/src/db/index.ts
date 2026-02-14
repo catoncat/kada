@@ -49,6 +49,7 @@ function ensureTables() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       format TEXT NOT NULL,
+      routing_profile TEXT DEFAULT 'native',
       base_url TEXT NOT NULL,
       api_key TEXT NOT NULL,
       text_model TEXT NOT NULL,
@@ -126,6 +127,8 @@ function ensureTables() {
       related_id TEXT,
       effective_prompt TEXT,
       prompt_context TEXT,
+      diagnostics TEXT,
+      validation TEXT,
       parent_run_id TEXT,
       task_id TEXT,
       error TEXT,
@@ -185,8 +188,11 @@ function ensureColumns() {
 
   // generation_runs: 历史数据库可能缺少任务关联列
   addColumnIfMissing('generation_runs', 'task_id', 'TEXT');
+  addColumnIfMissing('generation_runs', 'diagnostics', 'TEXT');
+  addColumnIfMissing('generation_runs', 'validation', 'TEXT');
 
   // providers: 历史数据库可能缺少能力探测列
+  addColumnIfMissing('providers', 'routing_profile', "TEXT DEFAULT 'native'");
   addColumnIfMissing('providers', 'capabilities', 'TEXT');
 }
 
