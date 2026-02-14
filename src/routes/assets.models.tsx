@@ -5,7 +5,6 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Plus, Search, Trash2, User, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ImageUploader } from '@/components/ImageUploader';
-import { PhotoFrame } from '@/components/PhotoFrame';
 import {
   ThreeColumnDetailPane,
   ThreeColumnLayout,
@@ -100,7 +99,6 @@ function ModelsAssetPage() {
   });
 
   const models = data?.data || [];
-
   const filteredModels = useMemo(() => {
     if (!search.trim()) return models;
     const q = search.toLowerCase();
@@ -347,9 +345,7 @@ function ModelListItem({
       <ContextMenuTrigger
         className={cn(
           'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
-          selected
-            ? 'bg-accent text-accent-foreground'
-            : 'hover:bg-accent/50',
+          selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
         )}
         onClick={onSelect}
       >
@@ -394,9 +390,6 @@ const fieldCls =
 
 const textareaCls =
   'w-full rounded-lg border border-transparent bg-background/92 px-3 py-2 text-sm text-foreground leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70 resize-none';
-
-const macImageUploaderCls =
-  '[&>button]:rounded-xl [&>button]:border [&>button]:border-input/70 [&>button]:border-solid [&>button]:bg-muted/35 [&>button]:p-6 [&>button]:hover:bg-muted/55 [&>button]:transition-colors';
 
 const noSpinCls =
   '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
@@ -490,6 +483,20 @@ function ModelPropertyPanel({
     setReferenceImages(referenceImages.filter((_, i) => i !== index));
   };
 
+  const handleReplaceRef = (index: number, path: string) => {
+    setReferenceImages(
+      referenceImages.map((img, i) => (i === index ? path : img)),
+    );
+  };
+
+  const getReferenceRenderKey = (() => {
+    const seen = new Map<string, number>();
+    return (path: string) => {
+      const count = (seen.get(path) ?? 0) + 1;
+      seen.set(path, count);
+      return `${path}::${count}`;
+    };
+  })();
 
   return (
     <div className="h-full flex flex-col">
@@ -520,7 +527,9 @@ function ModelPropertyPanel({
                   value={primaryImage}
                   onChange={(path) => setPrimaryImage(path || '')}
                   placeholder="主照片"
-                  className={macImageUploaderCls}
+                  compact
+                  emptyOrientation="portrait"
+                  metaText={false}
                 />
               </div>
 
@@ -572,7 +581,6 @@ function ModelPropertyPanel({
                     <span className="text-xs text-muted-foreground">岁</span>
                   </div>
                 </div>
-
               </div>
             </div>
           </div>
@@ -593,35 +601,30 @@ function ModelPropertyPanel({
               rows={4}
               className={textareaCls}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              将注入到出图提示词中，帮助 AI 保持人物外观一致
-            </p>
           </div>
 
           {/* ── 辅助参考照 ── */}
           <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
             <div className="mb-1.5 text-sm font-medium text-foreground">
               辅助参考照
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                最多 5 张
-              </span>
             </div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-4 lg:grid-cols-5">
               {referenceImages.map((img, i) => (
-                <PhotoFrame
-                  key={img}
-                  src={getImageUrl(img)}
-                  alt={`参考照 ${i + 1}`}
-                  className="rounded-lg border border-input/80 bg-muted/20"
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRef(i)}
-                    className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white transition hover:bg-black/80"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </PhotoFrame>
+                <ImageUploader
+                  key={getReferenceRenderKey(img)}
+                  value={img}
+                  onChange={(path) => {
+                    if (path) {
+                      handleReplaceRef(i, path);
+                    } else {
+                      handleRemoveRef(i);
+                    }
+                  }}
+                  placeholder="参考图"
+                  compact
+                  emptyOrientation="portrait"
+                  metaText={false}
+                />
               ))}
               {referenceImages.length < 5 && (
                 <ImageUploader
@@ -630,7 +633,9 @@ function ModelPropertyPanel({
                     if (path) handleAddRef(path);
                   }}
                   placeholder="添加参考图"
-                  className={macImageUploaderCls}
+                  compact
+                  emptyOrientation="portrait"
+                  metaText={false}
                 />
               )}
             </div>

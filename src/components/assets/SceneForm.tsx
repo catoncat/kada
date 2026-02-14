@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
 import { MapPin, Sun, Tag, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { Button } from '@/components/ui/button';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -43,9 +43,6 @@ const fieldCls =
 const textareaCls =
   'w-full rounded-lg border border-transparent bg-background/92 px-3 py-2 text-sm text-foreground leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_0_0_1px_rgba(60,60,67,0.12)] transition focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#007AFF]/28 focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_0_0_1px_rgba(0,122,255,0.35)] dark:bg-background/75 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(255,255,255,0.12)] dark:focus-visible:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_0_1px_rgba(10,132,255,0.55)] placeholder:text-muted-foreground/70 resize-none';
 
-const macImageUploaderCls =
-  '[&>button]:rounded-xl [&>button]:border [&>button]:border-input/70 [&>button]:border-solid [&>button]:bg-muted/35 [&>button]:p-6 [&>button]:hover:bg-muted/55 [&>button]:transition-colors';
-
 export function SceneForm({
   initialData,
   onSubmit,
@@ -56,13 +53,19 @@ export function SceneForm({
   const isCreate = !initialData;
 
   const [name, setName] = useState(initialData?.name || '');
-  const [description, setDescription] = useState(initialData?.description || '');
-  const [primaryImage, setPrimaryImage] = useState(initialData?.primaryImage || '');
+  const [description, setDescription] = useState(
+    initialData?.description || '',
+  );
+  const [primaryImage, setPrimaryImage] = useState(
+    initialData?.primaryImage || '',
+  );
   const [defaultLighting, setDefaultLighting] = useState(
     initialData?.defaultLighting || '',
   );
   const [isOutdoor, setIsOutdoor] = useState(initialData?.isOutdoor || false);
-  const [tagsInput, setTagsInput] = useState(initialData?.tags?.join(', ') || '');
+  const [tagsInput, setTagsInput] = useState(
+    initialData?.tags?.join(', ') || '',
+  );
 
   const [colorTone, setColorTone] = useState<SceneStyle['colorTone']>(
     initialData?.style?.colorTone || 'neutral',
@@ -182,7 +185,8 @@ export function SceneForm({
                   value={primaryImage}
                   onChange={(path) => setPrimaryImage(path || '')}
                   placeholder="场景主图"
-                  className={macImageUploaderCls}
+                  compact
+                  metaText={false}
                 />
               </div>
 
@@ -267,36 +271,60 @@ export function SceneForm({
           </div>
 
           <div className="rounded-xl border border-border/70 bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.28)]">
-            <div className="mb-3 text-sm font-medium text-foreground">风格属性</div>
+            <div className="mb-3 text-sm font-medium text-foreground">
+              风格属性
+            </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div>
                 <div className="mb-1.5 text-xs text-muted-foreground">色调</div>
                 <SegmentedControl
                   value={colorTone || ''}
-                  onValueChange={(v) => setColorTone((v || 'neutral') as SceneStyle['colorTone'])}
-                  options={COLOR_TONE_OPTIONS as unknown as { value: string; label: string }[]}
+                  onValueChange={(v) =>
+                    setColorTone((v || 'neutral') as SceneStyle['colorTone'])
+                  }
+                  options={
+                    COLOR_TONE_OPTIONS as unknown as {
+                      value: string;
+                      label: string;
+                    }[]
+                  }
                   size="sm"
                 />
               </div>
 
               <div>
-                <div className="mb-1.5 text-xs text-muted-foreground">光线氛围</div>
+                <div className="mb-1.5 text-xs text-muted-foreground">
+                  光线氛围
+                </div>
                 <SegmentedControl
                   value={lightingMood || ''}
                   onValueChange={(v) =>
-                    setLightingMood((v || 'natural') as SceneStyle['lightingMood'])
+                    setLightingMood(
+                      (v || 'natural') as SceneStyle['lightingMood'],
+                    )
                   }
-                  options={LIGHTING_MOOD_OPTIONS as unknown as { value: string; label: string }[]}
+                  options={
+                    LIGHTING_MOOD_OPTIONS as unknown as {
+                      value: string;
+                      label: string;
+                    }[]
+                  }
                   size="sm"
                 />
               </div>
 
               <div>
-                <div className="mb-1.5 text-xs text-muted-foreground">年代感</div>
+                <div className="mb-1.5 text-xs text-muted-foreground">
+                  年代感
+                </div>
                 <SegmentedControl
                   value={era || ''}
-                  onValueChange={(v) => setEra((v || 'timeless') as SceneStyle['era'])}
-                  options={ERA_OPTIONS as unknown as { value: string; label: string }[]}
+                  onValueChange={(v) =>
+                    setEra((v || 'timeless') as SceneStyle['era'])
+                  }
+                  options={
+                    ERA_OPTIONS as unknown as { value: string; label: string }[]
+                  }
                   size="sm"
                 />
               </div>

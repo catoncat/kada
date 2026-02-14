@@ -1,14 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
-import { PhotoFrame } from '@/components/PhotoFrame';
-import type { ModelAsset, CreateModelAssetInput } from '@/types/model-asset';
 import { Button } from '@/components/ui/button';
 import { FormRow, FormSection } from '@/components/ui/form-row';
 import { SegmentedControl } from '@/components/ui/segmented-control';
-import { getImageUrl } from '@/lib/scene-assets-api';
+import type { CreateModelAssetInput, ModelAsset } from '@/types/model-asset';
 
 interface ModelFormProps {
   initialData?: ModelAsset;
@@ -21,32 +18,6 @@ const GENDER_OPTIONS = [
   { value: 'male' as const, label: '男' },
   { value: 'female' as const, label: '女' },
 ];
-
-function ReferencePhotoThumb({
-  src,
-  alt,
-  onRemove,
-}: {
-  src: string;
-  alt: string;
-  onRemove: () => void;
-}) {
-  return (
-    <PhotoFrame
-      src={src}
-      alt={alt}
-      className="rounded-lg border border-input bg-background"
-    >
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition"
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
-    </PhotoFrame>
-  );
-}
 
 const inputClass =
   'w-full h-7 rounded-md border border-input bg-background px-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30';
@@ -71,7 +42,9 @@ export function ModelForm({
   const [appearancePrompt, setAppearancePrompt] = useState(
     initialData?.appearancePrompt || '',
   );
-  const [primaryImage, setPrimaryImage] = useState(initialData?.primaryImage || '');
+  const [primaryImage, setPrimaryImage] = useState(
+    initialData?.primaryImage || '',
+  );
   const [referenceImages, setReferenceImages] = useState<string[]>(
     initialData?.referenceImages || [],
   );
@@ -86,6 +59,12 @@ export function ModelForm({
 
   const handleRemoveReferenceImage = (index: number) => {
     setReferenceImages(referenceImages.filter((_, i) => i !== index));
+  };
+
+  const handleReplaceReferenceImage = (index: number, path: string) => {
+    setReferenceImages(
+      referenceImages.map((img, i) => (i === index ? path : img)),
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,6 +89,15 @@ export function ModelForm({
     await onSubmit(data);
   };
 
+  const getReferenceRenderKey = (() => {
+    const seen = new Map<string, number>();
+    return (path: string) => {
+      const count = (seen.get(path) ?? 0) + 1;
+      seen.set(path, count);
+      return `${path}::${count}`;
+    };
+  })();
+
   return (
     <form onSubmit={handleSubmit} className="flex h-full flex-col">
       {/* 标题栏 */}
@@ -120,7 +108,10 @@ export function ModelForm({
       </div>
 
       {/* 表单内容 */}
-      <div className="flex-1 overflow-y-auto" style={{ '--form-label-width': '5.5rem' } as React.CSSProperties}>
+      <div
+        className="flex-1 overflow-y-auto"
+        style={{ '--form-label-width': '5rem' } as React.CSSProperties}
+      >
         {/* 基本信息 */}
         <FormRow label="名称" htmlFor="model-name" required>
           <input
@@ -177,26 +168,34 @@ export function ModelForm({
         </FormRow>
 
         {/* 参考照片分组 */}
-        <FormSection
-          title="参考照片"
-          description="上传的照片将作为参考图传给 AI，是保持人物一致性的关键"
-        >
+        <FormSection title="参考照片">
           <FormRow label="主参考照" align="start">
             <ImageUploader
               value={primaryImage}
               onChange={(path) => setPrimaryImage(path || '')}
-              placeholder="上传主参考照片"
+              placeholder="上传主照片"
+              emptyOrientation="portrait"
+              metaText={false}
             />
           </FormRow>
 
-          <FormRow label="辅助照片" align="start" hint="最多 5 张">
-            <div className="grid grid-cols-5 gap-2">
+          <FormRow label="辅助照片" align="start">
+            <div className="grid grid-cols-3 items-start gap-2 sm:grid-cols-4 lg:grid-cols-5">
               {referenceImages.map((img, i) => (
-                <ReferencePhotoThumb
-                  key={img}
-                  src={getImageUrl(img)}
-                  alt={`参考照 ${i + 1}`}
-                  onRemove={() => handleRemoveReferenceImage(i)}
+                <ImageUploader
+                  key={getReferenceRenderKey(img)}
+                  value={img}
+                  onChange={(path) => {
+                    if (path) {
+                      handleReplaceReferenceImage(i, path);
+                    } else {
+                      handleRemoveReferenceImage(i);
+                    }
+                  }}
+                  placeholder="参考图"
+                  compact
+                  emptyOrientation="portrait"
+                  metaText={false}
                 />
               ))}
               {referenceImages.length < 5 && (
@@ -205,7 +204,10 @@ export function ModelForm({
                   onChange={(path) => {
                     if (path) handleAddReferenceImage(path);
                   }}
-                  placeholder=""
+                  placeholder="添加参考图"
+                  compact
+                  emptyOrientation="portrait"
+                  metaText={false}
                 />
               )}
             </div>
@@ -218,7 +220,6 @@ export function ModelForm({
           htmlFor="model-appearance"
           align="start"
           divider={false}
-          hint="描述将注入到出图提示词中，帮助 AI 保持外观一致。建议 20-200 字。"
         >
           <textarea
             id="model-appearance"
