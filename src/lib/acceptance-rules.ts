@@ -26,6 +26,17 @@ export interface AcceptanceFixTemplate {
   };
 }
 
+interface BackendValidationCheck {
+  status?: string;
+  reason?: string;
+}
+
+interface BackendValidationResult {
+  overall?: string;
+  checks?: Record<string, BackendValidationCheck>;
+  fail_reasons?: string[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -65,6 +76,22 @@ function getPromptContext(
     return artifactPromptContext as TaskPromptContext;
   }
   return null;
+}
+
+function getBackendValidation(
+  detail?: TaskDetailView | null,
+): BackendValidationResult | null {
+  const raw = detail?.run?.validation;
+  if (!raw || !isRecord(raw)) return null;
+  return raw as BackendValidationResult;
+}
+
+function mapValidationStatusToRuleStatus(
+  status?: string,
+): 'pass' | 'fail' | 'unknown' {
+  if (status === 'pass') return 'pass';
+  if (status === 'fail') return 'fail';
+  return 'unknown';
 }
 
 export function extractIdentityBindings(
@@ -178,6 +205,7 @@ export function evaluateSceneAcceptance(
   const promptContext = getPromptContext(latestTaskDetail);
   const identityBindings = extractIdentityBindings(promptContext);
   const mappingComplete = hasCompleteMapping(identityBindings, expectedPeopleCount);
+  const backendValidation = getBackendValidation(latestTaskDetail);
 
   const peopleRule: AcceptanceRuleResult = !promptContext
     ? {
@@ -236,82 +264,123 @@ export function evaluateSceneAcceptance(
         };
 
   const aspectRatioInTask = getAspectRatioFromTask(latestTask);
-  const aspectRatioRule: AcceptanceRuleResult = !aspectRatioInTask
+  const backendAspectRatioCheck = backendValidation?.checks?.aspect_ratio;
+  const aspectRatioRule: AcceptanceRuleResult = backendAspectRatioCheck
     ? {
         key: 'aspectRatio',
         label: '画幅',
-        status: 'unknown',
-        reason: '任务未记录 aspectRatio，无法确认是否锁定。',
-      }
-    : {
-        key: 'aspectRatio',
-        label: '画幅',
-        status: aspectRatioInTask === lockedAspectRatio ? 'pass' : 'fail',
+        status: mapValidationStatusToRuleStatus(backendAspectRatioCheck.status),
         reason:
-          aspectRatioInTask === lockedAspectRatio
-            ? `画幅已锁定为 ${lockedAspectRatio}。`
-            : `当前画幅为 ${aspectRatioInTask}，与锁定值 ${lockedAspectRatio} 不一致。`,
-      };
+          backendAspectRatioCheck.reason || '后端硬验收返回了画幅校验结果。',
+      }
+    : !aspectRatioInTask
+      ? {
+          key: 'aspectRatio',
+          label: '画幅',
+          status: 'unknown',
+          reason: '任务未记录 aspectRatio，无法确认是否锁定。',
+        }
+      : {
+          key: 'aspectRatio',
+          label: '画幅',
+          status: aspectRatioInTask === lockedAspectRatio ? 'pass' : 'fail',
+          reason:
+            aspectRatioInTask === lockedAspectRatio
+              ? `画幅已锁定为 ${lockedAspectRatio}。`
+              : `当前画幅为 ${aspectRatioInTask}，与锁定值 ${lockedAspectRatio} 不一致。`,
+        };
 
   const mimeType = getLatestMimeType({
     task: latestTask,
     detail: latestTaskDetail,
   });
-  const singleFrameRule: AcceptanceRuleResult = !mimeType
+  const backendSingleFrameCheck = backendValidation?.checks?.single_frame;
+  const singleFrameRule: AcceptanceRuleResult = backendSingleFrameCheck
     ? {
         key: 'singleFrame',
         label: '单帧',
-        status: 'unknown',
-        reason: '缺少产物 MIME 信息，无法确认是否为静态图。',
+        status: mapValidationStatusToRuleStatus(backendSingleFrameCheck.status),
+        reason:
+          backendSingleFrameCheck.reason || '后端硬验收返回了单帧校验结果。',
       }
-    : mimeType === 'image/gif'
+    : !mimeType
       ? {
           key: 'singleFrame',
           label: '单帧',
-          status: 'fail',
-          reason: '当前产物为 GIF 动图，违反单帧静态图约束。',
+          status: 'unknown',
+          reason: '缺少产物 MIME 信息，无法确认是否为静态图。',
         }
-      : mimeType.startsWith('image/')
+      : mimeType === 'image/gif'
         ? {
             key: 'singleFrame',
             label: '单帧',
-            status: 'pass',
-            reason: `当前产物为 ${mimeType}，符合静态图约束。`,
+            status: 'fail',
+            reason: '当前产物为 GIF 动图，违反单帧静态图约束。',
           }
-        : {
-            key: 'singleFrame',
-            label: '单帧',
-            status: 'unknown',
-            reason: `当前产物类型为 ${mimeType}，无法确定是否为静态图。`,
-          };
+        : mimeType.startsWith('image/')
+          ? {
+              key: 'singleFrame',
+              label: '单帧',
+              status: 'pass',
+              reason: `当前产物为 ${mimeType}，符合静态图约束。`,
+            }
+          : {
+              key: 'singleFrame',
+              label: '单帧',
+              status: 'unknown',
+              reason: `当前产物类型为 ${mimeType}，无法确定是否为静态图。`,
+            };
 
-  const constraintsRule: AcceptanceRuleResult = !scene.sceneAssetImage
-    ? {
-        key: 'constraints',
-        label: '约束完整性',
-        status: 'fail',
-        reason: '缺少 scene 参考图。',
-      }
-    : expectedPeopleCount > 1 && identityBindings.length === 0
+  const backendFailReasons = Array.isArray(backendValidation?.fail_reasons)
+    ? backendValidation?.fail_reasons.filter(
+        (item): item is string => typeof item === 'string' && item.trim().length > 0,
+      )
+    : [];
+  const constraintsRule: AcceptanceRuleResult =
+    backendValidation?.overall === 'fail'
       ? {
           key: 'constraints',
           label: '约束完整性',
           status: 'fail',
-          reason: '多人场景缺少 identity 编号映射。',
+          reason:
+            backendFailReasons.length > 0
+              ? `后端硬验收未通过：${backendFailReasons.join('；')}`
+              : '后端硬验收未通过。',
         }
-      : expectedPeopleCount > 1 && !mappingComplete
+      : backendValidation?.overall === 'pass'
         ? {
             key: 'constraints',
             label: '约束完整性',
-            status: 'fail',
-            reason: '多人映射存在缺号，约束不完整。',
-          }
-        : {
-            key: 'constraints',
-            label: '约束完整性',
             status: 'pass',
-            reason: 'scene/identity 约束信息完整。',
-          };
+            reason: '后端硬验收通过。',
+          }
+        : !scene.sceneAssetImage
+          ? {
+              key: 'constraints',
+              label: '约束完整性',
+              status: 'fail',
+              reason: '缺少 scene 参考图。',
+            }
+          : expectedPeopleCount > 1 && identityBindings.length === 0
+            ? {
+                key: 'constraints',
+                label: '约束完整性',
+                status: 'fail',
+                reason: '多人场景缺少 identity 编号映射。',
+              }
+            : expectedPeopleCount > 1 && !mappingComplete
+              ? {
+                  key: 'constraints',
+                  label: '约束完整性',
+                  status: 'fail',
+                  reason: '多人映射存在缺号，约束不完整。',
+                }
+              : {
+                  key: 'constraints',
+                  label: '约束完整性',
+                  status: 'pass',
+                  reason: 'scene/identity 约束信息完整。',
+                };
 
   const rules: AcceptanceRuleResult[] = [
     peopleRule,
