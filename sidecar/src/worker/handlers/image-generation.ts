@@ -23,6 +23,7 @@ import {
   normalizeLocalUploadPath,
   resolveReferenceImages,
 } from '../reference-image-planner';
+import { resolveOpenAIImageRouteFromCapabilities } from '../../services/provider-capabilities';
 
 const DEBUG_IMAGEGEN = process.env.SIDECAR_DEBUG_IMAGEGEN === '1';
 const REFERENCE_IMAGE_MAX_EDGE = 1024;
@@ -207,6 +208,7 @@ export async function imageGenerationHandler(
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
       textModel: provider.textModel,
+      capabilities: provider.capabilities,
     },
     draftPrompt: prompt,
     effectivePrompt: sourceEffectivePrompt,
@@ -272,7 +274,14 @@ export async function imageGenerationHandler(
     }
 
     // 5. 写入文件
-    const { buffer, sizeBytes } = parseBase64Image(result.imageBase64);
+    const imageBase64 = result.imageBase64?.trim();
+    if (!imageBase64) {
+      throw new Error('Image generation returned empty base64 payload');
+    }
+    const { buffer, sizeBytes } = parseBase64Image(imageBase64);
+    if (sizeBytes <= 0) {
+      throw new Error('Image generation returned empty image buffer');
+    }
     let outputWidth = result.width;
     let outputHeight = result.height;
     if ((!outputWidth || !outputHeight) && buffer.length > 0) {
@@ -342,7 +351,7 @@ export async function imageGenerationHandler(
       height: outputHeight,
       sizeBytes,
       // 兼容旧接口
-      imageBase64: result.imageBase64,
+      imageBase64,
     };
   } catch (error: unknown) {
     // 更新 Run 状态为失败
@@ -366,6 +375,7 @@ interface Provider {
   baseUrl: string;
   apiKey: string;
   imageModel: string;
+  capabilities?: string | null;
 }
 
 interface GenerateImageResult {
@@ -581,6 +591,9 @@ async function buildGeminiReferenceParts(
   parts.push({
     text: '最终输出必须是单张单帧的完整摄影画面。禁止拼图、分屏、左右对比、多宫格、连环画排版、文字水印与边框版式。',
   });
+  parts.push({
+    text: '相机与画面保持水平，禁止整幅画面旋转、斜切白边、歪框透视。',
+  });
 
   if (sceneImages.length > 0) {
     parts.push({
@@ -645,6 +658,63 @@ function buildAspectRatioInstruction(aspectRatio?: string): string | null {
   return raw ? raw : null;
 }
 
+function normalizeAspectRatioLabel(aspectRatio?: string): string | null {
+  if (!aspectRatio || typeof aspectRatio !== 'string') return null;
+  const normalized = aspectRatio.trim().toLowerCase();
+  return normalized || null;
+}
+
+function resolveOpenAIRequestedSize(options?: ImageGenerationOptions): string | null {
+  if (!options) return null;
+  if (
+    typeof options.width === 'number' &&
+    Number.isFinite(options.width) &&
+    options.width > 0 &&
+    typeof options.height === 'number' &&
+    Number.isFinite(options.height) &&
+    options.height > 0
+  ) {
+    return `${Math.round(options.width)}x${Math.round(options.height)}`;
+  }
+
+  const aspect = normalizeAspectRatioLabel(options.aspectRatio);
+  if (!aspect) return null;
+
+  switch (aspect) {
+    case 'photo':
+    case 'portrait':
+    case '3:4':
+    case '3/4':
+    case '9:16':
+    case '9/16':
+      return '1024x1792';
+    case 'landscape':
+    case '4:3':
+    case '4/3':
+    case '16:9':
+    case '16/9':
+      return '1792x1024';
+    case 'square':
+    case '1:1':
+    case '1/1':
+      return '1024x1024';
+    default:
+      return null;
+  }
+}
+
+function isUnsupportedOpenAIImageSizeError(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (!lower.includes('size')) return false;
+  return (
+    lower.includes('invalid') ||
+    lower.includes('unsupported') ||
+    lower.includes('not supported') ||
+    lower.includes('unknown') ||
+    lower.includes('unrecognized')
+  );
+}
+
 function supportsGeminiImageConfigAspectRatio(model: string): boolean {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return false;
@@ -659,6 +729,287 @@ function isUnsupportedAspectRatioError(message: string): boolean {
     (lower.includes('cannot find field') && lower.includes('aspectratio')) ||
     (lower.includes('unknown name "imageconfig"') &&
       lower.includes('generation_config'))
+  );
+}
+
+function flattenReferenceImageList(referenceImages?: GeminiReferenceImages): string[] {
+  if (!referenceImages) return [];
+  const merged = [...(referenceImages.scene || []), ...(referenceImages.identity || [])];
+  return merged.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function buildOpenAIChatAspectRatioInstruction(
+  options?: ImageGenerationOptions,
+): string | null {
+  if (!options) return null;
+  if (
+    typeof options.width === 'number' &&
+    Number.isFinite(options.width) &&
+    options.width > 0 &&
+    typeof options.height === 'number' &&
+    Number.isFinite(options.height) &&
+    options.height > 0
+  ) {
+    return `画幅硬约束：${Math.round(options.width)}x${Math.round(options.height)} 像素，保持对应比例构图。`;
+  }
+
+  const aspect = normalizeAspectRatioLabel(options.aspectRatio);
+  if (!aspect) return null;
+  switch (aspect) {
+    case 'photo':
+    case 'portrait':
+    case '3:4':
+    case '3/4':
+    case '9:16':
+    case '9/16':
+      return '画幅硬约束：竖版构图，优先 3:4 比例。';
+    case 'landscape':
+    case '4:3':
+    case '4/3':
+    case '16:9':
+    case '16/9':
+      return '画幅硬约束：横版构图，优先 4:3 或 16:9 比例。';
+    case 'square':
+    case '1:1':
+    case '1/1':
+      return '画幅硬约束：方形构图（1:1）。';
+    default:
+      return null;
+  }
+}
+
+function buildOpenAIReferenceInstruction(
+  prompt: string,
+  referenceImages?: GeminiReferenceImages,
+  options?: ImageGenerationOptions,
+): string {
+  const lines: string[] = [
+    '你是专业影楼摄影生成器，必须输出单张单帧静态成片。',
+    '禁止拼图、分屏、多宫格、海报边框、文字水印。',
+    '相机与画面保持水平，禁止整幅画面旋转、斜切白边、歪框透视。',
+  ];
+
+  const sceneCount = referenceImages?.scene?.length || 0;
+  const identityCount = referenceImages?.identity?.length || 0;
+  if (sceneCount > 0) {
+    lines.push(
+      `你将收到 ${sceneCount} 张场景参考图：仅用于锁定布景主题、道具关系、色彩与光影氛围。`,
+    );
+  }
+  if (identityCount > 0) {
+    lines.push(
+      `你将收到 ${identityCount} 张人物身份参考图：仅用于锁定人物脸部与年龄感，不继承其背景与构图。`,
+    );
+  }
+
+  const bindings = Array.isArray(referenceImages?.identityBindings)
+    ? referenceImages?.identityBindings
+        .filter((item) => item && typeof item.index === 'number')
+        .sort((a, b) => a.index - b.index)
+    : [];
+  if (bindings.length > 0) {
+    const mapping = bindings
+      .map((item) => `#${item.index}=${item.role?.trim() || `角色${item.index}`}`)
+      .join('，');
+    lines.push(`人物编号映射（硬约束，不可交换）：${mapping}。`);
+  }
+
+  lines.push('优先级：人物身份一致性 > 场景主题一致性 > 文本补充细节。');
+
+  const aspectInstruction = buildOpenAIChatAspectRatioInstruction(options);
+  if (aspectInstruction) lines.push(aspectInstruction);
+
+  lines.push(`最终出图要求：${prompt}`);
+  return lines.join('\n');
+}
+
+function normalizeOpenAIChatContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (!item || typeof item !== 'object') return '';
+      const text = (item as { text?: unknown }).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function parseImageDataUri(value: string): { mimeType: string; data: string } | null {
+  const match = value.match(/data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)/i);
+  if (!match) return null;
+  const mimeType = match[1] || 'image/png';
+  const data = (match[2] || '').replace(/\s+/g, '');
+  if (!data) return null;
+  return { mimeType, data };
+}
+
+async function fetchRemoteImageAsGenerateResult(
+  imageUrl: string,
+): Promise<GenerateImageResult | null> {
+  if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+    return null;
+  }
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+    const mimeType =
+      response.headers.get('content-type')?.split(';')[0].trim() || 'image/png';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length === 0) return null;
+    return {
+      imageBase64: buffer.toString('base64'),
+      mimeType,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractFirstMarkdownImageUrl(content: string): string | null {
+  const dataImage = content.match(
+    /!\[[^\]]*]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/i,
+  );
+  if (dataImage?.[1]) return dataImage[1];
+
+  const remoteImage = content.match(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i);
+  if (remoteImage?.[1]) return remoteImage[1];
+
+  const directDataUri = content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/i);
+  if (directDataUri?.[0]) return directDataUri[0];
+
+  return null;
+}
+
+async function parseImageFromOpenAIChatResponseContent(
+  content: unknown,
+): Promise<GenerateImageResult | null> {
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (!item || typeof item !== 'object') continue;
+      const maybeImageUrl = (item as { image_url?: { url?: unknown } }).image_url?.url;
+      if (typeof maybeImageUrl !== 'string' || !maybeImageUrl.trim()) continue;
+      const dataUri = parseImageDataUri(maybeImageUrl);
+      if (dataUri) {
+        return {
+          imageBase64: dataUri.data,
+          mimeType: dataUri.mimeType,
+        };
+      }
+      const remoteImage = await fetchRemoteImageAsGenerateResult(maybeImageUrl);
+      if (remoteImage) return remoteImage;
+    }
+  }
+
+  const textContent = normalizeOpenAIChatContent(content);
+  if (!textContent) return null;
+
+  const imageUrl = extractFirstMarkdownImageUrl(textContent);
+  if (!imageUrl) return null;
+
+  const dataUri = parseImageDataUri(imageUrl);
+  if (dataUri) {
+    return {
+      imageBase64: dataUri.data,
+      mimeType: dataUri.mimeType,
+    };
+  }
+
+  return fetchRemoteImageAsGenerateResult(imageUrl);
+}
+
+async function tryGenerateImageViaOpenAIChatCompletions(
+  provider: Provider,
+  prompt: string,
+  referenceImages?: GeminiReferenceImages,
+  options?: ImageGenerationOptions,
+): Promise<GenerateImageResult | null> {
+  const sceneRefs = (referenceImages?.scene || []).filter(
+    (item): item is string => typeof item === 'string' && item.trim().length > 0,
+  );
+  const identityRefs = (referenceImages?.identity || []).filter(
+    (item): item is string => typeof item === 'string' && item.trim().length > 0,
+  );
+  if (sceneRefs.length + identityRefs.length === 0) return null;
+
+  const multimodalContent: Array<
+    { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+  > = [
+    {
+      type: 'text',
+      text: buildOpenAIReferenceInstruction(prompt, referenceImages, options),
+    },
+  ];
+
+  const appendReferenceBlock = async (
+    label: string,
+    refs: string[],
+  ): Promise<number> => {
+    if (refs.length === 0) return 0;
+    multimodalContent.push({ type: 'text', text: label });
+    let added = 0;
+    for (const ref of refs) {
+      const inlinePart = await buildGeminiInlineDataPart(ref);
+      const inlineData = inlinePart?.inlineData as
+        | { data?: string; mimeType?: string }
+        | undefined;
+      if (!inlineData?.data) continue;
+      const mimeType = inlineData.mimeType || 'image/jpeg';
+      multimodalContent.push({
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${inlineData.data}` },
+      });
+      added += 1;
+    }
+    return added;
+  };
+
+  const sceneAdded = await appendReferenceBlock(
+    '以下是场景主题参考图（只提取环境与光影信息，不继承其中人物特征）：',
+    sceneRefs,
+  );
+  const identityAdded = await appendReferenceBlock(
+    '以下是人物身份参考图（只提取人物身份特征，不继承背景与构图）：',
+    identityRefs,
+  );
+
+  if (sceneAdded + identityAdded === 0) return null;
+
+  const url = `${provider.baseUrl}/chat/completions`;
+  if (DEBUG_IMAGEGEN) {
+    console.log('[ImageGen] OpenAI multimodal chat URL:', url, {
+      sceneRefs: sceneAdded,
+      identityRefs: identityAdded,
+    });
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.imageModel,
+      stream: false,
+      messages: [{ role: 'user', content: multimodalContent }],
+    }),
+  });
+
+  if (!res.ok) {
+    if (DEBUG_IMAGEGEN) {
+      const err = await res.text().catch(() => '');
+      console.log('[ImageGen] OpenAI multimodal chat failed:', res.status, err);
+    }
+    return null;
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  return parseImageFromOpenAIChatResponseContent(
+    data.choices?.[0]?.message?.content,
   );
 }
 
@@ -778,13 +1129,15 @@ async function generateImage(
 
     for (const part of responseParts) {
       if (part.inlineData) {
+        const data = part.inlineData.data?.trim();
+        if (!data) continue;
         if (DEBUG_IMAGEGEN)
           console.log(
             '[ImageGen] Found inlineData, mimeType:',
             part.inlineData.mimeType,
           );
         return {
-          imageBase64: part.inlineData.data,
+          imageBase64: data,
           mimeType: part.inlineData.mimeType || 'image/png',
           aspectRatioRuntime: {
             requested: requestedAspectRatio,
@@ -799,39 +1152,155 @@ async function generateImage(
 
     throw new Error('No image in response');
   } else {
-    // OpenAI 兼容格式
-    const url = `${provider.baseUrl}/images/generations`;
-    if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI URL:', url);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${provider.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: provider.imageModel,
-        prompt,
-        response_format: 'b64_json',
-      }),
-    });
+    // OpenAI 兼容格式（标准优先）
+    const hasReferences = flattenReferenceImageList(referenceImages).length > 0;
+    const requestedOpenAIImageSize = resolveOpenAIRequestedSize(options);
+    const primaryRoute = resolveOpenAIImageRouteFromCapabilities(
+      provider.capabilities,
+      hasReferences,
+    );
 
-    if (DEBUG_IMAGEGEN)
-      console.log('[ImageGen] OpenAI response status:', res.status);
+    const tryImagesRoute = async (): Promise<{
+      image: GenerateImageResult | null;
+      reason: string | null;
+    }> => {
+      const url = `${provider.baseUrl}/images/generations`;
+      if (DEBUG_IMAGEGEN) console.log('[ImageGen] OpenAI URL:', url);
+      const callImages = async (withSize: boolean) =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${provider.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: provider.imageModel,
+            prompt,
+            response_format: 'b64_json',
+            ...(withSize && requestedOpenAIImageSize
+              ? { size: requestedOpenAIImageSize }
+              : null),
+          }),
+        });
 
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
+      let res = await callImages(true);
+
       if (DEBUG_IMAGEGEN)
-        console.log('[ImageGen] OpenAI error:', JSON.stringify(errorData));
-      throw new Error(
-        (errorData as { error?: { message?: string } }).error?.message ||
-          `HTTP ${res.status}`,
-      );
-    }
+        console.log('[ImageGen] OpenAI response status:', res.status);
 
-    const data = (await res.json()) as { data?: Array<{ b64_json?: string }> };
-    return {
-      imageBase64: data.data?.[0]?.b64_json || '',
-      mimeType: 'image/png',
+      if (!res.ok) {
+        let errorData = await res.json().catch(() => ({}));
+        let reason =
+          (errorData as { error?: { message?: string } }).error?.message ||
+          `HTTP ${res.status}`;
+
+        if (
+          requestedOpenAIImageSize &&
+          isUnsupportedOpenAIImageSizeError(reason)
+        ) {
+          if (DEBUG_IMAGEGEN) {
+            console.warn(
+              '[ImageGen] OpenAI size unsupported, retry without size:',
+              requestedOpenAIImageSize,
+            );
+          }
+          res = await callImages(false);
+          if (!res.ok) {
+            errorData = await res.json().catch(() => ({}));
+            reason =
+              (errorData as { error?: { message?: string } }).error?.message ||
+              `HTTP ${res.status}`;
+          }
+        }
+
+        if (!res.ok && DEBUG_IMAGEGEN) {
+          console.log('[ImageGen] OpenAI error:', JSON.stringify(errorData));
+        }
+
+        if (!res.ok) {
+          return {
+            image: null,
+            reason,
+          };
+        }
+      }
+
+      const data = (await res.json()) as { data?: Array<{ b64_json?: string }> };
+      const items = Array.isArray(data.data) ? data.data : [];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const b64 =
+          typeof (item as { b64_json?: unknown }).b64_json === 'string'
+            ? (item as { b64_json?: string }).b64_json?.trim() || ''
+            : '';
+        if (b64) {
+          return {
+            image: {
+              imageBase64: b64,
+              mimeType: 'image/png',
+            },
+            reason: null,
+          };
+        }
+
+        const maybeUrl =
+          typeof (item as { url?: unknown }).url === 'string'
+            ? ((item as { url?: string }).url || '').trim()
+            : '';
+        if (!maybeUrl) continue;
+
+        const dataUri = parseImageDataUri(maybeUrl);
+        if (dataUri) {
+          return {
+            image: {
+              imageBase64: dataUri.data,
+              mimeType: dataUri.mimeType,
+            },
+            reason: null,
+          };
+        }
+
+        const remoteImage = await fetchRemoteImageAsGenerateResult(maybeUrl);
+        if (remoteImage) return { image: remoteImage, reason: null };
+      }
+
+      return {
+        image: null,
+        reason: 'OpenAI image response has no usable image data',
+      };
     };
+
+    const tryChatRoute = async (): Promise<{
+      image: GenerateImageResult | null;
+      reason: string | null;
+    }> => {
+      if (!hasReferences) {
+        return { image: null, reason: 'No reference images for chat multimodal route' };
+      }
+      const openAIChatImage = await tryGenerateImageViaOpenAIChatCompletions(
+        provider,
+        prompt,
+        referenceImages,
+        options,
+      );
+      return {
+        image: openAIChatImage,
+        reason: openAIChatImage ? null : 'Chat multimodal route returned no image',
+      };
+    };
+
+    const primaryResult =
+      primaryRoute === 'chat' ? await tryChatRoute() : await tryImagesRoute();
+    if (primaryResult.image) return primaryResult.image;
+
+    const secondaryRoute: 'images' | 'chat' =
+      primaryRoute === 'chat' ? 'images' : 'chat';
+    const secondaryResult =
+      secondaryRoute === 'chat' ? await tryChatRoute() : await tryImagesRoute();
+    if (secondaryResult.image) return secondaryResult.image;
+
+    throw new Error(
+      secondaryResult.reason || primaryResult.reason || 'OpenAI image generation failed',
+    );
   }
 }

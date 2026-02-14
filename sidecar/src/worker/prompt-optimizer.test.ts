@@ -162,3 +162,61 @@ test('optimizeImagePrompt appends identity mapping declaration from reference pl
   );
   assert.match(result.renderPrompt, /仅允许单张单帧完整画面/);
 });
+
+test('optimizeImagePrompt rewrites tilt wording to avoid rotated canvas', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                renderPrompt:
+                  '35mm镜头，稍微倾斜的角度拍摄，强调动作张力。',
+              }),
+            },
+          },
+        ],
+      }),
+    }) as Response) as typeof fetch;
+
+  try {
+    const result = await optimizeImagePrompt({
+      db: createDbStub(),
+      provider: {
+        id: 'provider-local',
+        format: 'local',
+        baseUrl: 'http://localhost:11434/v1',
+        apiKey: '',
+        textModel: 'qwen3',
+      },
+      effectivePrompt: '基础提示词',
+      referencePlan: {
+        totalCount: 1,
+        order: ['/uploads/scene.scene-noface.jpg'],
+        byRole: {
+          identity: [],
+          scene: ['/uploads/scene.scene-noface.jpg'],
+        },
+        identitySourceImages: [],
+        identityCollageImage: null,
+        identityBindings: [],
+        droppedGeneratedImages: [],
+        sceneSanitizedCount: 1,
+        counts: {
+          identity: 0,
+          scene: 1,
+        },
+      },
+    });
+
+    assert.equal(result.meta.status, 'optimized');
+    assert.doesNotMatch(result.renderPrompt, /稍微倾斜/);
+    assert.match(result.renderPrompt, /相机保持水平/);
+    assert.match(result.renderPrompt, /禁止整幅画面旋转/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

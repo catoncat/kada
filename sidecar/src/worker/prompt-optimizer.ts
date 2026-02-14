@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { providers, settings } from '../db/schema';
 import type { ReferencePlanSummary } from './reference-image-planner';
+import { parseProviderCapabilities } from '../services/provider-capabilities';
 
 const OPTIMIZER_TEMPLATE_SETTING_KEY = 'prompt_optimizer_template_v1';
 
@@ -29,6 +30,7 @@ type TextProvider = {
   baseUrl: string;
   apiKey: string;
   textModel: string;
+  capabilities?: string | null;
 };
 
 interface OptimizerTemplateConfig {
@@ -129,6 +131,9 @@ function buildReferenceBindingDeclaration(
   );
   lines.push('- 禁止退化为普通生活抓拍照，需保持影楼专业成片质感。');
   lines.push('- 仅允许单张单帧完整画面，禁止拼图、分屏、多宫格、连环画排版。');
+  lines.push(
+    '- 相机与画面保持水平，禁止整幅画面旋转、斜切白边、歪框透视。',
+  );
   return lines.join('\n');
 }
 
@@ -142,6 +147,20 @@ function appendReferenceBindingDeclaration(
   if (!declaration) return trimmed;
   if (trimmed.includes('【参考图绑定声明】')) return trimmed;
   return `${trimmed}\n\n${declaration}`;
+}
+
+function normalizeTiltCompositionWording(prompt: string): string {
+  if (!prompt) return prompt;
+  let output = prompt;
+  output = output.replace(
+    /(?:构图|镜头|角度)[^。；\n]{0,24}(?:稍微|轻微|略微)?倾斜[^。；\n]*/g,
+    '构图强调动作张力与对角线节奏（相机保持水平，不旋转整幅画面）',
+  );
+  output = output.replace(
+    /(?:稍微|轻微|略微)?倾斜(?:的)?(?:构图|角度|镜头)/g,
+    '对角线节奏构图（相机保持水平）',
+  );
+  return output;
 }
 
 function parseJsonSafely<T>(raw: string | null | undefined): T | null {
@@ -159,6 +178,21 @@ function toStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function firstNonEmptyString(values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function toFlexibleStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return toStringArray(value);
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return [];
 }
 
 function extractJsonCandidate(raw: string): string | null {
@@ -198,17 +232,26 @@ function parseOptimizerOutput(raw: string): {
     };
   }
 
-  const renderPrompt =
-    typeof parsed.renderPrompt === 'string' && parsed.renderPrompt.trim()
-      ? parsed.renderPrompt.trim()
-      : null;
+  const renderPrompt = firstNonEmptyString([
+    parsed.renderPrompt,
+    parsed.render_prompt,
+    parsed.finalPrompt,
+    parsed.final_prompt,
+    parsed.optimizedPrompt,
+    parsed.optimized_prompt,
+    parsed.prompt,
+  ]);
 
-  const assumptions = toStringArray(parsed.assumptions);
-  const conflicts = toStringArray(parsed.conflicts);
-  const negativePrompt =
-    typeof parsed.negativePrompt === 'string' && parsed.negativePrompt.trim()
-      ? parsed.negativePrompt.trim()
-      : null;
+  const assumptions = toFlexibleStringArray(
+    parsed.assumptions ?? parsed.assumption,
+  );
+  const conflicts = toFlexibleStringArray(
+    parsed.conflicts ?? parsed.conflict,
+  );
+  const negativePrompt = firstNonEmptyString([
+    parsed.negativePrompt,
+    parsed.negative_prompt,
+  ]);
 
   return {
     renderPrompt,
@@ -242,6 +285,7 @@ async function resolveTextProvider(
       baseUrl: selected.baseUrl,
       apiKey: selected.apiKey,
       textModel: selected.textModel,
+      capabilities: selected.capabilities,
     };
   }
 
@@ -258,6 +302,7 @@ async function resolveTextProvider(
     baseUrl: defaultProvider.baseUrl,
     apiKey: defaultProvider.apiKey,
     textModel: defaultProvider.textModel,
+    capabilities: defaultProvider.capabilities,
   };
 }
 
@@ -398,6 +443,40 @@ ${input.outputSchema}
 仅输出一个 JSON 对象。`;
 }
 
+function isUnsupportedResponseFormatError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    (lower.includes('unknown') && lower.includes('response_format')) ||
+    (lower.includes('unsupported') && lower.includes('response_format')) ||
+    (lower.includes('unrecognized') && lower.includes('response_format'))
+  );
+}
+
+function extractOpenAIMessageText(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const record = message as Record<string, unknown>;
+  const content = record.content;
+  if (typeof content === 'string' && content.trim()) {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    const merged = content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const text = (part as Record<string, unknown>).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .join('\n')
+      .trim();
+    if (merged) return merged;
+  }
+  const reasoningContent = record.reasoning_content;
+  if (typeof reasoningContent === 'string' && reasoningContent.trim()) {
+    return reasoningContent.trim();
+  }
+  return '';
+}
+
 async function callTextModel(
   provider: TextProvider,
   prompt: string,
@@ -441,35 +520,56 @@ async function callTextModel(
     headers.Authorization = `Bearer ${provider.apiKey}`;
   }
 
-  const res = await fetch(url, {
+  const detectedCapabilities = parseProviderCapabilities(provider.capabilities);
+  const chatJsonModeSupported =
+    detectedCapabilities?.openai?.chatJsonMode?.supported;
+
+  const requestBodyWithJsonFormat = {
+    model: provider.textModel,
+    temperature: 0.2,
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  };
+  const requestBodyFallback = {
+    model: provider.textModel,
+    temperature: 0.2,
+    messages: [{ role: 'user', content: prompt }],
+  };
+
+  let res = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      model: provider.textModel,
-      temperature: 0.2,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    body: JSON.stringify(
+      chatJsonModeSupported === false
+        ? requestBodyFallback
+        : requestBodyWithJsonFormat,
+    ),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      (err as { error?: { message?: string } })?.error?.message ||
-        `Chat optimize failed: HTTP ${res.status}`,
-    );
+    let err = await res.json().catch(() => ({}));
+    const message =
+      (err as { error?: { message?: string } })?.error?.message || '';
+    if (isUnsupportedResponseFormatError(message)) {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBodyFallback),
+      });
+      if (!res.ok) {
+        err = await res.json().catch(() => ({}));
+      }
+    }
+    if (!res.ok) {
+      throw new Error(
+        (err as { error?: { message?: string } })?.error?.message ||
+          `Chat optimize failed: HTTP ${res.status}`,
+      );
+    }
   }
 
   const data = await res.json();
-  const content = (data as any)?.choices?.[0]?.message?.content;
-  if (typeof content === 'string' && content.trim()) {
-    return content.trim();
-  }
-  if (Array.isArray(content)) {
-    const merged = content
-      .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
-      .join('\n')
-      .trim();
-    if (merged) return merged;
-  }
+  const text = extractOpenAIMessageText((data as any)?.choices?.[0]?.message);
+  if (text) return text;
   throw new Error('Chat optimize failed: empty text');
 }
 
@@ -527,7 +627,7 @@ export async function optimizeImagePrompt(
     const parsed = parseOptimizerOutput(raw);
     if (!parsed.renderPrompt) {
       const finalPrompt = appendReferenceBindingDeclaration(
-        sourcePrompt,
+        normalizeTiltCompositionWording(sourcePrompt),
         input.referencePlan,
       );
       return {
@@ -545,7 +645,7 @@ export async function optimizeImagePrompt(
     }
 
     const finalPrompt = appendReferenceBindingDeclaration(
-      parsed.renderPrompt,
+      normalizeTiltCompositionWording(parsed.renderPrompt),
       input.referencePlan,
     );
     return {
@@ -565,7 +665,7 @@ export async function optimizeImagePrompt(
     const message =
       error instanceof Error ? error.message : 'PROMPT_OPTIMIZER_ERROR';
     const finalPrompt = appendReferenceBindingDeclaration(
-      sourcePrompt,
+      normalizeTiltCompositionWording(sourcePrompt),
       input.referencePlan,
     );
     return {
