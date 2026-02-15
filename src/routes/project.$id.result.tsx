@@ -9,7 +9,6 @@ import {
   type GeneratedScene,
   type ResultMode,
   type SceneTaskTrack,
-  ExecutionConfirmDialog,
   PlanResultHeader,
   PlanVersionsDrawer,
   ResultModeSwitch,
@@ -160,13 +159,10 @@ function ProjectResultPage() {
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [sceneTaskHint, setSceneTaskHint] = useState<string | null>(null);
-  const [checklistDialogSceneIndex, setChecklistDialogSceneIndex] = useState<
-    number | null
-  >(null);
   const [pendingBatchSceneIndices, setPendingBatchSceneIndices] = useState<
     number[]
   >([]);
-  const [fixDialogSceneIndex, setFixDialogSceneIndex] = useState<number | null>(
+  const [fixPanelSceneIndex, setFixPanelSceneIndex] = useState<number | null>(
     null,
   );
   const [isFixing, setIsFixing] = useState(false);
@@ -453,6 +449,7 @@ function ProjectResultPage() {
         setPendingBatchSceneIndices(unconfirmed.map((item) => item.index));
         return;
       }
+      setPendingBatchSceneIndices([]);
 
       for (const item of candidates) {
         // 串行创建任务，保持执行顺序可追溯
@@ -524,28 +521,33 @@ function ProjectResultPage() {
     });
   }, [id, navigate, search]);
 
-  const handleConfirmChecklist = useCallback(async () => {
-    if (checklistDialogSceneIndex === null) return;
-    const snapshot = checklistMap.get(checklistDialogSceneIndex);
+  const handleConfirmChecklistForScene = useCallback((sceneIndex: number) => {
+    const snapshot = checklistMap.get(sceneIndex);
     if (!snapshot) return;
     if (!snapshot.allPassed) {
-      alert('清单尚未满足，需补充信息后才能确认。');
+      setSceneTaskHint(`场景 ${sceneIndex + 1} 清单尚未满足，请先补充缺失信息。`);
+      setPendingBatchSceneIndices((prev) =>
+        Array.from(new Set([...prev, sceneIndex])),
+      );
       return;
     }
     confirmExecutionChecklist(snapshot);
     setChecklistVersion((prev) => prev + 1);
-    setChecklistDialogSceneIndex(null);
-  }, [checklistDialogSceneIndex, checklistMap]);
+    setPendingBatchSceneIndices((prev) =>
+      prev.filter((index) => index !== sceneIndex),
+    );
+    setSceneTaskHint(`场景 ${sceneIndex + 1} 清单已确认，可直接执行。`);
+  }, [checklistMap]);
 
   const handleConfirmFix = useCallback(async () => {
-    if (fixDialogSceneIndex === null || !plan?.scenes) return;
-    const scene = plan.scenes[fixDialogSceneIndex];
-    const acceptance = acceptanceMap.get(fixDialogSceneIndex);
+    if (fixPanelSceneIndex === null || !plan?.scenes) return;
+    const scene = plan.scenes[fixPanelSceneIndex];
+    const acceptance = acceptanceMap.get(fixPanelSceneIndex);
     if (!scene || !acceptance) return;
 
     setIsFixing(true);
     try {
-      const latestDetail = detailByScene.get(fixDialogSceneIndex) || null;
+      const latestDetail = detailByScene.get(fixPanelSceneIndex) || null;
       const latestPrompt =
         safeString(latestDetail?.run?.effectivePrompt) || scene.visualPrompt;
       const referencesFromPromptContext = getReferenceImagesFromPromptContext(
@@ -563,17 +565,44 @@ function ProjectResultPage() {
       });
 
       await enqueueSceneTask({
-        sceneIndex: fixDialogSceneIndex,
+        sceneIndex: fixPanelSceneIndex,
         prompt: latestPrompt,
         referenceImages,
         editInstruction: fixTemplate.editInstruction,
         taskOptions: fixTemplate.options,
       });
-      setFixDialogSceneIndex(null);
+      setFixPanelSceneIndex(null);
     } finally {
       setIsFixing(false);
     }
-  }, [acceptanceMap, detailByScene, enqueueSceneTask, fixDialogSceneIndex, plan?.scenes]);
+  }, [acceptanceMap, detailByScene, enqueueSceneTask, fixPanelSceneIndex, plan?.scenes]);
+
+  const handleConfirmPendingBatch = useCallback(() => {
+    if (!plan?.scenes || pendingBatchSceneIndices.length === 0) return;
+    let confirmedCount = 0;
+    const unresolved: number[] = [];
+    for (const sceneIndex of pendingBatchSceneIndices) {
+      const snapshot = checklistMap.get(sceneIndex);
+      if (!snapshot || !snapshot.allPassed) {
+        unresolved.push(sceneIndex);
+        continue;
+      }
+      confirmExecutionChecklist(snapshot);
+      confirmedCount += 1;
+    }
+
+    if (confirmedCount > 0) {
+      setChecklistVersion((prev) => prev + 1);
+    }
+
+    setPendingBatchSceneIndices(unresolved);
+    if (unresolved.length > 0) {
+      setSceneTaskHint(`仍有 ${unresolved.length} 个场景未满足清单，需先补充信息。`);
+      return;
+    }
+
+    setSceneTaskHint('批量执行清单已确认，可继续执行。');
+  }, [checklistMap, pendingBatchSceneIndices, plan?.scenes]);
 
   const handleMarkScenePassed = useCallback(
     (sceneIndex: number) => {
@@ -650,15 +679,11 @@ function ProjectResultPage() {
     );
   }
 
-  const checklistDialogSnapshot =
-    checklistDialogSceneIndex !== null
-      ? checklistMap.get(checklistDialogSceneIndex) || null
-      : null;
-  const fixDialogAcceptance =
-    fixDialogSceneIndex !== null ? acceptanceMap.get(fixDialogSceneIndex) : null;
-  const fixDialogTemplate = fixDialogAcceptance
+  const fixPanelAcceptance =
+    fixPanelSceneIndex !== null ? acceptanceMap.get(fixPanelSceneIndex) : null;
+  const fixPanelTemplate = fixPanelAcceptance
     ? buildAcceptanceFixTemplate({
-        acceptance: fixDialogAcceptance,
+        acceptance: fixPanelAcceptance,
         lockedAspectRatio: LOCKED_ASPECT_RATIO,
       })
     : null;
@@ -704,6 +729,77 @@ function ProjectResultPage() {
         </Alert>
       ) : null}
 
+      {resolvedMode === 'execute' && pendingBatchSceneIndices.length > 0 ? (
+        <Alert variant="warning" className="mt-4">
+          <AlertTitle>批量执行门禁</AlertTitle>
+          <AlertDescription>
+            <div className="space-y-2">
+              <p>以下场景尚未通过执行清单确认：</p>
+              <div className="flex flex-wrap gap-2">
+                {pendingBatchSceneIndices.map((sceneIndex) => (
+                  <Button
+                    key={`pending-scene-${sceneIndex}`}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const el = document.getElementById(`scene-${sceneIndex}`);
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                  >
+                    场景 {sceneIndex + 1}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={handleConfirmPendingBatch}>
+                  批量确认可通过项
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setPendingBatchSceneIndices([])}
+                >
+                  稍后处理
+                </Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {fixPanelSceneIndex !== null && fixPanelAcceptance ? (
+        <Alert variant="warning" className="mt-4">
+          <AlertTitle>场景 {fixPanelSceneIndex + 1} 修复建议</AlertTitle>
+          <AlertDescription>
+            <div className="space-y-2">
+              <p>
+                发现 {fixPanelAcceptance.failCount + fixPanelAcceptance.unknownCount}{' '}
+                项未通过，已预填修复策略：
+              </p>
+              <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs">
+                {fixPanelTemplate?.editInstruction || '-'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                画幅锁定：{fixPanelTemplate?.options.aspectRatio || LOCKED_ASPECT_RATIO}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={handleConfirmFix} disabled={isFixing}>
+                  {isFixing ? '创建中...' : '确认并创建修复任务'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setFixPanelSceneIndex(null)}
+                  disabled={isFixing}
+                >
+                  暂不修复
+                </Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {resolvedMode === 'review' ? (
         <div className="mt-6">
           <ReviewBoard
@@ -711,7 +807,7 @@ function ProjectResultPage() {
             acceptanceMap={acceptanceMap}
             sceneTrackMap={sceneTrackMap}
             manualPassedMap={manualPassedMap}
-            onFixScene={setFixDialogSceneIndex}
+            onFixScene={setFixPanelSceneIndex}
             onOpenEditScene={handleOpenEditFromReview}
             onViewSceneTask={handleViewRecentTasks}
             onMarkScenePassed={handleMarkScenePassed}
@@ -731,8 +827,8 @@ function ProjectResultPage() {
                 onGeneratePreview={handleGenerateScenePreview}
                 onImageChange={handleRefreshProject}
                 onViewRecentTasks={handleViewRecentTasks}
-                onRequestChecklistConfirm={setChecklistDialogSceneIndex}
-                onRequestFix={setFixDialogSceneIndex}
+                onRequestChecklistConfirm={handleConfirmChecklistForScene}
+                onRequestFix={setFixPanelSceneIndex}
                 onUpdateScene={handleUpdateScene}
                 checklistSnapshot={checklistMap.get(index) || null}
                 executionState={executionStateMap.get(index)}
@@ -748,110 +844,6 @@ function ProjectResultPage() {
         open={showVersions}
         onOpenChange={setShowVersions}
         projectId={project.id}
-      />
-
-      <ExecutionConfirmDialog
-        open={pendingBatchSceneIndices.length > 0}
-        onOpenChange={(open) => {
-          if (!open) setPendingBatchSceneIndices([]);
-        }}
-        title="批量执行确认面板"
-        description="批量执行前需逐场景完成清单确认。"
-        confirmLabel="去确认首个场景"
-        items={pendingBatchSceneIndices.map((sceneIndex) => ({
-          label: `场景 ${sceneIndex + 1}`,
-          value: '清单未确认',
-        }))}
-        onConfirm={() => {
-          if (pendingBatchSceneIndices.length > 0) {
-            setChecklistDialogSceneIndex(pendingBatchSceneIndices[0]);
-          }
-          setPendingBatchSceneIndices([]);
-        }}
-      />
-
-      <ExecutionConfirmDialog
-        open={checklistDialogSceneIndex !== null}
-        onOpenChange={(open) => {
-          if (!open) setChecklistDialogSceneIndex(null);
-        }}
-        title={
-          checklistDialogSceneIndex !== null
-            ? `场景 ${checklistDialogSceneIndex + 1} 清单确认`
-            : '清单确认'
-        }
-        description="确认后将按此清单执行，未确认不可生成。"
-        confirmLabel="确认清单"
-        canConfirm={Boolean(checklistDialogSnapshot?.allPassed)}
-        items={
-          checklistDialogSnapshot
-            ? [
-                {
-                  label: '场景参考图已确定',
-                  value: checklistDialogSnapshot.checks.sceneReferenceReady
-                    ? '已完成'
-                    : '缺少 scene 参考图',
-                },
-                {
-                  label: '人物拼接图可用',
-                  value: checklistDialogSnapshot.checks.identityCollageReady
-                    ? '已完成'
-                    : '多人场景缺少拼接参考图',
-                },
-                {
-                  label: '编号映射完整',
-                  value: checklistDialogSnapshot.checks.identityMappingComplete
-                    ? '已完成'
-                    : '编号映射缺失或不连续',
-                },
-                {
-                  label: '画幅与硬约束已锁定',
-                  value: checklistDialogSnapshot.checks.aspectRatioLocked
-                    ? checklistDialogSnapshot.lockedAspectRatio
-                    : '未锁定',
-                },
-                {
-                  label: '输出为单帧静态图',
-                  value: checklistDialogSnapshot.checks.singleFrameDeclared
-                    ? '已声明'
-                    : '未声明',
-                },
-              ]
-            : []
-        }
-        onConfirm={handleConfirmChecklist}
-      />
-
-      <ExecutionConfirmDialog
-        open={fixDialogSceneIndex !== null}
-        onOpenChange={(open) => {
-          if (!open) setFixDialogSceneIndex(null);
-        }}
-        title={
-          fixDialogSceneIndex !== null
-            ? `场景 ${fixDialogSceneIndex + 1} 一键修复`
-            : '一键修复'
-        }
-        description={
-          fixDialogAcceptance
-            ? `发现 ${fixDialogAcceptance.failCount + fixDialogAcceptance.unknownCount} 项未通过，已为你预填修复参数。`
-            : '将创建新的修复任务。'
-        }
-        confirmLabel="确认并创建修复任务"
-        canConfirm={Boolean(fixDialogAcceptance)}
-        isConfirming={isFixing}
-        items={[
-          {
-            label: '修复策略',
-            value: fixDialogTemplate?.editInstruction || '-',
-          },
-          {
-            label: '画幅锁定',
-            value:
-              fixDialogTemplate?.options.aspectRatio || LOCKED_ASPECT_RATIO,
-          },
-        ]}
-        onConfirm={handleConfirmFix}
       />
     </div>
   );
