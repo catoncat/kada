@@ -34,6 +34,9 @@ export function AgentShell() {
   const [events, setEvents] = useState<AgentTurnEvent[]>([]);
   const [streamingAssistantText, setStreamingAssistantText] = useState('');
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [optimisticUserMessages, setOptimisticUserMessages] = useState<
+    Array<{ id: string; text: string; createdAt: string }>
+  >([]);
 
   const sessions = sessionsQuery.data?.data || [];
 
@@ -50,17 +53,22 @@ export function AgentShell() {
     enabled: Boolean(activeSessionId),
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时重置本地 UI 状态
   useEffect(() => {
     setEvents([]);
     setStreamingAssistantText('');
     setErrorText(null);
+    setOptimisticUserMessages([]);
   }, [activeSessionId]);
 
   const entries = sessionDetailQuery.data?.entries || [];
-  const outputs = outputsQuery.data?.data || sessionDetailQuery.data?.outputs || [];
+  const outputs =
+    outputsQuery.data?.data || sessionDetailQuery.data?.outputs || [];
 
   const composerDisabled =
-    !activeSessionId || createSessionMutation.isPending || abortMutation.isPending;
+    !activeSessionId ||
+    createSessionMutation.isPending ||
+    abortMutation.isPending;
 
   const handleCreateSession = async () => {
     try {
@@ -100,7 +108,8 @@ export function AgentShell() {
 
       if (event.type === 'turn.failed') {
         const payload = (event.payload || {}) as Record<string, unknown>;
-        const message = typeof payload.message === 'string' ? payload.message : '执行失败';
+        const message =
+          typeof payload.message === 'string' ? payload.message : '执行失败';
         setErrorText(message);
       }
     }
@@ -112,6 +121,16 @@ export function AgentShell() {
       return;
     }
 
+    const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    setOptimisticUserMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        text,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
     setErrorText(null);
     setStreamingAssistantText('');
 
@@ -121,8 +140,18 @@ export function AgentShell() {
         text,
         onEvent: handleChunk,
       });
-      await Promise.all([sessionDetailQuery.refetch(), outputsQuery.refetch(), sessionsQuery.refetch()]);
+      await Promise.all([
+        sessionDetailQuery.refetch(),
+        outputsQuery.refetch(),
+        sessionsQuery.refetch(),
+      ]);
+      setOptimisticUserMessages((prev) =>
+        prev.filter((item) => item.id !== optimisticId),
+      );
     } catch (error) {
+      setOptimisticUserMessages((prev) =>
+        prev.filter((item) => item.id !== optimisticId),
+      );
       setErrorText(error instanceof Error ? error.message : '发送失败');
     }
   };
@@ -154,6 +183,12 @@ export function AgentShell() {
 
     try {
       await abortMutation.mutateAsync(activeSessionId);
+      await Promise.all([
+        sessionDetailQuery.refetch(),
+        outputsQuery.refetch(),
+        sessionsQuery.refetch(),
+      ]);
+      setOptimisticUserMessages([]);
       setErrorText('已中断当前会话执行。');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '中断失败');
@@ -171,7 +206,11 @@ export function AgentShell() {
         <div className="border-b px-3 py-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Agent 会话</h3>
-            <Button size="sm" variant="outline" onClick={() => void handleCreateSession()}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleCreateSession()}
+            >
               <Plus className="mr-1 h-3.5 w-3.5" />
               新建
             </Button>
@@ -191,11 +230,15 @@ export function AgentShell() {
               key={session.id}
               type="button"
               className={`w-full rounded-lg border px-2 py-2 text-left ${
-                session.id === activeSessionId ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'
+                session.id === activeSessionId
+                  ? 'border-primary bg-primary/5'
+                  : 'hover:bg-muted/40'
               }`}
               onClick={() => setActiveSessionId(session.id)}
             >
-              <div className="truncate text-sm font-medium">{session.title}</div>
+              <div className="truncate text-sm font-medium">
+                {session.title}
+              </div>
               <div className="mt-1 text-[11px] text-muted-foreground">
                 {session.engine} · {session.status}
               </div>
@@ -218,7 +261,11 @@ export function AgentShell() {
           </div>
         ) : null}
 
-        <AgentMessageList entries={entries} streamingAssistantText={streamingAssistantText} />
+        <AgentMessageList
+          entries={entries}
+          streamingAssistantText={streamingAssistantText}
+          optimisticUserMessages={optimisticUserMessages}
+        />
 
         <AgentComposer
           disabled={composerDisabled}

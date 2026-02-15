@@ -1,4 +1,5 @@
 import type { AgentOutput } from '@/types/agent';
+import { formatPayloadForDisplay } from '@/lib/agent-display';
 
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null;
@@ -39,7 +40,7 @@ function normalizePhotoSrc(url: string): string {
 
 function resolveCopyText(output: AgentOutput): string {
   const payload = toRecord(output.content);
-  if (!payload) return JSON.stringify(output.content);
+  if (!payload) return formatPayloadForDisplay(output.content);
 
   if (typeof payload.content === 'string') {
     return payload.content;
@@ -49,7 +50,7 @@ function resolveCopyText(output: AgentOutput): string {
     return payload.rewritten;
   }
 
-  return JSON.stringify(payload);
+  return formatPayloadForDisplay(payload);
 }
 
 export function AgentOutputRail({ outputs }: { outputs: AgentOutput[] }) {
@@ -60,12 +61,16 @@ export function AgentOutputRail({ outputs }: { outputs: AgentOutput[] }) {
     <aside className="flex h-full min-h-0 w-[360px] shrink-0 flex-col border-l bg-background">
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">产物栏</h3>
-        <p className="mt-1 text-xs text-muted-foreground">照片与文案结果会汇总在这里。</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          照片与文案结果会汇总在这里。
+        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <section>
-          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">照片 ({photos.length})</h4>
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
+            照片 ({photos.length})
+          </h4>
           <div className="space-y-2">
             {photos.length === 0 ? (
               <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
@@ -77,16 +82,18 @@ export function AgentOutputRail({ outputs }: { outputs: AgentOutput[] }) {
               const url = resolvePhotoUrl(output);
               return (
                 <article key={output.id} className="rounded-lg border p-2">
-                  <div className="mb-1 text-[11px] text-muted-foreground">{output.createdAt || ''}</div>
+                  <div className="mb-1 text-[11px] text-muted-foreground">
+                    {output.createdAt || ''}
+                  </div>
                   {url ? (
                     <img
                       src={normalizePhotoSrc(url)}
-                      alt="photo"
+                      alt="生成结果"
                       className="h-40 w-full rounded object-cover"
                     />
                   ) : (
                     <pre className="whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
-                      {JSON.stringify(output.content, null, 2)}
+                      {formatPayloadForDisplay(output.content)}
                     </pre>
                   )}
                 </article>
@@ -96,7 +103,9 @@ export function AgentOutputRail({ outputs }: { outputs: AgentOutput[] }) {
         </section>
 
         <section className="mt-4">
-          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">文案 ({copies.length})</h4>
+          <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
+            文案 ({copies.length})
+          </h4>
           <div className="space-y-2">
             {copies.length === 0 ? (
               <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
@@ -106,8 +115,12 @@ export function AgentOutputRail({ outputs }: { outputs: AgentOutput[] }) {
 
             {copies.map((output) => (
               <article key={output.id} className="rounded-lg border p-3">
-                <div className="mb-1 text-[11px] text-muted-foreground">{output.createdAt || ''}</div>
-                <p className="whitespace-pre-wrap break-words text-sm">{resolveCopyText(output)}</p>
+                <div className="mb-1 text-[11px] text-muted-foreground">
+                  {output.createdAt || ''}
+                </div>
+                <p className="whitespace-pre-wrap break-words text-sm">
+                  {resolveCopyText(output)}
+                </p>
               </article>
             ))}
           </div>

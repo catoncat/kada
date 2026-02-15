@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { formatPayloadForDisplay } from '@/lib/agent-display';
 import type { AgentTurnEvent } from '@/types/agent';
 
 interface TimelineItem {
@@ -10,7 +11,9 @@ interface TimelineItem {
 
 function toText(value: unknown): string {
   if (typeof value === 'string') return value;
-  return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
+  return 'unknown';
 }
 
 export function AgentToolTimeline({ events }: { events: AgentTurnEvent[] }) {
@@ -26,7 +29,7 @@ export function AgentToolTimeline({ events }: { events: AgentTurnEvent[] }) {
         rows.push({
           id,
           title: `调用工具：${toText(payload.toolName || 'unknown')}`,
-          subtitle: toText(payload.args || {}),
+          subtitle: formatPayloadForDisplay(payload.args || {}),
           status: 'running',
         });
         continue;
@@ -37,7 +40,7 @@ export function AgentToolTimeline({ events }: { events: AgentTurnEvent[] }) {
         rows.push({
           id,
           title: `工具结果：${toText(payload.toolName || 'unknown')}`,
-          subtitle: toText(payload.result || {}),
+          subtitle: formatPayloadForDisplay(payload.result || {}),
           status: payload.isError ? 'error' : 'completed',
         });
         continue;
@@ -51,7 +54,7 @@ export function AgentToolTimeline({ events }: { events: AgentTurnEvent[] }) {
         rows.push({
           id,
           title: `照片流程：${event.type}`,
-          subtitle: toText(event.payload),
+          subtitle: formatPayloadForDisplay(event.payload),
           status: event.type === 'photo.ready' ? 'completed' : 'info',
         });
         continue;
@@ -61,7 +64,7 @@ export function AgentToolTimeline({ events }: { events: AgentTurnEvent[] }) {
         rows.push({
           id,
           title: '文案已生成',
-          subtitle: toText(event.payload),
+          subtitle: formatPayloadForDisplay(event.payload),
           status: 'completed',
         });
       }
