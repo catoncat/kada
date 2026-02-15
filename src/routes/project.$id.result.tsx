@@ -34,6 +34,7 @@ import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
 import {
   clearLegacyOpenEdit,
   parseResultSearchParams,
+  resolveResultPanel,
   resolveResultMode,
   type ResultSearchParams,
 } from '@/lib/result-search-params';
@@ -170,6 +171,7 @@ function ProjectResultPage() {
   const [manualPassVersion, setManualPassVersion] = useState(0);
 
   const resolvedMode = resolveResultMode(search);
+  const resolvedPanel = resolveResultPanel(search);
   const sceneFromUrl = search.scene;
 
   const {
@@ -319,10 +321,11 @@ function ProjectResultPage() {
         search: {
           scene: sceneFromUrl,
           mode: nextMode,
+          panel: resolvedPanel,
         },
       });
     },
-    [id, navigate, sceneFromUrl],
+    [id, navigate, resolvedPanel, sceneFromUrl],
   );
 
   const handleOpenEditFromReview = useCallback(
@@ -333,6 +336,7 @@ function ProjectResultPage() {
         search: {
           scene: sceneIndex,
           mode: 'execute',
+          panel: 'copy',
         },
       });
     },
@@ -353,6 +357,7 @@ function ProjectResultPage() {
             relatedId: id,
             sceneIndex,
             mode: 'execute',
+            panel: 'copy',
           },
         });
         return;
@@ -822,7 +827,7 @@ function ProjectResultPage() {
                 scene={scene}
                 sceneIndex={index}
                 projectId={project.id}
-                autoOpenEdit={search.openEdit === '1' && sceneFromUrl === index}
+                autoOpenEdit={resolvedPanel === 'copy' && sceneFromUrl === index}
                 isGenerating={generatingScenes.has(index)}
                 onGeneratePreview={handleGenerateScenePreview}
                 onImageChange={handleRefreshProject}

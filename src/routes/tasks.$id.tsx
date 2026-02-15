@@ -364,7 +364,7 @@ function TaskDeepLinkPage() {
                   key={task.id}
                   className="flex items-center justify-between rounded-md border px-3 py-2 text-xs"
                 >
-                  <div className="min-w-0">
+              <div className="min-w-0">
                     <p className="truncate font-medium">
                       {TASK_TYPE_LABELS[task.type] || task.type}
                     </p>
@@ -378,18 +378,19 @@ function TaskDeepLinkPage() {
                     size="sm"
                     variant="outline"
                     render={
-                      <Link
-                        to="/tasks/$id"
-                        params={{ id: task.id }}
-                        search={{
-                          sourceType: search.sourceType,
-                          projectId: search.projectId,
-                          relatedId: search.relatedId,
-                          sceneIndex: search.sceneIndex,
-                          mode: search.mode,
-                        }}
-                      />
-                    }
+                        <Link
+                          to="/tasks/$id"
+                          params={{ id: task.id }}
+                          search={{
+                            sourceType: search.sourceType,
+                            projectId: search.projectId,
+                            relatedId: search.relatedId,
+                            sceneIndex: search.sceneIndex,
+                            mode: search.mode,
+                            panel: search.panel,
+                          }}
+                        />
+                      }
                   >
                     查看
                   </Button>
@@ -435,6 +436,13 @@ function TaskDeepLinkPage() {
     optimizationSummary.sourcePrompt !== detail.run?.effectivePrompt
       ? optimizationSummary.sourcePrompt
       : null;
+  const taskFailed = detail.task.status === 'failed' || detail.run?.status === 'failed';
+  const runErrorText =
+    typeof detail.run?.error === 'string'
+      ? detail.run.error
+      : detail.run?.error
+        ? JSON.stringify(detail.run.error)
+        : null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 px-4 py-8">
@@ -477,55 +485,77 @@ function TaskDeepLinkPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border p-4">
-        <h2 className="text-sm font-medium">Prompt 复盘</h2>
-        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
-          {detail.run?.effectivePrompt ||
-            JSON.stringify(detail.task.input, null, 2)}
-        </pre>
-
-        {sourceComposedPrompt && (
-          <details className="mt-3 rounded-lg border bg-muted/40 p-3">
-            <summary className="cursor-pointer text-xs font-medium">
-              查看优化前 composed prompt
-            </summary>
-            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
-              {sourceComposedPrompt}
-            </pre>
-          </details>
-        )}
-
-        <div className="mt-3 rounded-lg border bg-muted/40 p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-medium">Prompt 优化摘要</h3>
-            <span className="text-2xs text-muted-foreground">
-              {!optimizationSummary
-                ? '暂无数据'
-                : optimizationSummary.status === 'optimized'
-                  ? '已优化'
-                  : optimizationSummary.status === 'fallback'
-                    ? '优化失败（已回退）'
-                    : '已跳过'}
-            </span>
+      <Alert variant={taskFailed ? 'warning' : 'info'}>
+        <AlertTitle>{taskFailed ? '任务执行异常' : '排障提示'}</AlertTitle>
+        <AlertDescription>
+          <div className="space-y-1 text-xs">
+            <div>
+              当前状态：
+              {TASK_STATUS_LABELS[
+                detail.task.status as keyof typeof TASK_STATUS_LABELS
+              ] || detail.task.status}
+              {detail.run?.status ? `（run: ${detail.run.status}）` : ''}
+            </div>
+            {detail.task.error ? <div>任务错误：{detail.task.error}</div> : null}
+            {runErrorText ? <div>运行错误：{runErrorText}</div> : null}
+            {!detail.task.error && !runErrorText ? (
+              <div>未记录明确错误；可按原参数重试并返回场景继续排查。</div>
+            ) : null}
           </div>
+        </AlertDescription>
+      </Alert>
 
+      <div className="rounded-xl border p-4 space-y-3">
+        <h2 className="text-sm font-medium">技术复盘（默认折叠）</h2>
+
+        <details className="rounded-lg border bg-muted/40 p-3">
+          <summary className="cursor-pointer text-xs font-medium">
+            查看 Prompt 复盘
+          </summary>
+          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
+            {detail.run?.effectivePrompt ||
+              JSON.stringify(detail.task.input, null, 2)}
+          </pre>
+          {sourceComposedPrompt && (
+            <details className="mt-3 rounded-lg border bg-background/60 p-3">
+              <summary className="cursor-pointer text-xs font-medium">
+                查看优化前 composed prompt
+              </summary>
+              <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">
+                {sourceComposedPrompt}
+              </pre>
+            </details>
+          )}
+        </details>
+
+        <details className="rounded-lg border bg-muted/40 p-3">
+          <summary className="cursor-pointer text-xs font-medium">
+            查看 Prompt 优化摘要
+          </summary>
           {!optimizationSummary ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               该任务未记录优化器摘要（可能为旧任务或未启用）。
             </p>
           ) : (
-            <div className="space-y-2 text-2xs">
+            <div className="mt-2 space-y-2 text-2xs">
               <div className="grid gap-2 md:grid-cols-2">
                 <div>provider: {optimizationSummary.providerId || '-'}</div>
                 <div>model: {optimizationSummary.textModel || '-'}</div>
                 <div>format: {optimizationSummary.providerFormat || '-'}</div>
+              </div>
+              <div className="text-muted-foreground">
+                状态：
+                {optimizationSummary.status === 'optimized'
+                  ? '已优化'
+                  : optimizationSummary.status === 'fallback'
+                    ? '优化失败（已回退）'
+                    : '已跳过'}
               </div>
               {optimizationSummary.reason && (
                 <div className="text-amber-700">
                   原因：{optimizationSummary.reason}
                 </div>
               )}
-
               {(optimizationSummary.assumptions.length > 0 ||
                 optimizationSummary.conflicts.length > 0) && (
                 <div className="grid gap-2 md:grid-cols-2">
@@ -561,24 +591,23 @@ function TaskDeepLinkPage() {
               )}
             </div>
           )}
-        </div>
+        </details>
 
-        <div className="mt-3 rounded-lg border bg-muted/40 p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-medium">参考图注入摘要</h3>
-            <span className="text-2xs text-muted-foreground">
+        <details className="rounded-lg border bg-muted/40 p-3">
+          <summary className="cursor-pointer text-xs font-medium">
+            查看参考图注入摘要
+            <span className="ml-2 text-2xs text-muted-foreground">
               {referenceSummary
                 ? `总计 ${referenceSummary.totalCount} 张`
                 : '暂无数据'}
             </span>
-          </div>
-
+          </summary>
           {!referenceSummary ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               该任务未记录参考图摘要（可能未使用参考图）。
             </p>
           ) : (
-            <div className="space-y-2 text-2xs">
+            <div className="mt-2 space-y-2 text-2xs">
               <div className="grid gap-2 md:grid-cols-2">
                 <div>
                   <div className="font-medium text-muted-foreground">
@@ -601,8 +630,7 @@ function TaskDeepLinkPage() {
                   />
                   {referenceSummary.sceneSanitizedCount > 0 ? (
                     <div className="mt-1 text-[11px] text-emerald-700">
-                      其中 {referenceSummary.sceneSanitizedCount}{' '}
-                      张为去脸预处理图
+                      其中 {referenceSummary.sceneSanitizedCount} 张为去脸预处理图
                     </div>
                   ) : null}
                 </div>
@@ -670,7 +698,7 @@ function TaskDeepLinkPage() {
               )}
             </div>
           )}
-        </div>
+        </details>
       </div>
     </div>
   );
@@ -687,7 +715,7 @@ function SourceButton({ link }: { link: TaskSourceLink }) {
         }
       >
         <ExternalLink className="mr-1 h-3.5 w-3.5" />
-        {link.label || '跳转来源页面'}
+        回到场景工作区
       </Button>
     );
   }

@@ -2,21 +2,24 @@ import { describe, expect, it } from 'vitest';
 import {
   clearLegacyOpenEdit,
   parseResultSearchParams,
+  resolveResultPanel,
   resolveResultMode,
 } from '@/lib/result-search-params';
 
 describe('result-search-params', () => {
-  it('parses mode/scene/openEdit correctly', () => {
+  it('parses mode/scene/openEdit/panel correctly', () => {
     expect(
       parseResultSearchParams({
         mode: 'execute',
         scene: '2',
         openEdit: '1',
+        panel: 'task',
       }),
     ).toEqual({
       mode: 'execute',
       scene: 2,
       openEdit: '1',
+      panel: 'task',
     });
   });
 
@@ -30,8 +33,10 @@ describe('result-search-params', () => {
       mode: undefined,
       scene: undefined,
       openEdit: undefined,
+      panel: undefined,
     });
     expect(resolveResultMode(parsed)).toBe('plan');
+    expect(resolveResultPanel(parsed)).toBeUndefined();
   });
 
   it('uses explicit mode over legacy openEdit', () => {
@@ -40,9 +45,10 @@ describe('result-search-params', () => {
       openEdit: '1',
     });
     expect(resolveResultMode(parsed)).toBe('review');
+    expect(resolveResultPanel(parsed)).toBe('copy');
   });
 
-  it('clears legacy openEdit but keeps scene/mode', () => {
+  it('clears legacy openEdit and maps to copy panel', () => {
     const parsed = parseResultSearchParams({
       openEdit: '1',
       scene: '3',
@@ -50,6 +56,7 @@ describe('result-search-params', () => {
     expect(clearLegacyOpenEdit(parsed)).toEqual({
       scene: 3,
       mode: 'execute',
+      panel: 'copy',
     });
   });
 });

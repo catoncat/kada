@@ -14,6 +14,7 @@ describe('task-recovery source link', () => {
         projectId: 'p1',
         sceneIndex: '2',
         mode: 'execute',
+        panel: 'copy',
       }),
     ).toEqual({
       sourceType: 'projectResult',
@@ -21,6 +22,7 @@ describe('task-recovery source link', () => {
       relatedId: undefined,
       sceneIndex: 2,
       mode: 'execute',
+      panel: 'copy',
     });
   });
 
@@ -47,7 +49,7 @@ describe('task-recovery source link', () => {
     const link = getTaskSourceLink(task);
     expect(link?.to).toBe('/project/$id/result');
     if (link?.to === '/project/$id/result') {
-      expect(link.search).toEqual({ scene: 1, mode: 'execute' });
+      expect(link.search).toEqual({ scene: 1, mode: 'execute', panel: 'copy' });
     }
   });
 
@@ -59,7 +61,7 @@ describe('task-recovery source link', () => {
     });
     expect(link?.to).toBe('/project/$id/result');
     if (link?.to === '/project/$id/result') {
-      expect(link.search).toEqual({ scene: 0, mode: 'execute' });
+      expect(link.search).toEqual({ scene: 0, mode: 'execute', panel: 'copy' });
     }
   });
 });
