@@ -555,17 +555,28 @@ export function ImageStudioLite({
               ) : null}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              参考图参与详情默认展示，技术排障信息收纳在下方。
+              首屏仅展示执行事实，注入与技术细节收纳在折叠区。
             </p>
           </div>
 
-          {referencePlanPreview ? (
-            <ReferencePlanPanel plan={referencePlanPreview} />
-          ) : null}
+          <details className="rounded-xl border bg-muted/40 p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              执行细节（参考图与注入计划）
+            </summary>
+            <div className="mt-3">
+              {referencePlanPreview ? (
+                <ReferencePlanPanel plan={referencePlanPreview} />
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  暂无参考图注入详情，请先输入文案生成预览。
+                </div>
+              )}
+            </div>
+          </details>
 
           <details className="rounded-xl border bg-muted/40 p-3">
             <summary className="cursor-pointer text-sm font-medium">
-              技术详情
+              Prompt 技术详情
             </summary>
             <div className="mt-3 space-y-2">
               <div className="flex items-start justify-between gap-2">
