@@ -26,6 +26,10 @@ export interface SceneCardProps {
     sceneIndex: number,
     visualPrompt: string,
   ) => Promise<void> | void;
+  /** 撤销最近一次优化 */
+  onUndoOptimize?: (sceneIndex: number) => Promise<void> | void;
+  /** 当前分镜是否存在可撤销优化 */
+  canUndoOptimize?: boolean;
   /** 查看该分镜最近任务 */
   onViewRecentTasks?: (sceneIndex: number) => void;
   /** 更新分镜 */
@@ -60,10 +64,12 @@ export function SceneCard({
   onGeneratePreview,
   onGenerateFromSelected,
   onOptimizePrompt,
+  onUndoOptimize,
   onViewRecentTasks,
   onUpdateScene,
   taskTrack,
   canGenerateFromSelected = false,
+  canUndoOptimize = false,
 }: SceneCardProps) {
   const [draft, setDraft] = useState({
     location: scene.location || '',
@@ -276,6 +282,17 @@ export function SceneCard({
             >
               {isOptimizing ? '优化中...' : '优化提示词'}
             </Button>
+
+            {canUndoOptimize ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onUndoOptimize?.(sceneIndex)}
+                disabled={isSaving || isOptimizing}
+              >
+                撤销优化
+              </Button>
+            ) : null}
 
             <Button
               size="sm"

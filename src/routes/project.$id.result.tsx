@@ -18,6 +18,7 @@ import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { useProjectSceneTasks } from '@/hooks/useProjectSceneTasks';
 import { useTasksPolling } from '@/hooks/useTasks';
 import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
+import { previewImagePrompt } from '@/lib/prompts-api';
 import {
   clearLegacyOpenEdit,
   parseResultSearchParams,
@@ -72,6 +73,9 @@ function ProjectResultPage() {
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [sceneTaskHint, setSceneTaskHint] = useState<string | null>(null);
+  const [optimizeUndoByScene, setOptimizeUndoByScene] = useState<
+    Record<string, string>
+  >({});
 
   const resolvedPanel = resolveResultPanel(search);
   const sceneFromUrl = search.scene;
@@ -245,6 +249,74 @@ function ProjectResultPage() {
     [plan, updateSceneMutation],
   );
 
+  const handleOptimizePrompt = useCallback(
+    async (sceneIndex: number, visualPrompt: string) => {
+      const scene = plan?.scenes?.[sceneIndex];
+      const sourcePrompt = visualPrompt.trim();
+      if (!scene || !sourcePrompt) return;
+      const { sceneId, sceneKey } = resolveSceneIdentity(scene, sceneIndex);
+
+      try {
+        const preview = await previewImagePrompt(
+          {
+            prompt: sourcePrompt,
+            owner: {
+              type: 'planScene',
+              id,
+              slot: sceneId ? `scene:${sceneId}` : `scene:${sceneIndex}`,
+            },
+            referenceImages: scene.sceneAssetImage
+              ? [scene.sceneAssetImage]
+              : undefined,
+            includeCurrentImageAsReference: false,
+          },
+          { forceRefresh: true },
+        );
+
+        const optimizedPrompt = (
+          preview.renderPrompt ||
+          preview.effectivePrompt ||
+          ''
+        ).trim();
+        if (!optimizedPrompt || optimizedPrompt === sourcePrompt) {
+          setSceneTaskHint(`分镜 ${sceneIndex + 1} 优化后无变化。`);
+          return;
+        }
+
+        setOptimizeUndoByScene((prev) => ({
+          ...prev,
+          [sceneKey]: sourcePrompt,
+        }));
+        await handleUpdateScene(sceneIndex, { visualPrompt: optimizedPrompt });
+        setSceneTaskHint(`分镜 ${sceneIndex + 1} 已应用优化提示词。`);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '未知错误，请稍后重试';
+        setSceneTaskHint(`分镜 ${sceneIndex + 1} 优化失败：${message}`);
+      }
+    },
+    [handleUpdateScene, id, plan?.scenes],
+  );
+
+  const handleUndoOptimize = useCallback(
+    async (sceneIndex: number) => {
+      const scene = plan?.scenes?.[sceneIndex];
+      if (!scene) return;
+      const { sceneKey } = resolveSceneIdentity(scene, sceneIndex);
+      const previousPrompt = optimizeUndoByScene[sceneKey];
+      if (!previousPrompt) return;
+
+      await handleUpdateScene(sceneIndex, { visualPrompt: previousPrompt });
+      setOptimizeUndoByScene((prev) => {
+        const next = { ...prev };
+        delete next[sceneKey];
+        return next;
+      });
+      setSceneTaskHint(`分镜 ${sceneIndex + 1} 已撤销最近一次优化。`);
+    },
+    [handleUpdateScene, optimizeUndoByScene, plan?.scenes],
+  );
+
   const previewProgress = useMemo(() => {
     if (!plan?.scenes) return { done: 0, total: 0 };
     const total = plan.scenes.length;
@@ -382,9 +454,12 @@ function ProjectResultPage() {
                 sceneIndex={index}
                 isGenerating={generatingScenes.has(sceneKey)}
                 onGeneratePreview={handleGenerateScenePreview}
+                onOptimizePrompt={handleOptimizePrompt}
+                onUndoOptimize={handleUndoOptimize}
                 onViewRecentTasks={handleViewRecentTasks}
                 onUpdateScene={handleUpdateScene}
                 taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
+                canUndoOptimize={Boolean(optimizeUndoByScene[sceneKey])}
               />
             </div>
           );
