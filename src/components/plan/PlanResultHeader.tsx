@@ -8,12 +8,11 @@ import {
   ArrowLeft,
   FileDown,
   History,
-  Images,
   Lightbulb,
   Loader2,
   MessageSquareQuote,
   Palette,
-  Wand2,
+  RefreshCcw,
 } from 'lucide-react';
 import {
   Accordion,
@@ -24,27 +23,21 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { Project } from '@/types/project';
-import type { GeneratedPlan, PreviewProgress, ResultMode } from './types';
+import type { GeneratedPlan, PreviewProgress } from './types';
 
 export interface PlanResultHeaderProps {
   project: Project;
   plan: GeneratedPlan;
   /** 预览图生成进度 */
   previewProgress: PreviewProgress;
-  /** 是否正在批量生成 */
-  isBatchGenerating?: boolean;
   /** 是否正在重新生成方案 */
   isRegenerating?: boolean;
-  /** 批量生成预览图回调 */
-  onGeneratePreviews?: () => void;
   /** 打开版本历史回调 */
   onOpenVersions?: () => void;
   /** 重新生成方案回调 */
   onRegenerate?: () => void;
   /** 导出 PPT 回调 */
   onExportPPT?: () => void;
-  /** 当前结果页模式 */
-  mode?: ResultMode;
   /** 打开高级排障（任务中心） */
   onOpenTaskCenter?: () => void;
 }
@@ -53,13 +46,10 @@ export function PlanResultHeader({
   project,
   plan,
   previewProgress,
-  isBatchGenerating = false,
   isRegenerating = false,
-  onGeneratePreviews,
   onOpenVersions,
   onRegenerate,
   onExportPPT,
-  mode = 'plan',
   onOpenTaskCenter,
 }: PlanResultHeaderProps) {
   // 格式化创建时间
@@ -93,9 +83,6 @@ export function PlanResultHeader({
             {plan.title}
           </h1>
           <Badge variant="secondary">方案 v1</Badge>
-          <Badge variant="outline">
-            {mode === 'plan' ? '规划' : mode === 'execute' ? '执行' : '验收'}
-          </Badge>
           {createdAt && (
             <span className="text-sm text-muted-foreground">
               创建于 {createdAt}
@@ -112,24 +99,6 @@ export function PlanResultHeader({
             <History className="w-4 h-4" />
             版本历史
           </Button>
-          {mode === 'execute' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onGeneratePreviews}
-              disabled={
-                isBatchGenerating ||
-                previewProgress.done === previewProgress.total
-              }
-            >
-              {isBatchGenerating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Images className="w-4 h-4" />
-              )}
-              批量执行
-            </Button>
-          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -139,7 +108,7 @@ export function PlanResultHeader({
             {isRegenerating ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Wand2 className="w-4 h-4" />
+              <RefreshCcw className="w-4 h-4" />
             )}
             {isRegenerating ? '生成中...' : '重新生成'}
           </Button>
