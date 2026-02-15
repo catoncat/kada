@@ -1,22 +1,13 @@
 /**
  * Image Studio Lite
- * 通用图片生成/编辑组件
- *
- * Features:
- * - 显示当前图片版本
- * - 编辑 draft prompt（服务端拼接为 effectivePrompt）
- * - 生成新版本
- * - 版本列表和切换
- * - 自动轮询任务状态
+ * 通用图片生成/编辑组件（单提示词主流程）
  */
 
 import {
   Check,
-  Copy,
   History,
   Image as ImageIcon,
   Loader2,
-  RefreshCw,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -37,17 +28,11 @@ import {
   useDeleteArtifact,
   useSetCurrentArtifact,
 } from '@/hooks/useArtifacts';
-import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import type { PhotoOrientation } from '@/hooks/usePhotoOrientation';
 import { useImageGeneration, useTasksPolling } from '@/hooks/useTasks';
 import { apiUrl } from '@/lib/api-config';
 import { type ArtifactOwnerType, getArtifactUrl } from '@/lib/artifacts-api';
-import {
-  type PromptComposerMeta,
-  type PromptOptimizationMeta,
-  previewImagePrompt,
-  type ReferencePlanSummary,
-} from '@/lib/prompts-api';
+import type { PromptOptimizationMeta } from '@/lib/prompts-api';
 import { cn } from '@/lib/utils';
 
 export interface ImageStudioLiteProps {
@@ -65,6 +50,8 @@ export interface ImageStudioLiteProps {
   includeCurrentImageAsReference?: boolean;
   /** 默认提示词 */
   defaultPrompt?: string;
+  /** 生成前同步提示词（例如写回场景 visualPrompt） */
+  onPromptSubmit?: (prompt: string) => Promise<void> | void;
   /** 图片变更回调 */
   onImageChange?: (filePath: string | null, artifactId: string | null) => void;
   /** 是否只读（不显示编辑按钮） */
@@ -116,12 +103,22 @@ function normalizePromptOptimizationMeta(
   };
 }
 
+function getOptimizationStatusText(
+  meta: PromptOptimizationMeta | null,
+): string {
+  if (!meta) return '未生成';
+  if (meta.status === 'optimized') return '已自动优化';
+  if (meta.status === 'fallback') return '优化失败（已回退）';
+  return '未执行优化';
+}
+
 export function ImageStudioLite({
   owner,
   currentImagePath,
   referenceImages,
   includeCurrentImageAsReference = true,
   defaultPrompt = '',
+  onPromptSubmit,
   onImageChange,
   readonly = false,
   className,
@@ -131,21 +128,15 @@ export function ImageStudioLite({
   const [isGenerating, setIsGenerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
-  const [effectivePromptPreview, setEffectivePromptPreview] = useState('');
-  const [sourcePromptPreview, setSourcePromptPreview] = useState('');
-  const [previewComposer, setPreviewComposer] =
-    useState<PromptComposerMeta | null>(null);
-  const [previewStudioTemplateId, setPreviewStudioTemplateId] = useState<
-    string | null
-  >(null);
-  const [promptOptimizationPreview, setPromptOptimizationPreview] =
+  const [effectivePromptRuntime, setEffectivePromptRuntime] = useState('');
+  const [sourcePromptRuntime, setSourcePromptRuntime] = useState('');
+  const [promptOptimizationRuntime, setPromptOptimizationRuntime] =
     useState<PromptOptimizationMeta | null>(null);
-  const [referencePlanPreview, setReferencePlanPreview] =
-    useState<ReferencePlanSummary | null>(null);
-  const [isPreviewing, setIsPreviewing] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [lastRunState, setLastRunState] = useState<
+    'idle' | 'completed' | 'failed'
+  >('idle');
+  const [lastRunError, setLastRunError] = useState<string | null>(null);
 
-  // 获取版本列表
   const {
     data: artifactsData,
     isLoading: isLoadingArtifacts,
@@ -165,26 +156,33 @@ export function ImageStudioLite({
     ) || artifactsData?.artifacts[0];
   const displayPath = currentArtifact?.filePath || currentImagePath;
 
-  // 轮询任务状态
   useTasksPolling(pendingTaskIds, {
     enabled: pendingTaskIds.length > 0,
-    onTaskComplete: (task) => {
-      console.log('[ImageStudioLite] Task completed:', task.id, task.status);
-    },
     onAllComplete: (tasks) => {
-      console.log('[ImageStudioLite] All tasks completed:', tasks.length);
       setPendingTaskIds([]);
       setIsGenerating(false);
 
       let latestArtifactId: string | null = null;
       let latestFilePath: string | null = null;
+      let latestEffectivePrompt = '';
+      let latestSourcePrompt = '';
+      let latestOptimization: PromptOptimizationMeta | null = null;
+
       for (let i = tasks.length - 1; i >= 0; i--) {
-        const t = tasks[i];
-        if (t?.status !== 'completed') continue;
-        const output = t.output as
-          | { artifactId?: unknown; filePath?: unknown }
+        const task = tasks[i];
+        if (task?.status !== 'completed') continue;
+
+        const output = task.output as
+          | {
+              artifactId?: unknown;
+              filePath?: unknown;
+              effectivePrompt?: unknown;
+              sourceEffectivePrompt?: unknown;
+              promptOptimization?: unknown;
+            }
           | null
           | undefined;
+
         const artifactId =
           output && typeof output.artifactId === 'string'
             ? output.artifactId.trim()
@@ -193,48 +191,51 @@ export function ImageStudioLite({
           output && typeof output.filePath === 'string'
             ? output.filePath.trim()
             : '';
-        if (!filePathRaw) continue;
-        latestArtifactId = artifactId || null;
-        latestFilePath = filePathRaw.startsWith('/')
-          ? filePathRaw
-          : `/${filePathRaw}`;
-        break;
-      }
 
-      // 以服务端回显的最终执行 prompt 为准
-      for (let i = tasks.length - 1; i >= 0; i--) {
-        const output = tasks[i]?.output as {
-          effectivePrompt?: unknown;
-          sourceEffectivePrompt?: unknown;
-          promptOptimization?: unknown;
-        } | null;
         if (
-          output &&
-          typeof output.effectivePrompt === 'string' &&
-          output.effectivePrompt.trim()
+          !latestEffectivePrompt &&
+          typeof output?.effectivePrompt === 'string'
         ) {
-          setEffectivePromptPreview(output.effectivePrompt.trim());
-          setSourcePromptPreview(
+          latestEffectivePrompt = output.effectivePrompt.trim();
+          latestSourcePrompt =
             typeof output.sourceEffectivePrompt === 'string'
               ? output.sourceEffectivePrompt.trim()
-              : '',
+              : '';
+          latestOptimization = normalizePromptOptimizationMeta(
+            output.promptOptimization,
           );
-          setPromptOptimizationPreview(
-            normalizePromptOptimizationMeta(output.promptOptimization),
-          );
-          break;
+        }
+
+        if (filePathRaw && !latestFilePath) {
+          latestArtifactId = artifactId || null;
+          latestFilePath = filePathRaw.startsWith('/')
+            ? filePathRaw
+            : `/${filePathRaw}`;
         }
       }
-      // 刷新 artifacts 以获取新生成的图片
+
+      if (latestEffectivePrompt) {
+        setEffectivePromptRuntime(latestEffectivePrompt);
+        setSourcePromptRuntime(latestSourcePrompt);
+        setPromptOptimizationRuntime(latestOptimization);
+      }
+
+      if (latestFilePath) {
+        setLastRunState('completed');
+        setLastRunError(null);
+      } else {
+        const failedTask = tasks.find((task) => task.status === 'failed');
+        setLastRunState('failed');
+        setLastRunError(failedTask?.error || '任务执行失败');
+      }
+
       refetchArtifacts();
-      // 通知外部刷新（对话框/抽屉外的 UI 需要依赖它回显）
       if (latestFilePath) {
         onImageChange?.(latestFilePath, latestArtifactId);
       }
     },
   });
 
-  // 同步 defaultPrompt 变化
   useEffect(() => {
     if (defaultPrompt && !prompt) {
       setPrompt(defaultPrompt);
@@ -243,138 +244,66 @@ export function ImageStudioLite({
 
   const prevOwnerKeyRef = useRef(ownerKey);
 
-  // owner 变化时（例如切换不同场景/slot），重置为默认提示词
   useEffect(() => {
     if (prevOwnerKeyRef.current === ownerKey) return;
     prevOwnerKeyRef.current = ownerKey;
     setPrompt(defaultPrompt);
-    setPreviewComposer(null);
-    setPreviewStudioTemplateId(null);
-    setSourcePromptPreview('');
-    setPromptOptimizationPreview(null);
-    setReferencePlanPreview(null);
+    setEffectivePromptRuntime('');
+    setSourcePromptRuntime('');
+    setPromptOptimizationRuntime(null);
+    setLastRunState('idle');
+    setLastRunError(null);
   }, [ownerKey, defaultPrompt]);
 
-  const runPreview = useCallback(
-    async (draft: string, options?: { forceRefresh?: boolean }) => {
-      if (readonly) return;
-
-      const draftPrompt = draft.trim();
-      if (!draftPrompt) {
-        setPreviewComposer(null);
-        setPreviewStudioTemplateId(null);
-        setEffectivePromptPreview('');
-        setSourcePromptPreview('');
-        setPromptOptimizationPreview(null);
-        setReferencePlanPreview(null);
-        setPreviewError(null);
-        return;
-      }
-
-      setIsPreviewing(true);
-      setPreviewError(null);
-      try {
-        const res = await previewImagePrompt(
-          {
-            prompt: draftPrompt,
-            owner,
-            referenceImages,
-            currentImagePath: displayPath || null,
-            includeCurrentImageAsReference,
-          },
-          { forceRefresh: options?.forceRefresh },
-        );
-        const finalPrompt = (
-          res.renderPrompt ||
-          res.effectivePrompt ||
-          ''
-        ).trim();
-        setEffectivePromptPreview(finalPrompt);
-        setSourcePromptPreview((res.effectivePrompt || '').trim());
-        setPreviewComposer(res.composer || null);
-        setPreviewStudioTemplateId(
-          typeof res.studioTemplateId === 'string' &&
-            res.studioTemplateId.trim()
-            ? res.studioTemplateId.trim()
-            : null,
-        );
-        setPromptOptimizationPreview(
-          normalizePromptOptimizationMeta(res.promptOptimization),
-        );
-        setReferencePlanPreview(res.referencePlan || null);
-      } catch (error) {
-        setPreviewError(error instanceof Error ? error.message : '预览失败');
-        setPromptOptimizationPreview(null);
-        setReferencePlanPreview(null);
-      } finally {
-        setIsPreviewing(false);
-      }
-    },
-    [
-      readonly,
-      owner,
-      referenceImages,
-      displayPath,
-      includeCurrentImageAsReference,
-    ],
-  );
-
-  const previewEffectivePrompt = useDebouncedCallback((draft: string) => {
-    void runPreview(draft);
-  }, 350);
-
-  useEffect(() => {
-    previewEffectivePrompt(prompt);
-  }, [prompt, previewEffectivePrompt]);
-
-  const handleRegeneratePreview = useCallback(() => {
-    if (!prompt.trim()) return;
-    void runPreview(prompt, { forceRefresh: true });
-  }, [prompt, runPreview]);
-
-  // 生成图片
   const handleGenerate = useCallback(async () => {
-    if (!prompt.trim() || isGenerating) return;
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt || isGenerating) return;
 
     const refs = [
       ...(Array.isArray(referenceImages) ? referenceImages : []),
       ...(includeCurrentImageAsReference && displayPath ? [displayPath] : []),
     ]
-      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
       .filter(Boolean);
     const uniqueRefs = Array.from(new Set(refs));
 
-    console.log(
-      '[ImageStudioLite] Creating image task with prompt:',
-      prompt.trim(),
-    );
     setIsGenerating(true);
+    setLastRunError(null);
+
     try {
+      if (onPromptSubmit) {
+        await onPromptSubmit(trimmedPrompt);
+      }
+
       const task = await createTask({
-        prompt: prompt.trim(),
+        prompt: trimmedPrompt,
         relatedId: owner.id,
         relatedMeta: JSON.stringify({ type: owner.type, slot: owner.slot }),
         referenceImages: uniqueRefs.length > 0 ? uniqueRefs : undefined,
         owner,
+        options: {
+          aspectRatio,
+        },
       });
-      console.log('[ImageStudioLite] Task created:', task.id);
-      // 添加到轮询列表
       setPendingTaskIds((prev) => [...prev, task.id]);
     } catch (error) {
       console.error('[ImageStudioLite] Failed to create image task:', error);
       setIsGenerating(false);
+      setLastRunState('failed');
+      setLastRunError(error instanceof Error ? error.message : '创建任务失败');
     }
   }, [
     prompt,
     isGenerating,
+    referenceImages,
+    includeCurrentImageAsReference,
+    displayPath,
+    onPromptSubmit,
     createTask,
     owner,
-    referenceImages,
-    displayPath,
-    includeCurrentImageAsReference,
+    aspectRatio,
   ]);
 
-  // 切换版本
   const handleSwitchVersion = useCallback(
     async (artifact: GenerationArtifact) => {
       try {
@@ -388,7 +317,6 @@ export function ImageStudioLite({
     [setCurrentMutation, onImageChange],
   );
 
-  // 删除版本
   const handleDeleteVersion = useCallback(
     async (artifact: GenerationArtifact) => {
       try {
@@ -401,7 +329,6 @@ export function ImageStudioLite({
     [deleteMutation, refetchArtifacts],
   );
 
-  // 计算图片 URL - 优先使用当前 artifact
   const imageUrl = displayPath
     ? displayPath.startsWith('/')
       ? apiUrl(displayPath)
@@ -417,30 +344,34 @@ export function ImageStudioLite({
     portrait: '',
     auto: '',
   }[aspectRatio];
+
   const forcedOrientation: PhotoOrientation | undefined =
     aspectRatio === 'landscape'
       ? 'landscape'
       : aspectRatio === 'portrait'
         ? 'portrait'
         : undefined;
-  const previewStatusText = !prompt.trim()
-    ? '待输入'
-    : isPreviewing
-      ? '预览生成中'
-      : promptOptimizationPreview
-        ? promptOptimizationPreview.status === 'optimized'
-          ? '已优化'
-          : promptOptimizationPreview.status === 'fallback'
-            ? '优化失败（已回退）'
-            : '已跳过优化'
-        : effectivePromptPreview
-          ? '已生成预览'
-          : '待预览';
-  const previewReferenceCount = referencePlanPreview?.totalCount ?? 0;
+
+  const runtimeRefs = [
+    ...(Array.isArray(referenceImages) ? referenceImages : []),
+    ...(includeCurrentImageAsReference && displayPath ? [displayPath] : []),
+  ]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean);
+  const uniqueRuntimeRefs = Array.from(new Set(runtimeRefs));
+
+  const runStatusText = isGenerating
+    ? '生成中'
+    : pendingTaskIds.length > 0
+      ? '任务进行中'
+      : lastRunState === 'failed'
+        ? '最近一次失败'
+        : lastRunState === 'completed'
+          ? '最近一次完成'
+          : '待生成';
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      {/* 图片预览区 */}
       <PhotoFrame
         src={imageUrl}
         alt="Generated"
@@ -453,7 +384,6 @@ export function ImageStudioLite({
           </div>
         }
       >
-        {/* 生成中状态 */}
         {isGenerating && (
           <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center gap-2">
             <Loader2 className="size-8 animate-spin text-primary" />
@@ -461,7 +391,6 @@ export function ImageStudioLite({
           </div>
         )}
 
-        {/* 版本历史按钮 */}
         {!readonly && (
           <div className="absolute top-2 right-2">
             <Popover open={showHistory} onOpenChange={setShowHistory}>
@@ -507,21 +436,15 @@ export function ImageStudioLite({
         )}
       </PhotoFrame>
 
-      {/* 提示词编辑区 */}
       {!readonly && (
         <div className="space-y-3">
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">出图提示词（draft）</div>
-              <div className="text-xs text-muted-foreground">
-                会参与服务端上下文拼接
-              </div>
-            </div>
+            <div className="text-sm font-medium">出图提示词</div>
             <Textarea
               placeholder="描述你想要的图片效果..."
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={5}
               className="resize-none"
             />
           </div>
@@ -546,125 +469,68 @@ export function ImageStudioLite({
 
           <div className="rounded-xl border bg-muted/40 p-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>预览状态：{previewStatusText}</span>
-              <span>参考图：{previewReferenceCount} 张</span>
+              <span>运行状态：{runStatusText}</span>
+              <span>
+                自动优化：{getOptimizationStatusText(promptOptimizationRuntime)}
+              </span>
+              <span>参考图：{uniqueRuntimeRefs.length} 张</span>
               <span>画幅锁定：{aspectRatio}</span>
               <span>输出策略：单帧静态图</span>
-              {previewComposer ? (
-                <span>编排：{previewComposer.name}</span>
-              ) : null}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              首屏仅展示执行事实，注入与技术细节收纳在折叠区。
-            </p>
+            {lastRunError ? (
+              <p className="mt-1 text-xs text-red-600">错误：{lastRunError}</p>
+            ) : null}
           </div>
 
           <details className="rounded-xl border bg-muted/40 p-3">
             <summary className="cursor-pointer text-sm font-medium">
-              执行细节（参考图与注入计划）
+              开发调试信息
             </summary>
-            <div className="mt-3">
-              {referencePlanPreview ? (
-                <ReferencePlanPanel plan={referencePlanPreview} />
-              ) : (
-                <div className="text-xs text-muted-foreground">
-                  暂无参考图注入详情，请先输入文案生成预览。
-                </div>
-              )}
-            </div>
-          </details>
 
-          <details className="rounded-xl border bg-muted/40 p-3">
-            <summary className="cursor-pointer text-sm font-medium">
-              Prompt 技术详情
-            </summary>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">最终出图文案</div>
-                  {previewComposer ? (
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      编排：{previewComposer.name} · {previewComposer.version}
-                      {previewStudioTemplateId
-                        ? ` · 系统提示词：${previewStudioTemplateId}`
-                        : ''}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      服务端拼接后经优化器处理，最终用于模型执行
-                    </div>
-                  )}
-                </div>
+            <div className="mt-3 space-y-3">
+              <PromptOptimizationPanel meta={promptOptimizationRuntime} />
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!prompt.trim() || isPreviewing}
-                    onClick={handleRegeneratePreview}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        'mr-1 size-3.5',
-                        isPreviewing && 'animate-spin',
-                      )}
-                    />
-                    重新生成
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-8"
-                    disabled={!effectivePromptPreview}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(
-                          effectivePromptPreview,
-                        );
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    title="复制"
-                  >
-                    <Copy className="size-4" />
-                  </Button>
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  最终执行提示词
                 </div>
+                <Textarea
+                  value={effectivePromptRuntime}
+                  readOnly
+                  rows={6}
+                  className="resize-none font-mono text-xs"
+                  placeholder="任务完成后显示"
+                />
               </div>
 
-              {isPreviewing && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
-                  <span>正在生成预览…</span>
-                </div>
-              )}
-              {previewError && (
-                <div className="text-xs text-red-500">{previewError}</div>
-              )}
-
-              <Textarea
-                value={effectivePromptPreview}
-                readOnly
-                rows={6}
-                className="resize-none font-mono text-xs"
-                placeholder="（将显示最终执行的提示词）"
-              />
-
-              {promptOptimizationPreview && (
-                <PromptOptimizationPanel meta={promptOptimizationPreview} />
-              )}
-
-              {sourcePromptPreview &&
-                sourcePromptPreview !== effectivePromptPreview && (
+              {sourcePromptRuntime &&
+                sourcePromptRuntime !== effectivePromptRuntime && (
                   <details className="rounded-lg border bg-background/60 p-2">
                     <summary className="cursor-pointer text-xs font-medium">
-                      查看优化前拼接文案
+                      查看优化前提示词
                     </summary>
                     <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-2xs">
-                      {sourcePromptPreview}
+                      {sourcePromptRuntime}
                     </pre>
                   </details>
                 )}
+
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  本次发送参考图
+                </div>
+                {uniqueRuntimeRefs.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">无</div>
+                ) : (
+                  <div className="space-y-1 text-2xs text-muted-foreground">
+                    {uniqueRuntimeRefs.map((item, index) => (
+                      <div key={item} className="truncate">
+                        {index + 1}. {item}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </details>
         </div>
@@ -673,15 +539,25 @@ export function ImageStudioLite({
   );
 }
 
-function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
+function PromptOptimizationPanel({
+  meta,
+}: {
+  meta: PromptOptimizationMeta | null;
+}) {
+  if (!meta) {
+    return (
+      <div className="rounded-lg border bg-background/60 p-2 text-xs text-muted-foreground">
+        暂无优化摘要（尚未执行或任务未返回该字段）。
+      </div>
+    );
+  }
+
   const statusText =
     meta.status === 'optimized'
       ? '已优化'
       : meta.status === 'fallback'
         ? '优化失败（已回退）'
         : '已跳过';
-  const hasAssumptions = meta.assumptions.length > 0;
-  const hasConflicts = meta.conflicts.length > 0;
 
   return (
     <div className="rounded-lg border bg-background/60 p-2 space-y-1.5">
@@ -698,209 +574,10 @@ function PromptOptimizationPanel({ meta }: { meta: PromptOptimizationMeta }) {
       {meta.reason && (
         <div className="text-2xs text-amber-700">原因：{meta.reason}</div>
       )}
-
-      {(hasAssumptions || hasConflicts) && (
-        <div className="grid gap-2 text-2xs">
-          <div>
-            <div className="font-medium text-muted-foreground">假设补全</div>
-            {hasAssumptions ? (
-              <div className="space-y-0.5">
-                {meta.assumptions.map((item) => (
-                  <div key={`assume-${item}`}>{item}</div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-muted-foreground">无</div>
-            )}
-          </div>
-          <div>
-            <div className="font-medium text-muted-foreground">冲突处理</div>
-            {hasConflicts ? (
-              <div className="space-y-0.5">
-                {meta.conflicts.map((item) => (
-                  <div key={`conflict-${item}`}>{item}</div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-muted-foreground">无</div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function ReferencePlanPanel({ plan }: { plan: ReferencePlanSummary }) {
-  const hasDropped = plan.droppedGeneratedImages.length > 0;
-  const identityBindings = Array.isArray(plan.identityBindings)
-    ? plan.identityBindings
-        .filter(
-          (item): item is { index: number; image: string; role?: string } =>
-            Boolean(
-              item &&
-                typeof item.index === 'number' &&
-                typeof item.image === 'string',
-            ),
-        )
-        .sort((a, b) => a.index - b.index)
-    : [];
-  const identityCollageImage =
-    typeof plan.identityCollageImage === 'string' &&
-    plan.identityCollageImage.trim()
-      ? plan.identityCollageImage.trim()
-      : null;
-  const sceneSanitizedCount =
-    typeof plan.sceneSanitizedCount === 'number' &&
-    Number.isFinite(plan.sceneSanitizedCount)
-      ? plan.sceneSanitizedCount
-      : plan.byRole.scene.filter((item) => item.includes('.scene-noface.'))
-          .length;
-  const toPreviewUrl = (value: string) => {
-    if (!value) return '';
-    if (value.startsWith('http://') || value.startsWith('https://'))
-      return value;
-    const normalized = value.startsWith('/') ? value : `/${value}`;
-    return apiUrl(normalized);
-  };
-
-  const renderReferenceList = (items: string[], role: 'scene' | 'identity') => {
-    if (items.length === 0) {
-      return <div className="text-muted-foreground">无</div>;
-    }
-    return (
-      <div className="grid gap-2">
-        {items.map((item, index) => (
-          <div
-            key={`${role}-${item}`}
-            className="flex items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5"
-          >
-            <div className="text-[10px] font-mono text-muted-foreground shrink-0">
-              {index + 1}
-            </div>
-            <div className="size-9 shrink-0 overflow-hidden rounded border bg-background">
-              <img
-                src={toPreviewUrl(item)}
-                alt={`${role}-reference-${index + 1}`}
-                className="size-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-[11px]">{item}</div>
-              {item.includes('.scene-noface.') ? (
-                <div className="text-[10px] text-emerald-600">
-                  已使用场景去脸缓存图
-                </div>
-              ) : null}
-              {identityCollageImage && item === identityCollageImage ? (
-                <div className="text-[10px] text-blue-600">
-                  人物拼接参考图（红框编号）
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  return (
-    <div className="rounded-lg border bg-background/60 p-2 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-medium">参考图参与详情</div>
-        <div className="text-2xs text-muted-foreground">
-          总计 {plan.totalCount} 张
-        </div>
-      </div>
-
-      <div className="grid gap-2 text-2xs">
-        <div>
-          <div className="font-medium text-muted-foreground">
-            人物参考（{plan.counts.identity}）
-          </div>
-          {renderReferenceList(plan.byRole.identity, 'identity')}
-        </div>
-
-        <div>
-          <div className="font-medium text-muted-foreground">
-            场景参考（{plan.counts.scene}）
-          </div>
-          {renderReferenceList(plan.byRole.scene, 'scene')}
-          {sceneSanitizedCount > 0 ? (
-            <div className="mt-1 text-[11px] text-emerald-700">
-              其中 {sceneSanitizedCount} 张为去脸预处理图
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {identityBindings.length > 0 && (
-        <div>
-          <div className="text-2xs font-medium text-muted-foreground">
-            人物编号映射（硬约束）
-          </div>
-          <div className="mt-1 space-y-1">
-            {identityBindings.map((binding) => (
-              <div
-                key={`binding-${binding.index}-${binding.image}`}
-                className="flex items-center gap-2 rounded border bg-muted/30 px-2 py-1"
-              >
-                <div className="text-[10px] font-mono text-muted-foreground shrink-0">
-                  #{binding.index}
-                </div>
-                <div className="size-8 shrink-0 overflow-hidden rounded border bg-background">
-                  <img
-                    src={toPreviewUrl(binding.image)}
-                    alt={`identity-binding-${binding.index}`}
-                    className="size-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="min-w-0 text-[11px]">
-                  <div className="truncate font-medium">
-                    {binding.role || `角色${binding.index}`}
-                  </div>
-                  <div className="truncate text-muted-foreground">
-                    {binding.image}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {plan.order.length > 0 && (
-        <div>
-          <div className="text-2xs font-medium text-muted-foreground">
-            参与顺序
-          </div>
-          <div className="mt-1 space-y-0.5 text-2xs">
-            {plan.order.map((item, idx) => (
-              <div key={`order-${item}`}>
-                {idx + 1}. {item}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {hasDropped && (
-        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-2xs text-amber-700">
-          已自动过滤 {plan.droppedGeneratedImages.length} 张同场景历史生成图：
-          {plan.droppedGeneratedImages.map((item) => (
-            <div key={`dropped-${item}`} className="truncate">
-              {item}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 版本项组件
 interface VersionItemProps {
   artifact: GenerationArtifact;
   isCurrent: boolean;
@@ -932,11 +609,10 @@ function VersionItem({
         isCurrent && 'bg-accent',
       )}
       onClick={onSelect}
-      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      onKeyDown={(event) => event.key === 'Enter' && onSelect()}
       role="button"
       tabIndex={0}
     >
-      {/* 缩略图 */}
       <PhotoFrame
         src={imageUrl}
         alt=""
@@ -948,7 +624,6 @@ function VersionItem({
         }
       />
 
-      {/* 信息 */}
       <div className="flex-1 min-w-0">
         <p className="text-xs text-muted-foreground truncate">{createdAt}</p>
         {artifact.effectivePrompt && (
@@ -956,15 +631,14 @@ function VersionItem({
         )}
       </div>
 
-      {/* 操作 */}
       <div className="flex items-center gap-1 shrink-0">
         {isCurrent && <Check className="size-4 text-primary" />}
         <Button
           size="icon"
           variant="ghost"
           className="size-6 opacity-0 group-hover:opacity-100"
-          onClick={(e) => {
-            e.stopPropagation();
+          onClick={(event) => {
+            event.stopPropagation();
             onDelete();
           }}
         >

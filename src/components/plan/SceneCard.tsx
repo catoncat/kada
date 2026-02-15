@@ -4,17 +4,13 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { SceneCardContent } from './SceneCardContent';
 import { SceneCardImage } from './SceneCardImage';
 import { SceneEditDrawer } from './SceneEditDrawer';
-import type {
-  GeneratedScene,
-  SceneOwner,
-  SceneTaskTrack,
-} from './types';
+import type { GeneratedScene, SceneOwner, SceneTaskTrack } from './types';
 
 export interface SceneCardProps {
   scene: GeneratedScene;
@@ -33,9 +29,7 @@ export interface SceneCardProps {
   /** 更新场景分镜信息（规划模式） */
   onUpdateScene?: (
     sceneIndex: number,
-    patch: Partial<
-      Pick<GeneratedScene, 'description' | 'shots' | 'lighting' | 'visualPrompt'>
-    >,
+    patch: Partial<Pick<GeneratedScene, 'visualPrompt'>>,
   ) => Promise<void> | void;
   /** 最近任务轨道 */
   taskTrack?: SceneTaskTrack | null;
@@ -59,6 +53,7 @@ export function SceneCard({
   onGeneratePreview,
   onImageChange,
   onViewRecentTasks,
+  onUpdateScene,
   taskTrack,
 }: SceneCardProps) {
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
@@ -138,7 +133,11 @@ export function SceneCard({
                   精修
                 </Button>
                 {taskTrack?.taskId ? (
-                  <Button size="sm" variant="ghost" onClick={handleViewRecentTasks}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleViewRecentTasks}
+                  >
                     查看任务
                   </Button>
                 ) : null}
@@ -162,6 +161,10 @@ export function SceneCard({
         lockedAspectRatio="photo"
         referenceCount={scene.sceneAssetImage ? 1 : 0}
         recentTaskStatus={getTaskStatusLabel(taskTrack)}
+        onPromptUpdate={(visualPrompt) => {
+          if (!onUpdateScene) return;
+          return onUpdateScene(sceneIndex, { visualPrompt });
+        }}
         onImageChange={handleImageChange}
       />
     </>

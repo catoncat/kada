@@ -33,6 +33,8 @@ export interface SceneEditDrawerProps {
   lockedAspectRatio?: SceneEditAspectRatio;
   referenceCount?: number;
   recentTaskStatus?: string | null;
+  /** 提示词更新回调（用于同步回场景 visualPrompt） */
+  onPromptUpdate?: (visualPrompt: string) => Promise<void> | void;
   /** 图片变化回调 */
   onImageChange?: (filePath: string | null, artifactId: string | null) => void;
 }
@@ -46,6 +48,7 @@ export function SceneEditDrawer({
   lockedAspectRatio = 'photo',
   referenceCount = 0,
   recentTaskStatus = null,
+  onPromptUpdate,
   onImageChange,
 }: SceneEditDrawerProps) {
   if (!scene || !owner) return null;
@@ -64,7 +67,9 @@ export function SceneEditDrawer({
           <SheetTitle>
             场景 {sceneIndex + 1}: {scene.location}
           </SheetTitle>
-          <SheetDescription>编辑场景预览图（约束默认锁定为 photo）</SheetDescription>
+          <SheetDescription>
+            编辑场景预览图（约束默认锁定为 photo）
+          </SheetDescription>
         </SheetHeader>
         <SheetPanel>
           <div className="space-y-4">
@@ -76,7 +81,8 @@ export function SceneEditDrawer({
               <div>参考图数量：{referenceCount} 张</div>
               <div>最近任务状态：{recentTaskStatus || '暂无任务'}</div>
               <div>
-                参考图参与：{scene.sceneAssetImage ? '已配置 scene 参考图' : '未配置'}
+                参考图参与：
+                {scene.sceneAssetImage ? '已配置 scene 参考图' : '未配置'}
               </div>
               <div>输出策略：单帧静态图</div>
             </div>
@@ -84,9 +90,12 @@ export function SceneEditDrawer({
             <ImageStudioLite
               owner={owner}
               currentImagePath={scene.previewArtifactPath}
-              referenceImages={scene.sceneAssetImage ? [scene.sceneAssetImage] : undefined}
+              referenceImages={
+                scene.sceneAssetImage ? [scene.sceneAssetImage] : undefined
+              }
               includeCurrentImageAsReference={false}
               defaultPrompt={scene.visualPrompt}
+              onPromptSubmit={onPromptUpdate}
               onImageChange={handleImageChange}
               aspectRatio={lockedAspectRatio}
             />
