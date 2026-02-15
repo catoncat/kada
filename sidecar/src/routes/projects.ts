@@ -2,11 +2,23 @@ import { Hono } from 'hono';
 import { eq, and, inArray, desc, sql, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
-import { projects, tasks, sceneAssets, settings, generationRuns, generationArtifacts } from '../db/schema';
+import {
+  projects,
+  tasks,
+  sceneAssets,
+  settings,
+  generationRuns,
+  generationArtifacts,
+  providers,
+} from '../db/schema';
 import {
   buildGeneratePlanPrompt,
+  callAiGenerate,
   ensureGeneratedPlanScenes,
   type GeneratedPlan,
+  type GeneratedScene,
+  optimizePlanScenesPrompts,
+  type PlanTextProviderConfig,
   type PromptContext,
 } from '../worker/handlers/plan-generation';
 
@@ -27,6 +39,89 @@ function resolveSceneSlotCandidates(scene: { id?: string }, sceneIndex: number):
     slots.unshift(`scene:${scene.id.trim()}`);
   }
   return slots;
+}
+
+function buildAppendScenePrompt(params: {
+  projectTitle: string;
+  projectPrompt?: string | null;
+  sceneName: string;
+  sceneDescription?: string | null;
+  sceneLighting?: string | null;
+  customerSummary: string;
+  existingScenes: Array<{
+    location?: string;
+    description?: string;
+    shots?: string;
+    lighting?: string;
+  }>;
+}): string {
+  const existingScenesSummary = params.existingScenes
+    .map((scene, index) => {
+      const parts = [
+        `分镜 ${index + 1}`,
+        scene.location ? `位置：${scene.location}` : null,
+        scene.description ? `描述：${scene.description}` : null,
+        scene.shots ? `镜头：${scene.shots}` : null,
+        scene.lighting ? `灯光：${scene.lighting}` : null,
+      ].filter(Boolean);
+      return `- ${parts.join('；')}`;
+    })
+    .join('\n');
+
+  return [
+    '你是一位专业的儿童摄影师和创意导演。',
+    '请在不重复已有分镜的前提下，为当前项目补充“1 个新分镜”。',
+    '',
+    `项目：${params.projectTitle}`,
+    params.projectPrompt ? `项目提示词：${params.projectPrompt}` : null,
+    `场景：${params.sceneName}`,
+    params.sceneDescription ? `场景描述：${params.sceneDescription}` : null,
+    params.sceneLighting ? `默认灯光：${params.sceneLighting}` : null,
+    `拍摄主体：${params.customerSummary}`,
+    '',
+    '已有分镜：',
+    existingScenesSummary || '- 暂无',
+    '',
+    '输出要求（严格 JSON，不要 markdown）：',
+    '{',
+    '  "location": "位置构图",',
+    '  "description": "动作与互动描述",',
+    '  "shots": "镜头建议",',
+    '  "lighting": "灯光建议",',
+    '  "visualPrompt": "最终用于生图的中文提示词"',
+    '}',
+    '',
+    '要求：',
+    '1. 全部中文。',
+    '2. 主体是客户人物，场景只是背景。',
+    '3. 新分镜必须与已有分镜区分明显。',
+    '4. 不要输出多余字段。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function parseGeneratedSceneText(raw: string): GeneratedScene {
+  const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const jsonText = jsonMatch?.[1]?.trim() || raw.trim();
+  const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+
+  const toText = (value: unknown, fallback = ''): string =>
+    typeof value === 'string' ? value.trim() : fallback;
+
+  const visualPrompt = toText(parsed.visualPrompt);
+  if (!visualPrompt) {
+    throw new Error('AI 返回缺少 visualPrompt');
+  }
+
+  return {
+    location: toText(parsed.location),
+    description: toText(parsed.description),
+    shots: toText(parsed.shots),
+    lighting: toText(parsed.lighting),
+    visualPrompt,
+    selectedArtifactId: null,
+  };
 }
 
 // 获取所有项目（带元数据）
@@ -429,6 +524,173 @@ projectRoutes.put('/:id', async (c) => {
     console.error('Update project error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return c.json({ error: `更新项目失败: ${message}` }, 500);
+  }
+});
+
+// AI 补一条分镜（追加到末尾，或插入到指定分镜后）
+projectRoutes.post('/:id/scenes/ai-append', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const afterSceneId =
+      typeof body.afterSceneId === 'string' && body.afterSceneId.trim()
+        ? body.afterSceneId.trim()
+        : null;
+    const providerId =
+      typeof body.providerId === 'string' && body.providerId.trim()
+        ? body.providerId.trim()
+        : null;
+
+    const db = getDb();
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    if (!project) {
+      return c.json({ error: '项目不存在' }, 404);
+    }
+
+    if (!project.generatedPlan) {
+      return c.json({ error: '当前项目尚未生成方案，无法补充分镜' }, 400);
+    }
+
+    if (!project.selectedScene) {
+      return c.json({ error: '当前项目缺少场景配置，无法补充分镜' }, 400);
+    }
+
+    const [sceneAsset] = await db
+      .select()
+      .from(sceneAssets)
+      .where(eq(sceneAssets.id, project.selectedScene))
+      .limit(1);
+    if (!sceneAsset) {
+      return c.json({ error: '所选场景不存在' }, 400);
+    }
+
+    const generatedPlanRaw = safeParseJson<GeneratedPlan>(project.generatedPlan);
+    if (!generatedPlanRaw || !Array.isArray(generatedPlanRaw.scenes)) {
+      return c.json({ error: '当前方案数据无效，无法补充分镜' }, 400);
+    }
+    const normalizedPlan = ensureGeneratedPlanScenes(generatedPlanRaw).plan;
+
+    const customer = safeParseJson<{
+      people?: Array<{ role?: string; gender?: string; age?: number }>;
+    }>(project.customer);
+    const customerSummary =
+      customer?.people && customer.people.length > 0
+        ? customer.people
+            .map((person) => {
+              const parts = [
+                typeof person.role === 'string' ? person.role.trim() : '',
+                typeof person.gender === 'string' ? person.gender.trim() : '',
+                typeof person.age === 'number' && Number.isFinite(person.age)
+                  ? `${person.age}岁`
+                  : '',
+              ].filter(Boolean);
+              return parts.join('，');
+            })
+            .filter(Boolean)
+            .join('；')
+        : '未提供';
+
+    let providerRow;
+    if (providerId) {
+      [providerRow] = await db
+        .select()
+        .from(providers)
+        .where(eq(providers.id, providerId))
+        .limit(1);
+    } else {
+      [providerRow] = await db
+        .select()
+        .from(providers)
+        .where(eq(providers.isDefault, true))
+        .limit(1);
+    }
+
+    if (!providerRow) {
+      return c.json({ error: '未配置可用的 AI Provider' }, 400);
+    }
+    if (!providerRow.textModel?.trim()) {
+      return c.json({ error: '当前 Provider 未配置文本模型，无法补充分镜' }, 400);
+    }
+
+    const appendPrompt = buildAppendScenePrompt({
+      projectTitle: project.title,
+      projectPrompt: project.projectPrompt || null,
+      sceneName: sceneAsset.name,
+      sceneDescription: sceneAsset.description || null,
+      sceneLighting: sceneAsset.defaultLighting || null,
+      customerSummary,
+      existingScenes: normalizedPlan.scenes.map((scene) => ({
+        location: scene.location,
+        description: scene.description,
+        shots: scene.shots,
+        lighting: scene.lighting,
+      })),
+    });
+
+    const provider: PlanTextProviderConfig = {
+      format: providerRow.format,
+      baseUrl: providerRow.baseUrl,
+      apiKey: providerRow.apiKey,
+      textModel: providerRow.textModel,
+    };
+    const generatedText = await callAiGenerate(provider, appendPrompt);
+    const newSceneDraft = parseGeneratedSceneText(generatedText);
+    newSceneDraft.sceneAssetId = sceneAsset.id;
+    newSceneDraft.sceneAssetImage = sceneAsset.primaryImage ?? undefined;
+
+    const optimized = await optimizePlanScenesPrompts({
+      db,
+      provider: {
+        id: providerRow.id,
+        format: providerRow.format,
+        baseUrl: providerRow.baseUrl,
+        apiKey: providerRow.apiKey,
+        textModel: providerRow.textModel,
+        capabilities: providerRow.capabilities ?? null,
+      },
+      scenes: [newSceneDraft],
+    });
+    const sceneToInsert = optimized.scenes[0] || newSceneDraft;
+
+    const nextScenes = [...normalizedPlan.scenes];
+    let insertIndex = nextScenes.length;
+    if (afterSceneId) {
+      const afterIndex = nextScenes.findIndex(
+        (scene) => scene.id === afterSceneId,
+      );
+      if (afterIndex >= 0) {
+        insertIndex = afterIndex + 1;
+      }
+    }
+    nextScenes.splice(insertIndex, 0, sceneToInsert);
+
+    const finalPlan = ensureGeneratedPlanScenes({
+      ...normalizedPlan,
+      scenes: nextScenes,
+    }).plan;
+
+    await db
+      .update(projects)
+      .set({
+        generatedPlan: JSON.stringify(finalPlan),
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, id));
+
+    const insertedScene = finalPlan.scenes[insertIndex] || finalPlan.scenes.at(-1);
+    const sceneIndex = insertedScene
+      ? finalPlan.scenes.findIndex((scene) => scene.id === insertedScene.id)
+      : -1;
+
+    return c.json({
+      scene: insertedScene || null,
+      index: sceneIndex >= 0 ? sceneIndex : finalPlan.scenes.length - 1,
+      preoptimization: optimized.summary,
+    });
+  } catch (error: unknown) {
+    console.error('AI append scene error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: `补充分镜失败: ${message}` }, 500);
   }
 });
 

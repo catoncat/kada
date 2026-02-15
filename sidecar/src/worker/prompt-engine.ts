@@ -94,7 +94,7 @@ const FIXED_COMPOSER_PROFILES: Record<ComposerProfileKey, ComposerProfileDefinit
       { id: 'customer', kind: 'customerInfo', label: '客户信息' },
       { id: 'model-info', kind: 'modelInfo', label: '模特外观信息' },
       { id: 'scene-asset', kind: 'selectedSceneAsset', label: '已选场景资产' },
-      { id: 'plan-scene', kind: 'planScene', label: '分镜场景' },
+      { id: 'plan-scene', kind: 'planScene', label: '分镜' },
       { id: 'draft', kind: 'draftPrompt', label: '出图提示词（draft）' },
     ],
   },
@@ -203,7 +203,7 @@ function formatPlanScene(scene: any, sceneIndex: number | null): string | null {
 
   if (!location && !description && !shots && !lighting) return null;
 
-  const title = typeof sceneIndex === 'number' ? `## 分镜场景（第 ${sceneIndex + 1} 个）` : '## 分镜场景';
+  const title = typeof sceneIndex === 'number' ? `## 分镜（第 ${sceneIndex + 1} 个）` : '## 分镜';
   const lines: string[] = [title];
   if (location) lines.push(`- 场景：${location}`);
   if (description) lines.push(`- 描述：${description}`);

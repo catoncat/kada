@@ -558,13 +558,13 @@ ${customerSection}
       "description": "拍摄内容描述（动作、表情、互动）",
       "shots": "拍摄手法建议（镜头焦段、角度、景别）",
       "lighting": "灯光布置建议",
-      "visualPrompt": "用中文描述这个分镜场景的画面，包括人物的动作、表情、姿态以及与场景环境的空间关系。描述应具体、可视化，风格为专业摄影、真实质感。示例：一个3岁的小男孩站在花园小径上，好奇地弯腰观察一朵黄色野花，阳光从侧面洒落，背景是模糊的绿色植被。"
+      "visualPrompt": "用中文描述这个分镜的画面，包括人物的动作、表情、姿态以及与场景环境的空间关系。描述应具体、可视化，风格为专业摄影、真实质感。示例：一个3岁的小男孩站在花园小径上，好奇地弯腰观察一朵黄色野花，阳光从侧面洒落，背景是模糊的绿色植被。"
     }
   ]
 }
 
 ## 注意事项
-1. 生成 3-4 个不同的分镜场景
+1. 生成 3-4 个不同的分镜
 2. 每个场景的主角是拍摄主体，场景只是背景
 3. 所有内容统一使用中文（包括 visualPrompt）
 4. 请直接返回 JSON 内容，不要包含 markdown 代码块标记`;
@@ -572,14 +572,17 @@ ${customerSection}
 
 // ========== AI 调用 ==========
 
-interface ProviderConfig {
+export interface PlanTextProviderConfig {
   format: string;
   baseUrl: string;
   apiKey: string;
   textModel: string;
 }
 
-async function callAiGenerate(provider: ProviderConfig, prompt: string): Promise<string> {
+export async function callAiGenerate(
+  provider: PlanTextProviderConfig,
+  prompt: string,
+): Promise<string> {
   console.log('[AI] Calling provider:', provider.format, 'model:', provider.textModel);
   console.log('[AI] Prompt length:', prompt.length, 'chars');
 
