@@ -45,6 +45,14 @@ function MainLayout() {
     navigate({ to: '/', search: { action: 'create' } });
   };
 
+  const handleOpenWorkspace = () => {
+    navigate({ to: '/workspace' });
+  };
+
+  const handleCreateWorkspaceSession = () => {
+    navigate({ to: '/workspace', search: { action: 'create-session' } });
+  };
+
   // 创建场景：导航到场景页面并附带 action 参数
   const handleCreateScene = () => {
     navigate({ to: '/assets/scenes', search: { action: 'create' } });
@@ -58,6 +66,8 @@ function MainLayout() {
         </AppShell>
 
         <CommandSearchDialog
+          onCreateWorkspaceSession={handleCreateWorkspaceSession}
+          onOpenWorkspace={handleOpenWorkspace}
           onCreateProject={handleCreateProject}
           onCreateScene={handleCreateScene}
         />
@@ -66,4 +76,3 @@ function MainLayout() {
     </TaskQueueProvider>
   );
 }
-

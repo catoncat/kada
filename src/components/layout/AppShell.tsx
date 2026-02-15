@@ -2,6 +2,7 @@
 
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import {
+  Blocks,
   FolderKanban,
   Image,
   Package,
@@ -51,6 +52,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
   const isProjectScenesPage = /^\/project\/[^/]+\/scenes$/.test(pathname);
   const needsFixedHeight =
     isProjectsPage ||
+    pathname.startsWith('/workspace') ||
     pathname.startsWith('/assets/models') ||
     pathname.startsWith('/assets/scenes') ||
     isProjectScenesPage;
@@ -75,6 +77,16 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
             <SidebarGroupLabel>工作区</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={isActive('/workspace', true)}
+                    render={<Link to="/workspace" />}
+                    tooltip="工作台"
+                  >
+                    <Blocks />
+                    <span>工作台</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={isActive('/', true)}

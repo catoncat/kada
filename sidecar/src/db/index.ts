@@ -163,6 +163,43 @@ function ensureTables() {
       new_task_id TEXT NOT NULL,
       created_at INTEGER DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS workspace_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      revision INTEGER NOT NULL DEFAULT 1,
+      canvas_viewport TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch()),
+      last_message_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      action_cards TEXT,
+      meta TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_nodes (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT,
+      x INTEGER NOT NULL DEFAULT 0,
+      y INTEGER NOT NULL DEFAULT 0,
+      width INTEGER NOT NULL DEFAULT 220,
+      height INTEGER NOT NULL DEFAULT 160,
+      z_index INTEGER NOT NULL DEFAULT 1,
+      group_id TEXT,
+      meta TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
   `);
 }
 
@@ -194,6 +231,20 @@ function ensureColumns() {
   // providers: 历史数据库可能缺少能力探测列
   addColumnIfMissing('providers', 'routing_profile', "TEXT DEFAULT 'native'");
   addColumnIfMissing('providers', 'capabilities', 'TEXT');
+
+  // workspace_sessions: 迭代期补列
+  addColumnIfMissing('workspace_sessions', 'status', "TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing('workspace_sessions', 'revision', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing('workspace_sessions', 'canvas_viewport', 'TEXT');
+  addColumnIfMissing('workspace_sessions', 'last_message_at', 'INTEGER');
+
+  // workspace_messages: 迭代期补列
+  addColumnIfMissing('workspace_messages', 'action_cards', 'TEXT');
+  addColumnIfMissing('workspace_messages', 'meta', 'TEXT');
+
+  // workspace_nodes: 迭代期补列
+  addColumnIfMissing('workspace_nodes', 'group_id', 'TEXT');
+  addColumnIfMissing('workspace_nodes', 'meta', 'TEXT');
 }
 
 export function closeDatabase() {

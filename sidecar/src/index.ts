@@ -13,6 +13,7 @@ import { projectRoutes } from './routes/projects';
 import { settingsRoutes } from './routes/settings';
 import { artifactsRoutes } from './routes/artifacts';
 import { promptsRoutes } from './routes/prompts';
+import { workspaceRoutes } from './routes/workspace';
 import { initDatabase } from './db';
 import { startWorker } from './worker';
 
@@ -100,6 +101,7 @@ app.route('/api/projects', projectRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/artifacts', artifactsRoutes);
 app.route('/api/prompts', promptsRoutes);
+app.route('/api/workspace', workspaceRoutes);
 
 // 初始化数据库并启动服务器
 const PORT = parseInt(process.env.PORT || '3001', 10);

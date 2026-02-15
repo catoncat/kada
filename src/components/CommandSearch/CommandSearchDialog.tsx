@@ -30,11 +30,15 @@ import { useCommandSearchContext } from './CommandSearchProvider';
 import { useCommandSearch } from './use-command-search';
 
 interface CommandSearchDialogProps {
+  onCreateWorkspaceSession: () => void;
+  onOpenWorkspace: () => void;
   onCreateProject: () => void;
   onCreateScene: () => void;
 }
 
 export function CommandSearchDialog({
+  onCreateWorkspaceSession,
+  onOpenWorkspace,
   onCreateProject,
   onCreateScene,
 }: CommandSearchDialogProps) {
@@ -48,6 +52,14 @@ export function CommandSearchDialog({
   const results = useCommandSearch({
     query,
     scope,
+    onCreateWorkspaceSession: () => {
+      setOpen(false);
+      onCreateWorkspaceSession();
+    },
+    onOpenWorkspace: () => {
+      setOpen(false);
+      onOpenWorkspace();
+    },
     onCreateProject: () => {
       setOpen(false);
       onCreateProject();

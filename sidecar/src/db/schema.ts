@@ -130,6 +130,46 @@ export const taskReplayRequests = sqliteTable('task_replay_requests', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
+// Workspace Sessions 表（独立会话中心）
+export const workspaceSessions = sqliteTable('workspace_sessions', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  status: text('status').notNull().default('active'), // 'active' | 'archived'
+  revision: integer('revision').notNull().default(1), // 乐观锁版本号
+  canvasViewport: text('canvas_viewport'), // JSON - { x, y, scale }
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  lastMessageAt: integer('last_message_at', { mode: 'timestamp' }),
+});
+
+// Workspace Messages 表（会话消息）
+export const workspaceMessages = sqliteTable('workspace_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  content: text('content').notNull(),
+  actionCards: text('action_cards'), // JSON - WorkspaceActionCard[]
+  meta: text('meta'), // JSON - 扩展字段（注入上下文、告警等）
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+// Workspace Nodes 表（画布节点）
+export const workspaceNodes = sqliteTable('workspace_nodes', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  type: text('type').notNull(), // 'sceneAssetCard' | 'modelAssetCard' | 'note' | 'group'
+  title: text('title'),
+  x: integer('x').notNull().default(0),
+  y: integer('y').notNull().default(0),
+  width: integer('width').notNull().default(220),
+  height: integer('height').notNull().default(160),
+  zIndex: integer('z_index').notNull().default(1),
+  groupId: text('group_id'),
+  meta: text('meta'), // JSON - assetId、描述、注释内容等
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
 // 类型导出
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = typeof providers.$inferInsert;
@@ -157,3 +197,12 @@ export type InsertGenerationArtifact = typeof generationArtifacts.$inferInsert;
 
 export type TaskReplayRequest = typeof taskReplayRequests.$inferSelect;
 export type InsertTaskReplayRequest = typeof taskReplayRequests.$inferInsert;
+
+export type WorkspaceSession = typeof workspaceSessions.$inferSelect;
+export type InsertWorkspaceSession = typeof workspaceSessions.$inferInsert;
+
+export type WorkspaceMessage = typeof workspaceMessages.$inferSelect;
+export type InsertWorkspaceMessage = typeof workspaceMessages.$inferInsert;
+
+export type WorkspaceNode = typeof workspaceNodes.$inferSelect;
+export type InsertWorkspaceNode = typeof workspaceNodes.$inferInsert;

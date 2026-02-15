@@ -2,11 +2,20 @@
  * Navigation Items 定义
  */
 
-import { FolderKanban, Image, Settings, Users } from 'lucide-react';
+import { Blocks, FolderKanban, Image, Settings, Users } from 'lucide-react';
 import type { SearchItem } from './types';
 
 /** 导航项列表 */
 export const navigationItems: SearchItem[] = [
+  {
+    id: 'nav:workspace',
+    type: 'navigation',
+    title: '工作台',
+    subtitle: '自由 Chat + 画布',
+    icon: Blocks,
+    keywords: ['workspace', 'chat', 'canvas', '工作台', '画布'],
+    action: { type: 'navigate', target: { to: '/workspace' } },
+  },
   {
     id: 'nav:projects',
     type: 'navigation',

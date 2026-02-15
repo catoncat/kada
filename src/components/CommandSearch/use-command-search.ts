@@ -25,6 +25,8 @@ const MAX_ACTION_RESULTS = 6;
 interface UseCommandSearchOptions {
   query: string;
   scope: SearchScope;
+  onCreateWorkspaceSession: () => void;
+  onOpenWorkspace: () => void;
   onCreateProject: () => void;
   onCreateScene: () => void;
 }
@@ -118,6 +120,8 @@ function rankItems(
 export function useCommandSearch({
   query,
   scope,
+  onCreateWorkspaceSession,
+  onOpenWorkspace,
   onCreateProject,
   onCreateScene,
 }: UseCommandSearchOptions): SearchResultGroup[] {
@@ -144,7 +148,12 @@ export function useCommandSearch({
     const trimmedQuery = query.trim();
     const hasQuery = trimmedQuery.length > 0;
 
-    const quickActions = getQuickActions({ onCreateProject, onCreateScene });
+    const quickActions = getQuickActions({
+      onCreateWorkspaceSession,
+      onOpenWorkspace,
+      onCreateProject,
+      onCreateScene,
+    });
 
     const recentItems: SearchItem[] = getRecents()
       .filter((r) => canIncludeRecent(scope, r.type))
@@ -372,8 +381,10 @@ export function useCommandSearch({
     modelsQuery.error,
     modelsQuery.isFetching,
     modelsQuery.refetch,
+    onCreateWorkspaceSession,
     onCreateProject,
     onCreateScene,
+    onOpenWorkspace,
     projectsQuery.data,
     projectsQuery.error,
     projectsQuery.isFetching,

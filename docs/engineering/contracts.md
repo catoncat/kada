@@ -109,6 +109,87 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
 - `ai_providers`：Provider 列表与默认值
 - 兼容迁移旧键：`gemini_mode`、`gemini_api_key`、`gemini_base_url`
 
+## 4.1) Workspace（Chat-Canvas）契约
+
+独立会话中心（`/workspace`），不自动与 Project 互写。V1 约束：`1 会话 = 1 画布`。
+
+### WorkspaceSession
+
+```json
+{
+  "id": "ws_...",
+  "title": "会话标题",
+  "status": "active | archived",
+  "revision": 3,
+  "nodeCount": 12,
+  "lastMessageAt": "ISO-8601|null",
+  "createdAt": "ISO-8601",
+  "updatedAt": "ISO-8601",
+  "viewport": { "x": 0, "y": 0, "scale": 1 }
+}
+```
+
+### WorkspaceNode
+
+```json
+{
+  "id": "node_...",
+  "type": "sceneAssetCard | modelAssetCard | note | group",
+  "title": "节点标题",
+  "x": 120,
+  "y": 80,
+  "width": 220,
+  "height": 160,
+  "zIndex": 1,
+  "groupId": "group_...|null",
+  "meta": {}
+}
+```
+
+### WorkspaceMessage
+
+```json
+{
+  "id": "msg_...",
+  "sessionId": "ws_...",
+  "role": "user | assistant | system",
+  "content": "文本内容",
+  "actionCards": [],
+  "meta": {},
+  "createdAt": "ISO-8601"
+}
+```
+
+### WorkspaceActionCard
+
+```json
+{
+  "id": "card_...",
+  "kind": "addNode | moveNode | groupNodes | updateNote",
+  "title": "建议标题",
+  "reason": "建议原因",
+  "operations": [
+    { "type": "addNode", "node": { "type": "note", "title": "..." } }
+  ]
+}
+```
+
+### 一致性与限制
+
+- revision：`PUT /canvas` 与 `POST /actions/apply` 必须携带当前 `revision`，否则返回 `REVISION_CONFLICT`。
+- 消息保留：每会话最多保留最近 200 条消息。
+- 节点上限：V1 目标为 100 节点内顺滑；服务端设置上限保护（超限拒绝）。
+- 导入导出：统一 `WorkspaceExportPayload`（session + nodes + messages）JSON 格式。
+
+### Workspace 错误码
+
+- `PROVIDER_REQUIRED`
+- `SESSION_NOT_FOUND`
+- `REVISION_CONFLICT`
+- `INVALID_ACTION_CARD`
+- `ASSET_NOT_FOUND`
+- `INVALID_PAYLOAD`
+
 ## 5) 图片与导出约束
 
 - 图片生成的长期契约（建议）：
