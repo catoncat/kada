@@ -15,6 +15,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useTaskQueue } from '@/contexts/TaskQueueContext';
+import { useArtifacts } from '@/hooks/useArtifacts';
 import { useProjectSceneTasks } from '@/hooks/useProjectSceneTasks';
 import { useTasksPolling } from '@/hooks/useTasks';
 import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
@@ -25,6 +26,7 @@ import {
   type ResultSearchParams,
   resolveResultPanel,
 } from '@/lib/result-search-params';
+import { type GenerationArtifact } from '@/lib/artifacts-api';
 import { createImageTask } from '@/lib/tasks-api';
 
 const LOCKED_ASPECT_RATIO = 'photo';
@@ -40,6 +42,12 @@ function resolveSceneIdentity(
     typeof scene.id === 'string' && scene.id.trim() ? scene.id.trim() : null;
   const sceneKey = sceneId || String(sceneIndex);
   return { sceneId, sceneKey };
+}
+
+function normalizeSlotValue(ownerSlot?: string | null): string | null {
+  if (!ownerSlot || !ownerSlot.startsWith('scene:')) return null;
+  const raw = ownerSlot.slice('scene:'.length).trim();
+  return raw || null;
 }
 
 function toIdleTrack(sceneIndex: number): SceneTaskTrack {
@@ -97,6 +105,14 @@ function ProjectResultPage() {
     sceneTrackMap,
     refetch: refetchSceneTasks,
   } = useProjectSceneTasks(id);
+  const {
+    data: artifactsData,
+    isLoading: isArtifactsLoading,
+    error: artifactsError,
+  } = useArtifacts({
+    ownerType: 'planScene',
+    ownerId: id,
+  });
 
   const regenerateMutation = useMutation({
     mutationFn: () => generatePlan(id),
@@ -122,6 +138,7 @@ function ProjectResultPage() {
       setGeneratingScenes(new Set());
       queryClient.invalidateQueries({ queryKey: ['project', id] });
       queryClient.invalidateQueries({ queryKey: ['project-tasks', id] });
+      queryClient.invalidateQueries({ queryKey: ['artifacts'] });
     },
   });
 
@@ -142,6 +159,7 @@ function ProjectResultPage() {
       sceneId?: string | null;
       prompt: string;
       referenceImages?: string[];
+      parentArtifactId?: string;
     }) => {
       const sceneKey = options.sceneId || String(options.sceneIndex);
       setGeneratingScenes((prev) => new Set(prev).add(sceneKey));
@@ -156,6 +174,7 @@ function ProjectResultPage() {
             options.referenceImages && options.referenceImages.length > 0
               ? options.referenceImages
               : undefined,
+          parentArtifactId: options.parentArtifactId,
           owner: {
             type: 'planScene',
             id,
@@ -168,12 +187,12 @@ function ProjectResultPage() {
           },
         });
         setPendingTaskIds((prev) => [...prev, task.id]);
-        setSceneTaskHint(`场景 ${options.sceneIndex + 1} 已提交生成任务。`);
+        setSceneTaskHint(`分镜 ${options.sceneIndex + 1} 已提交生成任务。`);
         await refetchSceneTasks();
       } catch (err) {
         console.error('Failed to create image task:', err);
         setSceneTaskHint(
-          `场景 ${options.sceneIndex + 1} 任务创建失败，请重试。`,
+          `分镜 ${options.sceneIndex + 1} 任务创建失败，请重试。`,
         );
         setGeneratingScenes((prev) => {
           const next = new Set(prev);
@@ -212,12 +231,12 @@ function ProjectResultPage() {
             panel: 'task',
           },
         });
-        setSceneTaskHint(`场景 ${sceneIndex + 1} 已打开任务中心。`);
+        setSceneTaskHint(`分镜 ${sceneIndex + 1} 已打开任务中心。`);
         openDrawer();
         return;
       }
 
-      setSceneTaskHint(`场景 ${sceneIndex + 1} 暂无任务，已打开任务中心。`);
+      setSceneTaskHint(`分镜 ${sceneIndex + 1} 暂无任务，已打开任务中心。`);
       openDrawer();
     },
     [id, latestTaskByScene, navigate, openDrawer],
@@ -233,7 +252,12 @@ function ProjectResultPage() {
       patch: Partial<
         Pick<
           GeneratedScene,
-          'location' | 'description' | 'shots' | 'lighting' | 'visualPrompt'
+          | 'location'
+          | 'description'
+          | 'shots'
+          | 'lighting'
+          | 'visualPrompt'
+          | 'selectedArtifactId'
         >
       >,
     ) => {
@@ -315,6 +339,88 @@ function ProjectResultPage() {
       setSceneTaskHint(`分镜 ${sceneIndex + 1} 已撤销最近一次优化。`);
     },
     [handleUpdateScene, optimizeUndoByScene, plan?.scenes],
+  );
+
+  const historyArtifactsByScene = useMemo(() => {
+    const slotMap = new Map<string, GenerationArtifact[]>();
+    const allArtifacts = artifactsData?.artifacts || [];
+    for (const artifact of allArtifacts) {
+      const slotValue = normalizeSlotValue(artifact.ownerSlot);
+      if (!slotValue) continue;
+      if (!slotMap.has(slotValue)) {
+        slotMap.set(slotValue, []);
+      }
+      slotMap.get(slotValue)?.push(artifact);
+    }
+
+    const sceneHistoryMap = new Map<string, GenerationArtifact[]>();
+    if (!plan?.scenes) return sceneHistoryMap;
+
+    for (let sceneIndex = 0; sceneIndex < plan.scenes.length; sceneIndex += 1) {
+      const scene = plan.scenes[sceneIndex];
+      const { sceneId, sceneKey } = resolveSceneIdentity(scene, sceneIndex);
+      const slotCandidates = [String(sceneIndex)];
+      if (sceneId) slotCandidates.unshift(sceneId);
+
+      const merged = slotCandidates.flatMap((slot) => slotMap.get(slot) || []);
+      const dedupedById = new Map<string, GenerationArtifact>();
+      for (const artifact of merged) {
+        if (!artifact.id || dedupedById.has(artifact.id)) continue;
+        dedupedById.set(artifact.id, artifact);
+      }
+
+      const history = [...dedupedById.values()].sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      sceneHistoryMap.set(sceneKey, history);
+    }
+    return sceneHistoryMap;
+  }, [artifactsData?.artifacts, plan?.scenes]);
+
+  const handleSelectHistoryArtifact = useCallback(
+    async (sceneIndex: number, artifactId: string) => {
+      const scene = plan?.scenes?.[sceneIndex];
+      if (!scene) return;
+      await handleUpdateScene(sceneIndex, { selectedArtifactId: artifactId });
+      setSceneTaskHint(`分镜 ${sceneIndex + 1} 已切换当前选中图。`);
+    },
+    [handleUpdateScene, plan?.scenes],
+  );
+
+  const handleGenerateFromSelected = useCallback(
+    async (sceneIndex: number, visualPrompt: string) => {
+      const scene = plan?.scenes?.[sceneIndex];
+      if (!scene || !visualPrompt.trim()) return;
+      const { sceneId, sceneKey } = resolveSceneIdentity(scene, sceneIndex);
+      const historyArtifacts = historyArtifactsByScene.get(sceneKey) || [];
+      const selectedArtifact =
+        historyArtifacts.find((item) => item.id === scene.selectedArtifactId) ||
+        historyArtifacts[0];
+
+      if (!selectedArtifact?.filePath) {
+        setSceneTaskHint(`分镜 ${sceneIndex + 1} 缺少可用历史图，无法基于选中图生成。`);
+        return;
+      }
+
+      const referenceImages = [
+        scene.sceneAssetImage,
+        selectedArtifact.filePath.startsWith('/')
+          ? selectedArtifact.filePath
+          : `/${selectedArtifact.filePath}`,
+      ].filter(Boolean) as string[];
+
+      await enqueueSceneTask({
+        sceneIndex,
+        sceneId,
+        prompt: visualPrompt,
+        referenceImages,
+        parentArtifactId: selectedArtifact.id,
+      });
+    },
+    [enqueueSceneTask, historyArtifactsByScene, plan?.scenes],
   );
 
   const previewProgress = useMemo(() => {
@@ -447,6 +553,9 @@ function ProjectResultPage() {
       <div className="mt-6 space-y-6">
         {plan.scenes.map((scene, index) => {
           const { sceneKey } = resolveSceneIdentity(scene, index);
+          const historyArtifacts = historyArtifactsByScene.get(sceneKey) || [];
+          const selectedHistoryArtifactId =
+            scene.selectedArtifactId || historyArtifacts[0]?.id || null;
           return (
             <div key={`scene-${sceneKey}`} id={`scene-${sceneKey}`}>
               <SceneCard
@@ -454,12 +563,27 @@ function ProjectResultPage() {
                 sceneIndex={index}
                 isGenerating={generatingScenes.has(sceneKey)}
                 onGeneratePreview={handleGenerateScenePreview}
+                onGenerateFromSelected={handleGenerateFromSelected}
                 onOptimizePrompt={handleOptimizePrompt}
                 onUndoOptimize={handleUndoOptimize}
                 onViewRecentTasks={handleViewRecentTasks}
                 onUpdateScene={handleUpdateScene}
+                onSelectHistoryArtifact={handleSelectHistoryArtifact}
                 taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
                 canUndoOptimize={Boolean(optimizeUndoByScene[sceneKey])}
+                historyArtifacts={historyArtifacts.map((artifact) => ({
+                  id: artifact.id,
+                  filePath: artifact.filePath || '',
+                  createdAt: artifact.createdAt,
+                }))}
+                selectedHistoryArtifactId={selectedHistoryArtifactId}
+                canGenerateFromSelected={historyArtifacts.length > 0}
+                isHistoryLoading={isArtifactsLoading}
+                historyError={
+                  artifactsError instanceof Error
+                    ? artifactsError.message
+                    : null
+                }
               />
             </div>
           );

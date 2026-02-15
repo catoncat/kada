@@ -9,8 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { getArtifactUrl } from '@/lib/artifacts-api';
 import { SceneCardImage } from './SceneCardImage';
 import type { GeneratedScene, SceneTaskTrack } from './types';
+
+interface SceneHistoryArtifact {
+  id: string;
+  filePath: string;
+  createdAt?: string | null;
+}
 
 export interface SceneCardProps {
   scene: GeneratedScene;
@@ -38,12 +45,30 @@ export interface SceneCardProps {
     patch: Partial<
       Pick<
         GeneratedScene,
-        'location' | 'description' | 'shots' | 'lighting' | 'visualPrompt'
+        | 'location'
+        | 'description'
+        | 'shots'
+        | 'lighting'
+        | 'visualPrompt'
+        | 'selectedArtifactId'
       >
     >,
   ) => Promise<void> | void;
   /** 最近任务轨道 */
   taskTrack?: SceneTaskTrack | null;
+  /** 历史生成列表 */
+  historyArtifacts?: SceneHistoryArtifact[];
+  /** 当前选中的历史图 */
+  selectedHistoryArtifactId?: string | null;
+  /** 选择历史图 */
+  onSelectHistoryArtifact?: (
+    sceneIndex: number,
+    artifactId: string,
+  ) => Promise<void> | void;
+  /** 历史加载中 */
+  isHistoryLoading?: boolean;
+  /** 历史加载错误 */
+  historyError?: string | null;
   /** 是否可基于选中图生成 */
   canGenerateFromSelected?: boolean;
 }
@@ -68,6 +93,11 @@ export function SceneCard({
   onViewRecentTasks,
   onUpdateScene,
   taskTrack,
+  historyArtifacts = [],
+  selectedHistoryArtifactId,
+  onSelectHistoryArtifact,
+  isHistoryLoading = false,
+  historyError = null,
   canGenerateFromSelected = false,
   canUndoOptimize = false,
 }: SceneCardProps) {
@@ -80,6 +110,7 @@ export function SceneCard({
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     setDraft({
@@ -108,6 +139,12 @@ export function SceneCard({
     () => getTaskStatusLabel(taskTrack),
     [taskTrack],
   );
+  const selectedArtifactId =
+    selectedHistoryArtifactId ||
+    (typeof scene.selectedArtifactId === 'string' && scene.selectedArtifactId.trim()
+      ? scene.selectedArtifactId.trim()
+      : null);
+  const canGenerateFromCurrent = canGenerateFromSelected && Boolean(selectedArtifactId);
 
   const generateDisabledReason = isGenerating
     ? '当前分镜正在生成，请稍后再试。'
@@ -119,7 +156,7 @@ export function SceneCard({
     ? '当前分镜正在生成，请稍后再试。'
     : !draft.visualPrompt.trim()
       ? '请先填写最终提示词。'
-      : !canGenerateFromSelected
+      : !canGenerateFromCurrent
         ? '请先在历史生成中选中一张图片。'
         : null;
 
@@ -319,6 +356,116 @@ export function SceneCard({
               >
                 查看任务
               </Button>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border bg-muted/20 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground">
+                历史生成（{historyArtifacts.length}）
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowHistory((prev) => !prev)}
+              >
+                {showHistory ? '收起历史' : '展开历史'}
+              </Button>
+            </div>
+
+            {historyError ? (
+              <div className="mt-2 text-xs text-red-600">{historyError}</div>
+            ) : null}
+
+            {historyArtifacts.length === 0 && !isHistoryLoading ? (
+              <div className="mt-2 text-xs text-muted-foreground">
+                暂无历史生成，先点击“新生成”创建第一张图。
+              </div>
+            ) : null}
+
+            {isHistoryLoading ? (
+              <div className="mt-2 text-xs text-muted-foreground">历史加载中...</div>
+            ) : null}
+
+            {historyArtifacts.length > 0 ? (
+              <div className="mt-3">
+                <div className="relative h-24 w-40">
+                  {historyArtifacts.slice(0, 4).reverse().map((artifact, index) => {
+                    const thumbnailUrl = getArtifactUrl(artifact.filePath);
+                    const offset = index * 8;
+                    const rotate = (index - 1.5) * 3;
+                    const isSelected = artifact.id === selectedArtifactId;
+                    return (
+                      <button
+                        type="button"
+                        key={`stack-${artifact.id}`}
+                        onClick={() => {
+                          onSelectHistoryArtifact?.(sceneIndex, artifact.id);
+                        }}
+                        className={`absolute top-0 left-0 h-24 w-16 overflow-hidden rounded-md border bg-background transition ${
+                          isSelected
+                            ? 'border-primary shadow-[0_0_0_1px_var(--color-primary)]'
+                            : 'border-border'
+                        }`}
+                        style={{
+                          transform: `translate(${offset}px, ${offset * 0.3}px) rotate(${rotate}deg)`,
+                          zIndex: 10 + index,
+                        }}
+                      >
+                        {thumbnailUrl ? (
+                          <img
+                            src={thumbnailUrl}
+                            alt={`history-${artifact.id}`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {showHistory ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {historyArtifacts.map((artifact) => {
+                      const thumbnailUrl = getArtifactUrl(artifact.filePath);
+                      const isSelected = artifact.id === selectedArtifactId;
+                      const createdAt = artifact.createdAt
+                        ? new Date(artifact.createdAt).toLocaleString('zh-CN', {
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '未知时间';
+                      return (
+                        <button
+                          type="button"
+                          key={artifact.id}
+                          onClick={() => {
+                            onSelectHistoryArtifact?.(sceneIndex, artifact.id);
+                          }}
+                          className={`overflow-hidden rounded-lg border text-left ${
+                            isSelected
+                              ? 'border-primary shadow-[0_0_0_1px_var(--color-primary)]'
+                              : 'border-border'
+                          }`}
+                        >
+                          {thumbnailUrl ? (
+                            <img
+                              src={thumbnailUrl}
+                              alt={`history-expanded-${artifact.id}`}
+                              className="h-20 w-full object-cover"
+                            />
+                          ) : null}
+                          <div className="p-1.5 text-[11px] text-muted-foreground">
+                            {createdAt}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
 
