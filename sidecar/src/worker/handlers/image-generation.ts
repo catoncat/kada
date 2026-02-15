@@ -453,11 +453,8 @@ export async function imageGenerationHandler(
         diagnostics.reference_support_status !== 'supported'
       ) {
         diagnostics.validation_fail_reasons = [
-          `当前 provider 不支持“带参考图”生图（status=${diagnostics.reference_support_status}）。`,
+          `当前 provider 的参考图能力探测结果为 ${diagnostics.reference_support_status}，将以 best-effort 模式继续尝试（chat/images 回退）。`,
         ];
-        throw new Error(
-          `IMAGE_REFERENCE_UNSUPPORTED: current provider does not support image generation with references (status=${diagnostics.reference_support_status})`,
-        );
       }
     } else {
       diagnostics.effective_route = `${provider.format}-native`;
@@ -1203,7 +1200,6 @@ async function tryGenerateImageViaOpenAIChatCompletions(
   const identityRefs = (referenceImages?.identity || []).filter(
     (item): item is string => typeof item === 'string' && item.trim().length > 0,
   );
-  if (sceneRefs.length + identityRefs.length === 0) return null;
 
   const multimodalContent: Array<
     { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
@@ -1245,8 +1241,6 @@ async function tryGenerateImageViaOpenAIChatCompletions(
     '以下是人物身份参考图（只提取人物身份特征，不继承背景与构图）：',
     identityRefs,
   );
-
-  if (sceneAdded + identityAdded === 0) return null;
 
   const url = `${provider.baseUrl}/chat/completions`;
   if (DEBUG_IMAGEGEN) {
@@ -1604,9 +1598,6 @@ async function generateImage(
       image: GenerateImageResult | null;
       reason: string | null;
     }> => {
-      if (!hasReferences) {
-        return { image: null, reason: 'No reference images for chat multimodal route' };
-      }
       const openAIChatImage = await tryGenerateImageViaOpenAIChatCompletions(
         provider,
         prompt,
@@ -1619,9 +1610,29 @@ async function generateImage(
       };
     };
 
-    const primaryResult =
-      primaryRoute === 'chat' ? await tryChatRoute() : await tryImagesRoute();
-    if (primaryResult.image) return primaryResult.image;
-    throw new Error(primaryResult.reason || 'OpenAI image generation failed');
+    const routes: Array<{
+      name: 'chat' | 'images';
+      run: () => Promise<{ image: GenerateImageResult | null; reason: string | null }>;
+    }> =
+      primaryRoute === 'chat'
+        ? [
+            { name: 'chat', run: tryChatRoute },
+            { name: 'images', run: tryImagesRoute },
+          ]
+        : [
+            { name: 'images', run: tryImagesRoute },
+            { name: 'chat', run: tryChatRoute },
+          ];
+
+    const reasons: string[] = [];
+    for (const route of routes) {
+      const result = await route.run();
+      if (result.image) return result.image;
+      if (result.reason) reasons.push(`${route.name}: ${result.reason}`);
+    }
+
+    throw new Error(
+      reasons.length > 0 ? reasons.join(' | ') : 'OpenAI image generation failed',
+    );
   }
 }

@@ -411,9 +411,6 @@ async function generateImage(
   };
 
   const tryOpenAIChat = async (): Promise<{ image: { imageBase64: string; mimeType: string } | null; reason: string | null }> => {
-    if (!Array.isArray(referenceImages) || referenceImages.length === 0) {
-      return { image: null, reason: 'No reference images for chat multimodal route' };
-    }
     const instructionLines = [
       '你是专业影楼摄影生成器，输出单张单帧静态成片。',
       '参考图硬约束：人物身份一致性 > 场景主题一致性 > 文本补充细节。',
@@ -426,18 +423,17 @@ async function generateImage(
     const multimodalContent: Array<
       { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
     > = [{ type: 'text', text: instructionLines.join('\n') }];
-    multimodalContent.push({
-      type: 'text',
-      text: '以下是参考图：请严格用于人物身份与场景氛围对齐。',
-    });
-    for (const ref of referenceImages) {
-      if (typeof ref !== 'string' || !ref.trim()) continue;
-      const dataUri = await toDataUri(ref.trim());
-      if (!dataUri) continue;
-      multimodalContent.push({ type: 'image_url', image_url: { url: dataUri } });
-    }
-    if (multimodalContent.length <= 1) {
-      return { image: null, reason: 'No usable reference images for chat multimodal route' };
+    if (Array.isArray(referenceImages) && referenceImages.length > 0) {
+      multimodalContent.push({
+        type: 'text',
+        text: '以下是参考图：请严格用于人物身份与场景氛围对齐。',
+      });
+      for (const ref of referenceImages) {
+        if (typeof ref !== 'string' || !ref.trim()) continue;
+        const dataUri = await toDataUri(ref.trim());
+        if (!dataUri) continue;
+        multimodalContent.push({ type: 'image_url', image_url: { url: dataUri } });
+      }
     }
     const res = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',

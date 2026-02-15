@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPV2 Agent Runtime Dev"
+  short_description: "Build runtime tools and event mapping without upstream edits"
+  default_prompt: "Use $spv2-agent-runtime-dev to extend runtime tools and event mapping while preserving upstream package boundaries."

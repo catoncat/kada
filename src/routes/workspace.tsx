@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceShell } from '@/components/workspace/WorkspaceShell';
+import { AgentShell } from '@/components/agent/AgentShell';
 
 interface WorkspaceSearchParams {
   action?: 'create-session';
@@ -14,5 +14,5 @@ export const Route = createFileRoute('/workspace')({
 
 function WorkspacePage() {
   const { action } = Route.useSearch();
-  return <WorkspaceShell action={action} />;
+  return <AgentShell key={action || 'agent-workspace'} />;
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPV2 Agent UI Flow"
+  short_description: "Debug workspace streaming timeline and output synchronization"
+  default_prompt: "Use $spv2-agent-ui-flow to debug workspace streaming events, timeline states, and output rail sync."

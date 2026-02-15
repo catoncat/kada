@@ -162,10 +162,7 @@ export function AppShell({ children, contextPanel }: AppShellProps) {
           className="flex h-14 select-none items-center gap-2 border-b bg-background px-3"
         >
           <SidebarTrigger className="shrink-0" />
-          <div className="hidden items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs font-medium text-foreground md:inline-flex">
-            <span>Kada</span>
-            <span className="text-muted-foreground">咔哒</span>
-          </div>
+         
 
           <button
             type="button"
