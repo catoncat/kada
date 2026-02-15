@@ -39,6 +39,8 @@ export interface SceneCardProps {
   canUndoOptimize?: boolean;
   /** 查看该分镜最近任务 */
   onViewRecentTasks?: (sceneIndex: number) => void;
+  /** 删除分镜 */
+  onDeleteScene?: (sceneIndex: number) => Promise<void> | void;
   /** 更新分镜 */
   onUpdateScene?: (
     sceneIndex: number,
@@ -91,6 +93,7 @@ export function SceneCard({
   onOptimizePrompt,
   onUndoOptimize,
   onViewRecentTasks,
+  onDeleteScene,
   onUpdateScene,
   taskTrack,
   historyArtifacts = [],
@@ -357,6 +360,15 @@ export function SceneCard({
                 查看任务
               </Button>
             ) : null}
+
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDeleteScene?.(sceneIndex)}
+              disabled={isGenerating || isSaving || isOptimizing}
+            >
+              删除分镜
+            </Button>
           </div>
 
           <div className="rounded-xl border bg-muted/20 p-3">

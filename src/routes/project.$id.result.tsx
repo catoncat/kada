@@ -18,7 +18,12 @@ import { useTaskQueue } from '@/contexts/TaskQueueContext';
 import { useArtifacts } from '@/hooks/useArtifacts';
 import { useProjectSceneTasks } from '@/hooks/useProjectSceneTasks';
 import { useTasksPolling } from '@/hooks/useTasks';
-import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
+import {
+  appendSceneByAi,
+  generatePlan,
+  getProject,
+  updateProject,
+} from '@/lib/projects-api';
 import { previewImagePrompt } from '@/lib/prompts-api';
 import {
   clearLegacyOpenEdit,
@@ -125,6 +130,15 @@ function ProjectResultPage() {
     mutationFn: (nextPlan: GeneratedPlan) =>
       updateProject(id, {
         generatedPlan: nextPlan,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+  });
+  const appendSceneMutation = useMutation({
+    mutationFn: (afterSceneId?: string) =>
+      appendSceneByAi(id, {
+        afterSceneId,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', id] });
@@ -272,6 +286,45 @@ function ProjectResultPage() {
     },
     [plan, updateSceneMutation],
   );
+
+  const handleDeleteScene = useCallback(
+    async (sceneIndex: number) => {
+      if (!plan?.scenes || !plan.scenes[sceneIndex]) return;
+      const scene = plan.scenes[sceneIndex];
+      const sceneLabel = scene.location
+        ? `分镜 ${sceneIndex + 1}（${scene.location}）`
+        : `分镜 ${sceneIndex + 1}`;
+      const confirmed = window.confirm(`确定删除 ${sceneLabel} 吗？`);
+      if (!confirmed) return;
+
+      const nextScenes = plan.scenes.filter((_, index) => index !== sceneIndex);
+      await updateSceneMutation.mutateAsync({
+        ...plan,
+        scenes: nextScenes,
+      });
+      setSceneTaskHint(`${sceneLabel} 已删除。`);
+    },
+    [plan, updateSceneMutation],
+  );
+
+  const handleAppendScene = useCallback(async () => {
+    try {
+      const result = await appendSceneMutation.mutateAsync(undefined);
+      const createdIndex =
+        typeof result.index === 'number' && Number.isFinite(result.index)
+          ? result.index
+          : null;
+      if (createdIndex !== null) {
+        setSceneTaskHint(`已新增分镜 ${createdIndex + 1}。`);
+      } else {
+        setSceneTaskHint('已新增分镜。');
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '未知错误，请稍后重试';
+      setSceneTaskHint(`新增分镜失败：${message}`);
+    }
+  }, [appendSceneMutation]);
 
   const handleOptimizePrompt = useCallback(
     async (sceneIndex: number, visualPrompt: string) => {
@@ -567,6 +620,7 @@ function ProjectResultPage() {
                 onOptimizePrompt={handleOptimizePrompt}
                 onUndoOptimize={handleUndoOptimize}
                 onViewRecentTasks={handleViewRecentTasks}
+                onDeleteScene={handleDeleteScene}
                 onUpdateScene={handleUpdateScene}
                 onSelectHistoryArtifact={handleSelectHistoryArtifact}
                 taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
@@ -588,6 +642,20 @@ function ProjectResultPage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-6 rounded-xl border border-dashed border-border bg-card/50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">新增分镜</div>
+            <div className="text-xs text-muted-foreground">
+              让 AI 基于当前方案补一条不重复的新分镜。
+            </div>
+          </div>
+          <Button onClick={handleAppendScene} disabled={appendSceneMutation.isPending}>
+            {appendSceneMutation.isPending ? '新增中...' : 'AI 补一条分镜'}
+          </Button>
+        </div>
       </div>
 
       <PlanVersionsDrawer

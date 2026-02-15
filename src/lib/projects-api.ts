@@ -120,3 +120,38 @@ export async function previewPrompt(id: string): Promise<string> {
   const data: PreviewPromptResponse = await res.json();
   return data.prompt;
 }
+
+export interface AppendSceneOptions {
+  afterSceneId?: string;
+  providerId?: string;
+}
+
+export interface AppendSceneResponse {
+  scene: Record<string, unknown> | null;
+  index: number;
+  preoptimization?: {
+    totalScenes: number;
+    optimized: number;
+    fallback: number;
+    skipped: number;
+    failed: number;
+    durationMs: number;
+  };
+}
+
+/** AI 补一条分镜 */
+export async function appendSceneByAi(
+  id: string,
+  options?: AppendSceneOptions,
+): Promise<AppendSceneResponse> {
+  const res = await fetch(apiUrl(`/api/projects/${id}/scenes/ai-append`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: '网络错误' }));
+    throw new Error(error.error || '补充分镜失败');
+  }
+  return res.json();
+}
