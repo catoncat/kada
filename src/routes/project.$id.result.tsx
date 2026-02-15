@@ -7,10 +7,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type GeneratedPlan,
   type GeneratedScene,
-  type SceneTaskTrack,
   PlanResultHeader,
   PlanVersionsDrawer,
   SceneCard,
+  type SceneTaskTrack,
 } from '@/components/plan';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,25 @@ import { generatePlan, getProject, updateProject } from '@/lib/projects-api';
 import {
   clearLegacyOpenEdit,
   parseResultSearchParams,
-  resolveResultPanel,
   type ResultSearchParams,
+  resolveResultPanel,
 } from '@/lib/result-search-params';
 import { createImageTask } from '@/lib/tasks-api';
 
 const LOCKED_ASPECT_RATIO = 'photo';
+
+function resolveSceneIdentity(
+  scene: GeneratedScene,
+  sceneIndex: number,
+): {
+  sceneId: string | null;
+  sceneKey: string;
+} {
+  const sceneId =
+    typeof scene.id === 'string' && scene.id.trim() ? scene.id.trim() : null;
+  const sceneKey = sceneId || String(sceneIndex);
+  return { sceneId, sceneKey };
+}
 
 function toIdleTrack(sceneIndex: number): SceneTaskTrack {
   return {
@@ -53,7 +66,7 @@ function ProjectResultPage() {
   const { openDrawer } = useTaskQueue();
 
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [generatingScenes, setGeneratingScenes] = useState<Set<number>>(
+  const [generatingScenes, setGeneratingScenes] = useState<Set<string>>(
     new Set(),
   );
   const [pendingTaskIds, setPendingTaskIds] = useState<string[]>([]);
@@ -62,6 +75,7 @@ function ProjectResultPage() {
 
   const resolvedPanel = resolveResultPanel(search);
   const sceneFromUrl = search.scene;
+  const sceneIdFromUrl = search.sceneId;
 
   const {
     data: project,
@@ -121,14 +135,19 @@ function ProjectResultPage() {
   const enqueueSceneTask = useCallback(
     async (options: {
       sceneIndex: number;
+      sceneId?: string | null;
       prompt: string;
       referenceImages?: string[];
     }) => {
-      setGeneratingScenes((prev) => new Set(prev).add(options.sceneIndex));
+      const sceneKey = options.sceneId || String(options.sceneIndex);
+      setGeneratingScenes((prev) => new Set(prev).add(sceneKey));
       try {
         const task = await createImageTask(options.prompt, {
           relatedId: id,
-          relatedMeta: JSON.stringify({ sceneIndex: options.sceneIndex }),
+          relatedMeta: JSON.stringify({
+            sceneIndex: options.sceneIndex,
+            sceneId: options.sceneId || null,
+          }),
           referenceImages:
             options.referenceImages && options.referenceImages.length > 0
               ? options.referenceImages
@@ -136,7 +155,9 @@ function ProjectResultPage() {
           owner: {
             type: 'planScene',
             id,
-            slot: `scene:${options.sceneIndex}`,
+            slot: options.sceneId
+              ? `scene:${options.sceneId}`
+              : `scene:${options.sceneIndex}`,
           },
           options: {
             aspectRatio: LOCKED_ASPECT_RATIO,
@@ -147,10 +168,12 @@ function ProjectResultPage() {
         await refetchSceneTasks();
       } catch (err) {
         console.error('Failed to create image task:', err);
-        setSceneTaskHint(`场景 ${options.sceneIndex + 1} 任务创建失败，请重试。`);
+        setSceneTaskHint(
+          `场景 ${options.sceneIndex + 1} 任务创建失败，请重试。`,
+        );
         setGeneratingScenes((prev) => {
           const next = new Set(prev);
-          next.delete(options.sceneIndex);
+          next.delete(sceneKey);
           return next;
         });
       }
@@ -162,8 +185,10 @@ function ProjectResultPage() {
     async (sceneIndex: number, visualPrompt: string) => {
       const scene = plan?.scenes?.[sceneIndex];
       if (!scene || !visualPrompt.trim()) return;
+      const { sceneId } = resolveSceneIdentity(scene, sceneIndex);
       await enqueueSceneTask({
         sceneIndex,
+        sceneId,
         prompt: visualPrompt,
         referenceImages: [scene.sceneAssetImage].filter(Boolean) as string[],
       });
@@ -198,15 +223,15 @@ function ProjectResultPage() {
     alert('PPT 导出功能将在后续版本实现');
   };
 
-  const handleRefreshProject = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['project', id] });
-    queryClient.invalidateQueries({ queryKey: ['project-tasks', id] });
-  }, [id, queryClient]);
-
   const handleUpdateScene = useCallback(
     async (
       sceneIndex: number,
-      patch: Partial<Pick<GeneratedScene, 'visualPrompt'>>,
+      patch: Partial<
+        Pick<
+          GeneratedScene,
+          'location' | 'description' | 'shots' | 'lighting' | 'visualPrompt'
+        >
+      >,
     ) => {
       if (!plan?.scenes || !plan.scenes[sceneIndex]) return;
       const nextScenes = plan.scenes.map((scene, index) =>
@@ -223,18 +248,32 @@ function ProjectResultPage() {
   const previewProgress = useMemo(() => {
     if (!plan?.scenes) return { done: 0, total: 0 };
     const total = plan.scenes.length;
-    const done = plan.scenes.filter((scene) => scene.previewArtifactPath).length;
+    const done = plan.scenes.filter(
+      (scene) => scene.previewArtifactPath,
+    ).length;
     return { done, total };
   }, [plan?.scenes]);
 
   useEffect(() => {
     if (!plan?.scenes?.length) return;
-    if (typeof sceneFromUrl !== 'number' || Number.isNaN(sceneFromUrl)) return;
-    if (sceneFromUrl < 0 || sceneFromUrl >= plan.scenes.length) return;
 
-    const el = document.getElementById(`scene-${sceneFromUrl}`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [plan?.scenes, sceneFromUrl]);
+    let targetElement: HTMLElement | null = null;
+    if (sceneIdFromUrl) {
+      targetElement =
+        document.getElementById(`scene-${sceneIdFromUrl}`) || null;
+    } else if (
+      typeof sceneFromUrl === 'number' &&
+      !Number.isNaN(sceneFromUrl)
+    ) {
+      const scene = plan.scenes[sceneFromUrl];
+      if (scene) {
+        const { sceneKey } = resolveSceneIdentity(scene, sceneFromUrl);
+        targetElement = document.getElementById(`scene-${sceneKey}`) || null;
+      }
+    }
+
+    targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [plan?.scenes, sceneFromUrl, sceneIdFromUrl]);
 
   useEffect(() => {
     if (search.openEdit !== '1') return;
@@ -294,7 +333,9 @@ function ProjectResultPage() {
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
               <ImageIcon className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-foreground">尚未生成方案</h3>
+            <h3 className="text-lg font-medium text-foreground">
+              尚未生成方案
+            </h3>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               请先完成项目配置，然后点击「生成方案」按钮
             </p>
@@ -326,28 +367,28 @@ function ProjectResultPage() {
 
       {sceneTaskHint ? (
         <Alert variant="info" className="mt-4">
-          <AlertTitle>执行提示</AlertTitle>
+          <AlertTitle>生成提示</AlertTitle>
           <AlertDescription>{sceneTaskHint}</AlertDescription>
         </Alert>
       ) : null}
 
       <div className="mt-6 space-y-6">
-        {plan.scenes.map((scene, index) => (
-          <div key={`${scene.location}-${index}`} id={`scene-${index}`}>
-            <SceneCard
-              scene={scene}
-              sceneIndex={index}
-              projectId={project.id}
-              autoOpenEdit={resolvedPanel === 'copy' && sceneFromUrl === index}
-              isGenerating={generatingScenes.has(index)}
-              onGeneratePreview={handleGenerateScenePreview}
-              onImageChange={handleRefreshProject}
-              onViewRecentTasks={handleViewRecentTasks}
-              onUpdateScene={handleUpdateScene}
-              taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
-            />
-          </div>
-        ))}
+        {plan.scenes.map((scene, index) => {
+          const { sceneKey } = resolveSceneIdentity(scene, index);
+          return (
+            <div key={`scene-${sceneKey}`} id={`scene-${sceneKey}`}>
+              <SceneCard
+                scene={scene}
+                sceneIndex={index}
+                isGenerating={generatingScenes.has(sceneKey)}
+                onGeneratePreview={handleGenerateScenePreview}
+                onViewRecentTasks={handleViewRecentTasks}
+                onUpdateScene={handleUpdateScene}
+                taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
+              />
+            </div>
+          );
+        })}
       </div>
 
       <PlanVersionsDrawer
