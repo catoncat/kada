@@ -347,19 +347,19 @@ function ProjectResultPage() {
     (sceneIndex: number) => {
       const recentTask = latestTaskByScene.get(sceneIndex);
       if (recentTask) {
-        setSceneTaskHint(null);
+        setSceneTaskHint(
+          `场景 ${sceneIndex + 1} 最近任务已同步，已打开任务中心（需要深度排障时再进入任务详情）。`,
+        );
         navigate({
-          to: '/tasks/$id',
-          params: { id: recentTask.id },
+          to: '/project/$id/result',
+          params: { id },
           search: {
-            sourceType: 'projectResult',
-            projectId: id,
-            relatedId: id,
-            sceneIndex,
+            scene: sceneIndex,
             mode: 'execute',
-            panel: 'copy',
+            panel: 'task',
           },
         });
+        openDrawer();
         return;
       }
 
@@ -525,6 +525,11 @@ function ProjectResultPage() {
       replace: true,
     });
   }, [id, navigate, search]);
+
+  useEffect(() => {
+    if (resolvedPanel !== 'task') return;
+    openDrawer();
+  }, [openDrawer, resolvedPanel]);
 
   const handleConfirmChecklistForScene = useCallback((sceneIndex: number) => {
     const snapshot = checklistMap.get(sceneIndex);
