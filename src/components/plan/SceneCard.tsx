@@ -89,6 +89,15 @@ function getStateBadgeVariant(state: SceneExecutionState) {
   return 'outline' as const;
 }
 
+function getTaskStatusLabel(track?: SceneTaskTrack | null): string {
+  if (!track || track.status === 'idle') return '暂无任务';
+  if (track.status === 'pending') return '排队中';
+  if (track.status === 'running') return '执行中';
+  if (track.status === 'completed') return '已完成';
+  if (track.status === 'failed') return '失败';
+  return track.status;
+}
+
 export function SceneCard({
   scene,
   sceneIndex,
@@ -364,6 +373,9 @@ export function SceneCard({
         scene={scene}
         sceneIndex={sceneIndex}
         owner={owner}
+        lockedAspectRatio="photo"
+        referenceCount={scene.sceneAssetImage ? 1 : 0}
+        recentTaskStatus={getTaskStatusLabel(taskTrack)}
         onImageChange={handleImageChange}
       />
     </>

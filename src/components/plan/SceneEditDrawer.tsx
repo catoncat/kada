@@ -15,12 +15,24 @@ import {
 } from '@/components/ui/sheet';
 import type { GeneratedScene, SceneOwner } from './types';
 
+type SceneEditAspectRatio =
+  | 'photo'
+  | 'landscape'
+  | 'portrait'
+  | 'square'
+  | '4/3'
+  | '16/9'
+  | 'auto';
+
 export interface SceneEditDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scene: GeneratedScene | null;
   sceneIndex: number;
   owner: SceneOwner | null;
+  lockedAspectRatio?: SceneEditAspectRatio;
+  referenceCount?: number;
+  recentTaskStatus?: string | null;
   /** 图片变化回调 */
   onImageChange?: (filePath: string | null, artifactId: string | null) => void;
 }
@@ -31,6 +43,9 @@ export function SceneEditDrawer({
   scene,
   sceneIndex,
   owner,
+  lockedAspectRatio = 'photo',
+  referenceCount = 0,
+  recentTaskStatus = null,
   onImageChange,
 }: SceneEditDrawerProps) {
   if (!scene || !owner) return null;
@@ -55,9 +70,14 @@ export function SceneEditDrawer({
           <div className="space-y-4">
             <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
               <div>
+                当前场景：#{sceneIndex + 1} {scene.location}
+              </div>
+              <div>画幅锁定：{lockedAspectRatio}</div>
+              <div>参考图数量：{referenceCount} 张</div>
+              <div>最近任务状态：{recentTaskStatus || '暂无任务'}</div>
+              <div>
                 参考图参与：{scene.sceneAssetImage ? '已配置 scene 参考图' : '未配置'}
               </div>
-              <div>画幅锁定：photo</div>
               <div>输出策略：单帧静态图</div>
             </div>
 
@@ -68,7 +88,7 @@ export function SceneEditDrawer({
               includeCurrentImageAsReference={false}
               defaultPrompt={scene.visualPrompt}
               onImageChange={handleImageChange}
-              aspectRatio="photo"
+              aspectRatio={lockedAspectRatio}
             />
 
             <div className="rounded-lg border bg-muted/50 p-4">
