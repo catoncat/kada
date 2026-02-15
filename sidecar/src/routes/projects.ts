@@ -33,7 +33,7 @@ function safeParseJson<T>(raw: string | null | undefined): T | null {
   }
 }
 
-function resolveSceneSlotCandidates(scene: { id?: string }, sceneIndex: number): string[] {
+export function resolveSceneSlotCandidates(scene: { id?: string }, sceneIndex: number): string[] {
   const slots = [`scene:${sceneIndex}`];
   if (typeof scene.id === 'string' && scene.id.trim()) {
     slots.unshift(`scene:${scene.id.trim()}`);
@@ -41,7 +41,7 @@ function resolveSceneSlotCandidates(scene: { id?: string }, sceneIndex: number):
   return slots;
 }
 
-function buildAppendScenePrompt(params: {
+export function buildAppendScenePrompt(params: {
   projectTitle: string;
   projectPrompt?: string | null;
   sceneName: string;
@@ -101,7 +101,7 @@ function buildAppendScenePrompt(params: {
     .join('\n');
 }
 
-function parseGeneratedSceneText(raw: string): GeneratedScene {
+export function parseGeneratedSceneText(raw: string): GeneratedScene {
   const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonText = jsonMatch?.[1]?.trim() || raw.trim();
   const parsed = JSON.parse(jsonText) as Record<string, unknown>;

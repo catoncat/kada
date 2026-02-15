@@ -164,7 +164,7 @@ export function getTaskSourceLink(
           : { mode: 'execute' },
       label:
         typeof sceneIndex === 'number'
-          ? `场景 ${sceneIndex + 1}`
+          ? `分镜 ${sceneIndex + 1}`
           : sceneId
             ? `分镜 ${sceneId}`
             : '项目结果页',
@@ -202,7 +202,7 @@ export function getTaskSourceLink(
             mode: 'execute',
             panel: 'copy',
           },
-          label: `场景 ${sceneIndex + 1}`,
+          label: `分镜 ${sceneIndex + 1}`,
         };
       }
 

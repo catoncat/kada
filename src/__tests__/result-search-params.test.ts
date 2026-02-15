@@ -52,9 +52,11 @@ describe('result-search-params', () => {
     const parsed = parseResultSearchParams({
       openEdit: '1',
       scene: '3',
+      sceneId: 'sc_1',
     });
     expect(clearLegacyOpenEdit(parsed)).toEqual({
       scene: 3,
+      sceneId: 'sc_1',
       mode: 'execute',
       panel: 'copy',
     });

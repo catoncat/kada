@@ -411,6 +411,7 @@ export function SceneCard({
                       <button
                         type="button"
                         key={`stack-${artifact.id}`}
+                        aria-label={`选择历史图 ${artifact.id}`}
                         onClick={() => {
                           onSelectHistoryArtifact?.(sceneIndex, artifact.id);
                         }}
@@ -453,6 +454,7 @@ export function SceneCard({
                         <button
                           type="button"
                           key={artifact.id}
+                          aria-label={`选择历史图 ${artifact.id}（展开）`}
                           onClick={() => {
                             onSelectHistoryArtifact?.(sceneIndex, artifact.id);
                           }}

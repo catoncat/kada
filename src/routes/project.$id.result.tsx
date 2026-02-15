@@ -32,6 +32,7 @@ import {
   resolveResultPanel,
 } from '@/lib/result-search-params';
 import { type GenerationArtifact } from '@/lib/artifacts-api';
+import { parseSceneRefFromTask } from '@/lib/task-recovery';
 import { createImageTask } from '@/lib/tasks-api';
 
 const LOCKED_ASPECT_RATIO = 'photo';
@@ -106,10 +107,48 @@ function ProjectResultPage() {
   const plan = project?.generatedPlan as GeneratedPlan | null;
 
   const {
-    latestTaskByScene,
-    sceneTrackMap,
+    projectTasks,
     refetch: refetchSceneTasks,
   } = useProjectSceneTasks(id);
+  const latestTaskBySceneKey = useMemo(() => {
+    const tasksSorted = [...projectTasks].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    const map = new Map<string, (typeof tasksSorted)[number]>();
+    for (const task of tasksSorted) {
+      if (task.type !== 'image-generation' && task.type !== 'plan-generation') {
+        continue;
+      }
+      const sceneRef = parseSceneRefFromTask(task);
+      const key =
+        sceneRef.sceneId ||
+        (typeof sceneRef.sceneIndex === 'number'
+          ? String(sceneRef.sceneIndex)
+          : null);
+      if (!key || map.has(key)) continue;
+      map.set(key, task);
+    }
+    return map;
+  }, [projectTasks]);
+  const sceneTrackByKey = useMemo(() => {
+    const map = new Map<string, SceneTaskTrack>();
+    for (const [key, task] of latestTaskBySceneKey.entries()) {
+      const sceneRef = parseSceneRefFromTask(task);
+      map.set(key, {
+        sceneIndex:
+          typeof sceneRef.sceneIndex === 'number' ? sceneRef.sceneIndex : -1,
+        taskId: task.id,
+        status: task.status,
+        createdAt: task.createdAt || null,
+        updatedAt: task.updatedAt || null,
+        error: task.error || null,
+      });
+    }
+    return map;
+  }, [latestTaskBySceneKey]);
   const {
     data: artifactsData,
     isLoading: isArtifactsLoading,
@@ -235,7 +274,10 @@ function ProjectResultPage() {
 
   const handleViewRecentTasks = useCallback(
     (sceneIndex: number) => {
-      const recentTask = latestTaskByScene.get(sceneIndex);
+      const scene = plan?.scenes?.[sceneIndex];
+      if (!scene) return;
+      const { sceneKey } = resolveSceneIdentity(scene, sceneIndex);
+      const recentTask = latestTaskBySceneKey.get(sceneKey);
       if (recentTask) {
         navigate({
           to: '/project/$id/result',
@@ -253,7 +295,7 @@ function ProjectResultPage() {
       setSceneTaskHint(`分镜 ${sceneIndex + 1} 暂无任务，已打开任务中心。`);
       openDrawer();
     },
-    [id, latestTaskByScene, navigate, openDrawer],
+    [id, latestTaskBySceneKey, navigate, openDrawer, plan?.scenes],
   );
 
   const handleExportPPT = () => {
@@ -623,7 +665,7 @@ function ProjectResultPage() {
                 onDeleteScene={handleDeleteScene}
                 onUpdateScene={handleUpdateScene}
                 onSelectHistoryArtifact={handleSelectHistoryArtifact}
-                taskTrack={sceneTrackMap.get(index) || toIdleTrack(index)}
+                taskTrack={sceneTrackByKey.get(sceneKey) || toIdleTrack(index)}
                 canUndoOptimize={Boolean(optimizeUndoByScene[sceneKey])}
                 historyArtifacts={historyArtifacts.map((artifact) => ({
                   id: artifact.id,

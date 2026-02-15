@@ -75,7 +75,7 @@ export const DEFAULT_PROMPT_RULES_V1: PromptRulesV1 = {
         {
           id: 'plan-scene',
           kind: 'planScene',
-          label: '具体分镜场景',
+          label: '具体分镜',
           enabled: true,
         },
         {
@@ -112,4 +112,3 @@ export const DEFAULT_PROMPT_RULES_V1: PromptRulesV1 = {
     },
   },
 };
-
