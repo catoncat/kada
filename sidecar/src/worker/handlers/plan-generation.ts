@@ -13,6 +13,7 @@ import {
   generationRuns,
 } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { optimizeImagePrompt } from '../prompt-optimizer';
 
 // ========== 类型定义 ==========
 
@@ -29,6 +30,15 @@ interface GeneratedScene {
   shots: string;
   lighting: string;
   visualPrompt: string;
+  promptMeta?: {
+    sourcePrompt: string;
+    optimizedPrompt: string;
+    status: 'optimized' | 'fallback' | 'skipped';
+    reason?: string | null;
+    providerId?: string | null;
+    textModel?: string | null;
+    optimizedAt: string;
+  };
   sceneAssetId?: string;
   sceneAssetImage?: string;
 }
@@ -63,6 +73,15 @@ interface PromptTemplate {
 
 interface PromptTemplatesData {
   templates: PromptTemplate[];
+}
+
+interface PlanPromptPreoptimizationSummary {
+  totalScenes: number;
+  optimized: number;
+  fallback: number;
+  skipped: number;
+  failed: number;
+  durationMs: number;
 }
 
 /** 性别 */
@@ -192,7 +211,7 @@ export async function planGenerationHandler(
   const now = new Date();
   const runId = `gr_${randomUUID()}`;
   const taskId = context?.taskId || input.taskId || null;
-  const runPromptContext = {
+  const runPromptContext: Record<string, unknown> = {
     projectId,
     providerId: provider.id,
     providerFormat: provider.format,
@@ -240,6 +259,21 @@ export async function planGenerationHandler(
         sceneAssetId: scene.id,
         sceneAssetImage: scene.primaryImage ?? undefined,
       }));
+
+      const preoptimized = await optimizePlanScenesPrompts({
+        db,
+        provider: {
+          id: provider.id,
+          format: provider.format,
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          textModel: provider.textModel,
+          capabilities: provider.capabilities ?? null,
+        },
+        scenes: generatedPlan.scenes,
+      });
+      generatedPlan.scenes = preoptimized.scenes;
+      runPromptContext.scenePromptPreoptimization = preoptimized.summary;
     }
 
     // 更新项目
@@ -253,6 +287,7 @@ export async function planGenerationHandler(
       .update(generationRuns)
       .set({
         status: 'succeeded',
+        promptContext: JSON.stringify(runPromptContext),
         updatedAt: new Date(),
       })
       .where(eq(generationRuns.id, runId));
@@ -272,6 +307,111 @@ export async function planGenerationHandler(
 
     throw error;
   }
+}
+
+export async function optimizePlanScenesPrompts(input: {
+  db: any;
+  provider: {
+    id: string;
+    format: string;
+    baseUrl: string;
+    apiKey: string;
+    textModel: string;
+    capabilities?: string | null;
+  };
+  scenes: GeneratedScene[];
+}): Promise<{
+  scenes: GeneratedScene[];
+  summary: PlanPromptPreoptimizationSummary;
+}> {
+  const startedAt = Date.now();
+  const summary: PlanPromptPreoptimizationSummary = {
+    totalScenes: input.scenes.length,
+    optimized: 0,
+    fallback: 0,
+    skipped: 0,
+    failed: 0,
+    durationMs: 0,
+  };
+
+  const scenes: GeneratedScene[] = [];
+
+  for (let index = 0; index < input.scenes.length; index += 1) {
+    const scene = input.scenes[index];
+    const sourcePrompt = typeof scene.visualPrompt === 'string' ? scene.visualPrompt.trim() : '';
+    const optimizedAt = new Date().toISOString();
+
+    if (!sourcePrompt) {
+      summary.skipped += 1;
+      scenes.push({
+        ...scene,
+        visualPrompt: sourcePrompt,
+        promptMeta: {
+          sourcePrompt,
+          optimizedPrompt: sourcePrompt,
+          status: 'skipped',
+          reason: 'EMPTY_VISUAL_PROMPT',
+          providerId: input.provider.id,
+          textModel: input.provider.textModel,
+          optimizedAt,
+        },
+      });
+      continue;
+    }
+
+    try {
+      const result = await optimizeImagePrompt({
+        db: input.db,
+        provider: input.provider,
+        draftPrompt: sourcePrompt,
+        effectivePrompt: sourcePrompt,
+        promptContext: {
+          stage: 'plan-generation',
+          sceneIndex: index,
+        },
+      });
+      const status = result.meta.status;
+      if (status === 'optimized') summary.optimized += 1;
+      if (status === 'fallback') summary.fallback += 1;
+      if (status === 'skipped') summary.skipped += 1;
+      const optimizedPrompt = result.renderPrompt?.trim() || sourcePrompt;
+      scenes.push({
+        ...scene,
+        visualPrompt: optimizedPrompt,
+        promptMeta: {
+          sourcePrompt,
+          optimizedPrompt,
+          status,
+          reason: result.meta.reason || null,
+          providerId: result.meta.providerId || input.provider.id,
+          textModel: result.meta.textModel || input.provider.textModel,
+          optimizedAt,
+        },
+      });
+    } catch (error) {
+      summary.failed += 1;
+      const reason = error instanceof Error ? error.message : 'PREOPTIMIZE_FAILED';
+      scenes.push({
+        ...scene,
+        visualPrompt: sourcePrompt,
+        promptMeta: {
+          sourcePrompt,
+          optimizedPrompt: sourcePrompt,
+          status: 'fallback',
+          reason,
+          providerId: input.provider.id,
+          textModel: input.provider.textModel,
+          optimizedAt,
+        },
+      });
+    }
+  }
+
+  summary.durationMs = Date.now() - startedAt;
+  return {
+    scenes,
+    summary,
+  };
 }
 
 // ========== Prompt 构建 ==========
