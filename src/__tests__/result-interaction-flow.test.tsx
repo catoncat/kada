@@ -4,11 +4,10 @@ import {
   parseResultSearchParams,
   resolveResultPanel,
 } from '@/lib/result-search-params';
-import { resolveExecuteActionGuard } from '@/lib/scene-execution-state';
 import { getSourceLinkFromDeepLinkSearch } from '@/lib/task-recovery';
 
 describe('result interaction flow', () => {
-  it('maps legacy openEdit to execute copy panel', () => {
+  it('maps legacy openEdit to copy panel for backward compatibility', () => {
     const parsed = parseResultSearchParams({
       scene: '1',
       openEdit: '1',
@@ -39,13 +38,19 @@ describe('result interaction flow', () => {
     }
   });
 
-  it('requires checklist confirmation before execute action', () => {
-    const guard = resolveExecuteActionGuard({
-      executionState: 'not_confirmed',
-      hasVisualPrompt: true,
+  it('keeps copy panel when deep link has no scene index', () => {
+    const link = getSourceLinkFromDeepLinkSearch({
+      sourceType: 'projectResult',
+      projectId: 'p1',
+      mode: 'execute',
     });
-    expect(guard.disabled).toBe(true);
-    expect(guard.reason).toContain('确认执行清单');
+
+    expect(link?.to).toBe('/project/$id/result');
+    if (link?.to === '/project/$id/result') {
+      expect(link.search).toEqual({
+        mode: 'execute',
+        panel: undefined,
+      });
+    }
   });
 });
-
