@@ -127,12 +127,22 @@ function compactLines(text: string): string {
     .trim();
 }
 
-function getSceneIndexFromSlot(slot?: string): number | null {
-  if (!slot) return null;
-  if (!slot.startsWith('scene:')) return null;
-  const raw = slot.split(':')[1] ?? '';
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+function parseSceneSlot(
+  slot?: string,
+): { sceneIndex: number | null; sceneId: string | null } {
+  if (!slot || !slot.startsWith('scene:')) {
+    return { sceneIndex: null, sceneId: null };
+  }
+
+  const raw = slot.slice('scene:'.length).trim();
+  if (!raw) return { sceneIndex: null, sceneId: null };
+
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed >= 0 && String(parsed) === raw) {
+    return { sceneIndex: parsed, sceneId: null };
+  }
+
+  return { sceneIndex: null, sceneId: raw };
 }
 
 function formatCustomerInfo(customer: any): string | null {
@@ -254,7 +264,13 @@ export async function buildImageEffectivePrompt(
   let projectCustomer: any = null;
   let selectedSceneAsset: any = null;
   let planScene: any = null;
-  const sceneIndex = owner?.type === 'planScene' ? getSceneIndexFromSlot(owner.slot) : null;
+  let sceneIndex: number | null = null;
+  let sceneId: string | null = null;
+  if (owner?.type === 'planScene') {
+    const parsed = parseSceneSlot(owner.slot);
+    sceneIndex = parsed.sceneIndex;
+    sceneId = parsed.sceneId;
+  }
 
   if (owner?.type === 'planScene') {
     const [p] = await db
@@ -275,8 +291,20 @@ export async function buildImageEffectivePrompt(
     }
 
     const plan = safeJsonParse<{ scenes?: unknown[] }>(project?.generatedPlan) ?? null;
-    if (plan?.scenes && Array.isArray(plan.scenes) && typeof sceneIndex === 'number') {
-      planScene = plan.scenes[sceneIndex] ?? null;
+    if (plan?.scenes && Array.isArray(plan.scenes)) {
+      if (typeof sceneIndex === 'number') {
+        planScene = plan.scenes[sceneIndex] ?? null;
+      } else if (sceneId) {
+        const indexById = plan.scenes.findIndex((item) => {
+          if (!item || typeof item !== 'object') return false;
+          const scene = item as { id?: unknown };
+          return typeof scene.id === 'string' && scene.id.trim() === sceneId;
+        });
+        if (indexById >= 0) {
+          sceneIndex = indexById;
+          planScene = plan.scenes[indexById] ?? null;
+        }
+      }
     }
   }
 

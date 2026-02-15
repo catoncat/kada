@@ -301,11 +301,13 @@ export interface PlanGenerationInput {
 }
 
 export interface GeneratedScene {
+  id?: string;
   location: string;
   description: string;
   shots: string;
   lighting: string;
   visualPrompt: string;
+  selectedArtifactId?: string | null;
   sceneAssetId?: string;
   sceneAssetImage?: string;
 }

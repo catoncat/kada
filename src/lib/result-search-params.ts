@@ -4,6 +4,7 @@ export type ResultPanel = 'copy' | 'task';
 
 export interface ResultSearchParams {
   scene?: number;
+  sceneId?: string;
   openEdit?: '1';
   panel?: ResultPanel;
   mode?: ResultMode;
@@ -23,6 +24,10 @@ export function parseResultSearchParams(
     scene:
       typeof sceneRaw === 'number' && Number.isFinite(sceneRaw)
         ? sceneRaw
+        : undefined,
+    sceneId:
+      typeof search.sceneId === 'string' && search.sceneId.trim()
+        ? search.sceneId.trim()
         : undefined,
     openEdit: search.openEdit === '1' ? '1' : undefined,
     panel: search.panel === 'copy' || search.panel === 'task' ? search.panel : undefined,
@@ -48,9 +53,13 @@ export function resolveResultPanel(search: ResultSearchParams): ResultPanel | un
 }
 
 export function clearLegacyOpenEdit(search: ResultSearchParams): ResultSearchParams {
-  return {
+  const next: ResultSearchParams = {
     scene: search.scene,
     mode: resolveResultMode(search),
     panel: resolveResultPanel(search),
   };
+  if (search.sceneId) {
+    next.sceneId = search.sceneId;
+  }
+  return next;
 }

@@ -24,12 +24,14 @@ interface PlanGenerationInput {
   taskId?: string;
 }
 
-interface GeneratedScene {
+export interface GeneratedScene {
+  id?: string;
   location: string;
   description: string;
   shots: string;
   lighting: string;
   visualPrompt: string;
+  selectedArtifactId?: string | null;
   promptMeta?: {
     sourcePrompt: string;
     optimizedPrompt: string;
@@ -43,7 +45,7 @@ interface GeneratedScene {
   sceneAssetImage?: string;
 }
 
-interface GeneratedPlan {
+export interface GeneratedPlan {
   title: string;
   theme: string;
   creativeIdea: string;
@@ -82,6 +84,13 @@ interface PlanPromptPreoptimizationSummary {
   skipped: number;
   failed: number;
   durationMs: number;
+}
+
+function ensureSceneId(scene: GeneratedScene): string {
+  if (typeof scene.id === 'string' && scene.id.trim()) {
+    return scene.id.trim();
+  }
+  return `sc_${randomUUID()}`;
 }
 
 /** 性别 */
@@ -256,6 +265,8 @@ export async function planGenerationHandler(
     if (generatedPlan.scenes && Array.isArray(generatedPlan.scenes)) {
       generatedPlan.scenes = generatedPlan.scenes.map((s: GeneratedScene) => ({
         ...s,
+        id: ensureSceneId(s),
+        selectedArtifactId: null,
         sceneAssetId: scene.id,
         sceneAssetImage: scene.primaryImage ?? undefined,
       }));
@@ -411,6 +422,47 @@ export async function optimizePlanScenesPrompts(input: {
   return {
     scenes,
     summary,
+  };
+}
+
+export function ensureGeneratedPlanScenes(plan: GeneratedPlan): {
+  plan: GeneratedPlan;
+  changed: boolean;
+} {
+  if (!Array.isArray(plan.scenes)) {
+    return { plan, changed: false };
+  }
+
+  let changed = false;
+  const scenes = plan.scenes.map((scene) => {
+    const nextId = ensureSceneId(scene);
+    const nextSelectedArtifactId =
+      typeof scene.selectedArtifactId === 'string' &&
+      scene.selectedArtifactId.trim()
+        ? scene.selectedArtifactId.trim()
+        : null;
+
+    if (scene.id !== nextId || scene.selectedArtifactId !== nextSelectedArtifactId) {
+      changed = true;
+    }
+
+    return {
+      ...scene,
+      id: nextId,
+      selectedArtifactId: nextSelectedArtifactId,
+    };
+  });
+
+  if (!changed) {
+    return { plan, changed: false };
+  }
+
+  return {
+    plan: {
+      ...plan,
+      scenes,
+    },
+    changed: true,
   };
 }
 

@@ -3,9 +3,31 @@ import { eq, and, inArray, desc, sql, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../db';
 import { projects, tasks, sceneAssets, settings, generationRuns, generationArtifacts } from '../db/schema';
-import { buildGeneratePlanPrompt, type PromptContext } from '../worker/handlers/plan-generation';
+import {
+  buildGeneratePlanPrompt,
+  ensureGeneratedPlanScenes,
+  type GeneratedPlan,
+  type PromptContext,
+} from '../worker/handlers/plan-generation';
 
 export const projectRoutes = new Hono();
+
+function safeParseJson<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function resolveSceneSlotCandidates(scene: { id?: string }, sceneIndex: number): string[] {
+  const slots = [`scene:${sceneIndex}`];
+  if (typeof scene.id === 'string' && scene.id.trim()) {
+    slots.unshift(`scene:${scene.id.trim()}`);
+  }
+  return slots;
+}
 
 // 获取所有项目（带元数据）
 projectRoutes.get('/', async (c) => {
@@ -113,29 +135,40 @@ projectRoutes.get('/', async (c) => {
       // 方案版本数
       const planVersionCount = projectRuns.length;
 
-      // 预览图进度（简化版：基于 generatedPlan 中的场景数）
+      const customer = safeParseJson(p.customer);
+      const generatedPlanRaw = safeParseJson<GeneratedPlan>(p.generatedPlan);
+      const generatedPlan = generatedPlanRaw
+        ? ensureGeneratedPlanScenes(generatedPlanRaw).plan
+        : null;
+
+      // 预览图进度（基于分镜列表，兼容 scene:index 与 scene:sceneId）
       let previewProgress: { done: number; total: number } | undefined;
-      if (p.generatedPlan) {
-        try {
-          const plan = JSON.parse(p.generatedPlan);
-          const scenes = plan.scenes || [];
-          const total = scenes.length;
-          // 统计有预览图的场景数：优先用 artifacts（更可靠），兼容旧字段 previewUrl
-          const doneFromArtifacts = previewSlotsByProject.get(p.id)?.size ?? 0;
-          const doneFromPlan = scenes.filter((s: { previewUrl?: string; previewArtifactPath?: string }) => s.previewArtifactPath || s.previewUrl).length;
-          const done = Math.max(doneFromArtifacts, doneFromPlan);
-          if (total > 0) {
-            previewProgress = { done, total };
-          }
-        } catch {
-          // 解析失败忽略
+      if (generatedPlan?.scenes && Array.isArray(generatedPlan.scenes)) {
+        const scenes = generatedPlan.scenes;
+        const total = scenes.length;
+        const previewSlots = previewSlotsByProject.get(p.id) || new Set<string>();
+        const doneFromArtifacts = scenes.filter((scene, sceneIndex) =>
+          resolveSceneSlotCandidates(scene, sceneIndex).some((slot) =>
+            previewSlots.has(slot),
+          ),
+        ).length;
+        const doneFromPlan = scenes.filter((scene) => {
+          const view = scene as unknown as {
+            previewUrl?: string;
+            previewArtifactPath?: string;
+          };
+          return Boolean(view.previewArtifactPath || view.previewUrl);
+        }).length;
+        const done = Math.max(doneFromArtifacts, doneFromPlan);
+        if (total > 0) {
+          previewProgress = { done, total };
         }
       }
 
       return {
         ...p,
-        customer: p.customer ? JSON.parse(p.customer) : null,
-        generatedPlan: p.generatedPlan ? JSON.parse(p.generatedPlan) : null,
+        customer,
+        generatedPlan,
         // 元数据
         planVersionCount: planVersionCount || undefined,
         currentPlanVersion: planVersionCount || undefined,
@@ -172,15 +205,19 @@ projectRoutes.get('/:id', async (c) => {
       return c.json({ error: '项目不存在' }, 404);
     }
 
-    // 解析 JSON 字段
-    const generatedPlan = project.generatedPlan ? JSON.parse(project.generatedPlan) : null;
+    // 解析 + 兼容化 generatedPlan（补 sceneId / selectedArtifactId）
+    const generatedPlanRaw = safeParseJson<GeneratedPlan>(project.generatedPlan);
+    const normalizedPlan = generatedPlanRaw
+      ? ensureGeneratedPlanScenes(generatedPlanRaw)
+      : null;
+    let generatedPlan = normalizedPlan?.plan ?? null;
+    let shouldPersistGeneratedPlan = Boolean(normalizedPlan?.changed);
 
-    // 为 generatedPlan.scenes 注入预览图（来自 artifacts）
+    // 为 generatedPlan.scenes 注入预览图（优先 selectedArtifactId，回退最新）
     if (generatedPlan?.scenes && Array.isArray(generatedPlan.scenes) && generatedPlan.scenes.length > 0) {
-      const slots = generatedPlan.scenes.map((_: unknown, index: number) => `scene:${index}`);
-
       const artifacts = await db
         .select({
+          id: generationArtifacts.id,
           ownerSlot: generationArtifacts.ownerSlot,
           filePath: generationArtifacts.filePath,
           createdAt: generationArtifacts.createdAt,
@@ -190,37 +227,96 @@ projectRoutes.get('/:id', async (c) => {
           and(
             eq(generationArtifacts.ownerType, 'planScene'),
             eq(generationArtifacts.ownerId, id),
-            inArray(generationArtifacts.ownerSlot, slots),
             isNull(generationArtifacts.deletedAt),
-          )
+          ),
         )
         .orderBy(desc(generationArtifacts.createdAt));
 
-      const latestBySlot = new Map<string, string>();
-      for (const a of artifacts) {
-        if (!a.ownerSlot || !a.filePath) continue;
-        if (!latestBySlot.has(a.ownerSlot)) {
-          latestBySlot.set(a.ownerSlot, a.filePath);
+      const artifactsBySlot = new Map<string, typeof artifacts>();
+      const artifactsById = new Map<string, (typeof artifacts)[number]>();
+      for (const artifact of artifacts) {
+        if (artifact.id) {
+          artifactsById.set(artifact.id, artifact);
         }
+        if (!artifact.ownerSlot) continue;
+        if (!artifactsBySlot.has(artifact.ownerSlot)) {
+          artifactsBySlot.set(artifact.ownerSlot, []);
+        }
+        artifactsBySlot.get(artifact.ownerSlot)?.push(artifact);
       }
 
-      generatedPlan.scenes = generatedPlan.scenes.map((scene: Record<string, unknown>, index: number) => {
-        const slot = `scene:${index}`;
-        const filePath = latestBySlot.get(slot);
-        if (!filePath) return scene;
-        const previewPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+      let sceneSelectionChanged = false;
+      const nextScenes = generatedPlan.scenes.map((scene, sceneIndex) => {
+        const slotCandidates = resolveSceneSlotCandidates(scene, sceneIndex);
+        const slotArtifacts = slotCandidates.flatMap(
+          (slot) => artifactsBySlot.get(slot) || [],
+        );
+
+        const selectedArtifact =
+          typeof scene.selectedArtifactId === 'string' &&
+          scene.selectedArtifactId.trim()
+            ? artifactsById.get(scene.selectedArtifactId.trim()) || null
+            : null;
+        const selectedInScene =
+          selectedArtifact &&
+          selectedArtifact.ownerSlot &&
+          slotCandidates.includes(selectedArtifact.ownerSlot)
+            ? selectedArtifact
+            : null;
+        const latestArtifact = slotArtifacts[0] || null;
+        const resolvedArtifact = selectedInScene || latestArtifact;
+        const resolvedSelectedId = resolvedArtifact?.id || null;
+
+        if (scene.selectedArtifactId !== resolvedSelectedId) {
+          sceneSelectionChanged = true;
+        }
+
+        const previewPath = resolvedArtifact?.filePath
+          ? resolvedArtifact.filePath.startsWith('/')
+            ? resolvedArtifact.filePath
+            : `/${resolvedArtifact.filePath}`
+          : null;
+
         return {
           ...scene,
+          selectedArtifactId: resolvedSelectedId,
           previewArtifactPath: previewPath,
-          // 兼容旧字段
           previewUrl: previewPath,
         };
       });
+
+      if (sceneSelectionChanged) {
+        shouldPersistGeneratedPlan = true;
+      }
+
+      generatedPlan = {
+        ...generatedPlan,
+        scenes: nextScenes,
+      };
+    }
+
+    if (shouldPersistGeneratedPlan && generatedPlan) {
+      const scenesForStorage = generatedPlan.scenes.map((scene) => {
+        const { previewArtifactPath, previewUrl, ...rest } =
+          scene as unknown as Record<string, unknown>;
+        return rest;
+      });
+
+      await db
+        .update(projects)
+        .set({
+          generatedPlan: JSON.stringify({
+            ...generatedPlan,
+            scenes: scenesForStorage,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id));
     }
 
     const parsed = {
       ...project,
-      customer: project.customer ? JSON.parse(project.customer) : null,
+      customer: safeParseJson(project.customer),
       generatedPlan,
     };
 
@@ -309,7 +405,14 @@ projectRoutes.put('/:id', async (c) => {
         : null;
     }
     if (body.generatedPlan !== undefined) {
-      updates.generatedPlan = body.generatedPlan ? JSON.stringify(body.generatedPlan) : null;
+      if (body.generatedPlan) {
+        const normalized = ensureGeneratedPlanScenes(
+          body.generatedPlan as GeneratedPlan,
+        );
+        updates.generatedPlan = JSON.stringify(normalized.plan);
+      } else {
+        updates.generatedPlan = null;
+      }
     }
 
     await db.update(projects).set(updates).where(eq(projects.id, id));

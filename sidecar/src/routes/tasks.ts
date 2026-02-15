@@ -138,8 +138,29 @@ function buildRecoveryContext(task: TaskRow, input: JsonObject | null) {
       ? owner.slot
       : null;
 
-  const sceneMatch = ownerSlot ? ownerSlot.match(/^scene:(\d+)$/) : null;
-  const sceneIndex = sceneMatch ? Number(sceneMatch[1]) : null;
+  const relatedMeta = parseJsonSafely<JsonObject>(task.relatedMeta);
+  const sceneSlotRaw =
+    ownerSlot && ownerSlot.startsWith('scene:')
+      ? ownerSlot.slice('scene:'.length).trim()
+      : null;
+  const sceneIndexFromSlot =
+    sceneSlotRaw && /^\d+$/.test(sceneSlotRaw)
+      ? Number.parseInt(sceneSlotRaw, 10)
+      : null;
+  const sceneIdFromSlot =
+    sceneSlotRaw && !/^\d+$/.test(sceneSlotRaw) ? sceneSlotRaw : null;
+  const sceneIndexFromMeta =
+    typeof relatedMeta?.sceneIndex === 'number' &&
+    Number.isFinite(relatedMeta.sceneIndex)
+      ? relatedMeta.sceneIndex
+      : null;
+  const sceneIdFromMeta =
+    typeof relatedMeta?.sceneId === 'string' && relatedMeta.sceneId.trim()
+      ? relatedMeta.sceneId.trim()
+      : null;
+
+  const sceneIndex = sceneIndexFromSlot ?? sceneIndexFromMeta;
+  const sceneId = sceneIdFromSlot ?? sceneIdFromMeta;
 
   let sourceType: 'projectResult' | 'project' | 'assets' = 'project';
   if (task.type === 'plan-generation' || ownerType === 'planScene') {
@@ -152,6 +173,7 @@ function buildRecoveryContext(task: TaskRow, input: JsonObject | null) {
     sourceType,
     projectId: ownerType === 'planScene' ? ownerId || task.relatedId : task.relatedId,
     sceneIndex,
+    sceneId,
   };
 }
 

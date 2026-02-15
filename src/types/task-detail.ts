@@ -58,6 +58,7 @@ export interface TaskDetailRecoveryContext {
   sourceType: TaskRecoverySourceType;
   projectId: string | null;
   sceneIndex: number | null;
+  sceneId?: string | null;
 }
 
 export interface TaskDetailRun {

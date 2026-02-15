@@ -6,11 +6,22 @@ import type { ArtifactOwnerType } from '@/lib/artifacts-api';
 
 /** 生成的场景 */
 export interface GeneratedScene {
+  id?: string;
   location: string;
   description: string;
   shots: string;
   lighting: string;
   visualPrompt: string;
+  selectedArtifactId?: string | null;
+  promptMeta?: {
+    sourcePrompt: string;
+    optimizedPrompt: string;
+    status: 'optimized' | 'fallback' | 'skipped';
+    reason?: string | null;
+    providerId?: string | null;
+    textModel?: string | null;
+    optimizedAt: string;
+  };
   sceneAssetId?: string;
   sceneAssetImage?: string;
   generatedImage?: string; // base64 图片（过渡态）
