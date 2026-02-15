@@ -12,6 +12,12 @@ export interface ResolveSceneExecutionStateInput {
   manualPassed?: boolean;
 }
 
+export interface ResolveExecuteActionGuardInput {
+  executionState: SceneExecutionState;
+  isGenerating?: boolean;
+  hasVisualPrompt: boolean;
+}
+
 export function resolveSceneExecutionState(
   input: ResolveSceneExecutionStateInput,
 ): SceneExecutionState {
@@ -52,4 +58,43 @@ export function resolveSceneExecutionState(
   }
 
   return 'generated_pending_review';
+}
+
+export function resolveExecuteActionGuard(
+  input: ResolveExecuteActionGuardInput,
+): { disabled: boolean; reason: string | null } {
+  const { executionState, isGenerating = false, hasVisualPrompt } = input;
+
+  if (isGenerating) {
+    return {
+      disabled: true,
+      reason: '任务创建中，请稍候。',
+    };
+  }
+
+  if (executionState === 'running') {
+    return {
+      disabled: true,
+      reason: '该场景正在执行中。',
+    };
+  }
+
+  if (executionState === 'not_confirmed') {
+    return {
+      disabled: true,
+      reason: '请先确认执行清单。',
+    };
+  }
+
+  if (!hasVisualPrompt) {
+    return {
+      disabled: true,
+      reason: '请先补充 visualPrompt。',
+    };
+  }
+
+  return {
+    disabled: false,
+    reason: null,
+  };
 }

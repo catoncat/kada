@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSceneExecutionState } from '@/lib/scene-execution-state';
+import {
+  resolveExecuteActionGuard,
+  resolveSceneExecutionState,
+} from '@/lib/scene-execution-state';
 
 describe('scene execution state machine', () => {
   it('prioritizes running status', () => {
@@ -109,5 +112,34 @@ describe('scene execution state machine', () => {
         manualPassed: true,
       }),
     ).toBe('passed');
+  });
+
+  it('disables execute action before checklist confirmation', () => {
+    const guard = resolveExecuteActionGuard({
+      executionState: 'not_confirmed',
+      hasVisualPrompt: true,
+    });
+    expect(guard.disabled).toBe(true);
+    expect(guard.reason).toContain('确认执行清单');
+  });
+
+  it('keeps execute action enabled for retry after passed', () => {
+    const guard = resolveExecuteActionGuard({
+      executionState: 'passed',
+      hasVisualPrompt: true,
+    });
+    expect(guard).toEqual({
+      disabled: false,
+      reason: null,
+    });
+  });
+
+  it('disables execute action when visualPrompt is missing', () => {
+    const guard = resolveExecuteActionGuard({
+      executionState: 'not_generated',
+      hasVisualPrompt: false,
+    });
+    expect(guard.disabled).toBe(true);
+    expect(guard.reason).toContain('visualPrompt');
   });
 });

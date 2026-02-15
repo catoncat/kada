@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { resolveExecuteActionGuard } from '@/lib/scene-execution-state';
 import { SceneCardContent } from './SceneCardContent';
 import { SceneCardImage } from './SceneCardImage';
 import { SceneEditDrawer } from './SceneEditDrawer';
@@ -173,67 +174,19 @@ export function SceneCard({
     }
   }, [draft, hasDraftChanges, onUpdateScene, sceneIndex]);
 
-  const mainAction = useMemo(() => {
-    switch (executionState) {
-      case 'not_confirmed':
-        return {
-          label: '确认清单',
-          disabled: false,
-          onClick: () => onRequestChecklistConfirm?.(sceneIndex),
-        };
-      case 'not_generated':
-        return {
-          label: isGenerating ? '生成中...' : '生成',
-          disabled: isGenerating,
-          onClick: handleGenerate,
-        };
-      case 'running':
-        return {
-          label: taskTrack?.status === 'pending' ? '排队中' : '执行中',
-          disabled: true,
-          onClick: undefined,
-        };
-      case 'failed':
-        return {
-          label: '一键修复',
-          disabled: false,
-          onClick: () => onRequestFix?.(sceneIndex),
-        };
-      case 'needs_info':
-        return {
-          label: '补充信息',
-          disabled: false,
-          onClick: handleOpenEdit,
-        };
-      case 'generated_pending_review':
-        return {
-          label: '一键修复',
-          disabled: false,
-          onClick: () => onRequestFix?.(sceneIndex),
-        };
-      case 'passed':
-        return {
-          label: '已通过',
-          disabled: true,
-          onClick: undefined,
-        };
-      default:
-        return {
-          label: '生成',
-          disabled: false,
-          onClick: handleGenerate,
-        };
-    }
-  }, [
-    executionState,
-    handleGenerate,
-    handleOpenEdit,
-    isGenerating,
-    onRequestChecklistConfirm,
-    onRequestFix,
-    sceneIndex,
-    taskTrack?.status,
-  ]);
+  const executeActionGuard = useMemo(
+    () =>
+      resolveExecuteActionGuard({
+        executionState,
+        isGenerating,
+        hasVisualPrompt: Boolean(scene.visualPrompt?.trim()),
+      }),
+    [executionState, isGenerating, scene.visualPrompt],
+  );
+  const shouldShowFixAction =
+    (acceptance?.failCount || 0) > 0 ||
+    (acceptance?.unknownCount || 0) > 0 ||
+    executionState === 'failed';
 
   return (
     <>
@@ -290,11 +243,29 @@ export function SceneCard({
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
                     size="sm"
-                    onClick={mainAction.onClick}
-                    disabled={mainAction.disabled}
+                    onClick={handleGenerate}
+                    disabled={executeActionGuard.disabled}
                   >
-                    {mainAction.label}
+                    执行本场景
                   </Button>
+                  {executionState === 'not_confirmed' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onRequestChecklistConfirm?.(sceneIndex)}
+                    >
+                      确认清单
+                    </Button>
+                  ) : null}
+                  {shouldShowFixAction ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onRequestFix?.(sceneIndex)}
+                    >
+                      一键修复
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="outline" onClick={handleOpenEdit}>
                     精修
                   </Button>
@@ -307,13 +278,12 @@ export function SceneCard({
                       查看任务
                     </Button>
                   ) : null}
-                  {(executionState === 'generated_pending_review' ||
-                    executionState === 'passed') && (
-                    <Button size="sm" variant="ghost" onClick={handleGenerate}>
-                      重试
-                    </Button>
-                  )}
                 </div>
+                {executeActionGuard.reason ? (
+                  <div className="text-xs text-muted-foreground">
+                    {executeActionGuard.reason}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="mt-4 space-y-3">
@@ -378,9 +348,9 @@ export function SceneCard({
                   </Button>
                 </div>
                 <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleOpenEdit}>
-                  精修
-                </Button>
+                  <Button size="sm" variant="outline" onClick={handleOpenEdit}>
+                    精修
+                  </Button>
                 </div>
               </div>
             )}
