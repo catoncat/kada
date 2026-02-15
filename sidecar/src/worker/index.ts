@@ -8,6 +8,8 @@ import { tasks } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { imageGenerationHandler } from './handlers/image-generation';
 import { planGenerationHandler } from './handlers/plan-generation';
+import { embeddingIndexHandler } from './handlers/embedding-index';
+import { embeddingReindexHandler } from './handlers/embedding-reindex';
 
 interface TaskHandlerContext {
   taskId: string;
@@ -23,6 +25,8 @@ const DEBUG_WORKER = process.env.SIDECAR_DEBUG_WORKER === '1';
 const handlers: Record<string, TaskHandler> = {
   'image-generation': imageGenerationHandler,
   'plan-generation': planGenerationHandler,
+  'embedding-index': embeddingIndexHandler,
+  'embedding-reindex': embeddingReindexHandler,
 };
 
 // Worker 状态

@@ -3,10 +3,21 @@
  * 左侧导航菜单，支持切换不同设置区域
  */
 
-import { FileText, HardDrive, Palette, Server } from 'lucide-react';
+import {
+  FileText,
+  HardDrive,
+  Palette,
+  ScanSearch,
+  Server,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type SettingsSection = 'providers' | 'templates' | 'theme' | 'storage';
+export type SettingsSection =
+  | 'providers'
+  | 'embeddings'
+  | 'templates'
+  | 'theme'
+  | 'storage';
 
 interface SettingsNavProps {
   activeSection: SettingsSection;
@@ -15,6 +26,7 @@ interface SettingsNavProps {
 
 const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof Server }[] = [
   { id: 'providers', label: '服务商', icon: Server },
+  { id: 'embeddings', label: 'Embedding', icon: ScanSearch },
   { id: 'templates', label: '系统提示词', icon: FileText },
   { id: 'theme', label: '主题', icon: Palette },
   { id: 'storage', label: '存储管理', icon: HardDrive },

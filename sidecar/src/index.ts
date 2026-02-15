@@ -14,8 +14,11 @@ import { settingsRoutes } from './routes/settings';
 import { artifactsRoutes } from './routes/artifacts';
 import { promptsRoutes } from './routes/prompts';
 import { workspaceRoutes } from './routes/workspace';
+import { agentRoutes } from './routes/agent';
+import { embeddingsRoutes } from './routes/embeddings';
 import { initDatabase } from './db';
 import { startWorker } from './worker';
+import { initializeVectorEngine } from './services/embedding/vector-engine';
 
 const app = new Hono();
 
@@ -102,12 +105,15 @@ app.route('/api/settings', settingsRoutes);
 app.route('/api/artifacts', artifactsRoutes);
 app.route('/api/prompts', promptsRoutes);
 app.route('/api/workspace', workspaceRoutes);
+app.route('/api/agent', agentRoutes);
+app.route('/api/embeddings', embeddingsRoutes);
 
 // 初始化数据库并启动服务器
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 async function main() {
   await initDatabase();
+  initializeVectorEngine();
 
   // 启动任务 Worker（包含 stale 任务清理）
   await startWorker();

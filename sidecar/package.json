@@ -7,15 +7,21 @@
     "dev": "tsx watch src/index.ts",
     "build": "node scripts/build.js",
     "start": "node dist/index.js",
+    "agent:trace": "tsx scripts/agent-trace.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@mariozechner/pi-agent-core": "0.52.12",
+    "@mariozechner/pi-ai": "0.52.12",
+    "@mariozechner/pi-coding-agent": "0.52.12",
+    "@sinclair/typebox": "^0.34.41",
     "@hono/node-server": "^1.19.9",
     "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.7",
+    "sqlite-vec": "0.1.7-alpha.2",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
@@ -25,6 +31,11 @@
     "drizzle-kit": "^0.31.8",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/sqlite-vec/**/*"
+    ]
   },
   "pnpm": {
     "onlyBuiltDependencies": [

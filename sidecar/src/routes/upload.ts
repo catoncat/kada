@@ -3,6 +3,10 @@ import sharp from 'sharp';
 import path from 'node:path';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import {
+  enqueueEmbeddingTask,
+  getActiveEmbeddingProfile,
+} from '../services/embedding/service';
 
 export const uploadRoutes = new Hono();
 
@@ -52,9 +56,29 @@ uploadRoutes.post('/', async (c) => {
 
     writeFileSync(filepath, compressed);
 
+    const publicPath = `/uploads/${filename}`;
+    // 上传不受 embedding 可用性影响；只做异步入队，不阻塞主流程。
+    try {
+      const activeProfile = await getActiveEmbeddingProfile();
+      if (activeProfile && activeProfile.status !== 'disabled') {
+        await enqueueEmbeddingTask({
+          type: 'embedding-index',
+          input: {
+            assetId: `upload:${filename}`,
+            imagePath: publicPath,
+          },
+        });
+      }
+    } catch (error) {
+      console.warn(
+        '[Upload] enqueue embedding-index task failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
     return c.json({
       filename,
-      path: `/uploads/${filename}`,
+      path: publicPath,
       size: compressed.length,
     });
   } catch (error: unknown) {

@@ -20,6 +20,7 @@ import { ThemeSection } from './settings/ThemeSection';
 import { ProvidersSection } from './settings/ProvidersSection';
 import { PromptTemplatesSection } from './settings/PromptTemplatesSection';
 import { StorageManagement } from './settings/StorageManagement';
+import { EmbeddingsSection } from './settings/EmbeddingsSection';
 
 interface SettingsPanelProps {
   /** 嵌入模式：直接渲染内容而非对话框 */
@@ -39,6 +40,8 @@ export default function SettingsPanel({ embedded = false, standalone = false }: 
         return <ProvidersSection />;
       case 'templates':
         return <PromptTemplatesSection />;
+      case 'embeddings':
+        return <EmbeddingsSection />;
       case 'theme':
         return <ThemeSection />;
       case 'storage':

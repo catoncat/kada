@@ -29,6 +29,20 @@
       "when": 1771143654580,
       "tag": "0003_chat_canvas_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771165200000,
+      "tag": "0004_agent_runtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771192800000,
+      "tag": "0005_local_embeddings",
+      "breakpoints": true
     }
   ]
 }

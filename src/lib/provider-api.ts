@@ -15,6 +15,11 @@ export interface Provider {
   imageModel: string;
   isDefault: boolean;
   isBuiltin: boolean;
+  // 可选 embedding 配置（由 /api/embeddings/profile 管理）
+  embeddingEndpoint?: string;
+  embeddingModel?: string;
+  embeddingVectorDim?: number;
+  embeddingNormalize?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

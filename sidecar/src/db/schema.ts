@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, blob, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Providers 表
 export const providers = sqliteTable('providers', {
@@ -59,6 +59,43 @@ export const modelAssets = sqliteTable('model_assets', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
+
+// Embedding Profiles 表（全局激活 embedding 配置）
+export const embeddingProfiles = sqliteTable('embedding_profiles', {
+  id: text('id').primaryKey(),
+  providerId: text('provider_id'),
+  endpoint: text('endpoint').notNull(),
+  apiKeyRef: text('api_key_ref'),
+  model: text('model').notNull(),
+  vectorDim: integer('vector_dim').notNull(),
+  normalize: integer('normalize', { mode: 'boolean' }).notNull().default(true),
+  status: text('status').notNull().default('active'), // 'active' | 'reindexing' | 'disabled'
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+// Asset Embeddings 表（向量主表，支持 fallback 扫描）
+export const assetEmbeddings = sqliteTable(
+  'asset_embeddings',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id').notNull(),
+    profileId: text('profile_id').notNull(),
+    vector: blob('vector', { mode: 'buffer' }).notNull(), // float32 bytes
+    vectorNorm: real('vector_norm').notNull().default(0),
+    indexedAt: integer('indexed_at', { mode: 'timestamp' }),
+    sourceHash: text('source_hash').notNull(),
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at', { mode: 'timestamp' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    assetProfileUnique: uniqueIndex('asset_embeddings_asset_profile_unique').on(
+      table.assetId,
+      table.profileId,
+    ),
+  }),
+);
 
 // Settings 表（键值存储）
 export const settings = sqliteTable('settings', {
@@ -170,6 +207,50 @@ export const workspaceNodes = sqliteTable('workspace_nodes', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
+// Agent Sessions 表（Agent 会话）
+export const agentSessions = sqliteTable('agent_sessions', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  engine: text('engine').notNull().default('coding-agent'), // 'coding-agent' | 'agent-core'
+  status: text('status').notNull().default('idle'), // 'idle' | 'running' | 'failed' | 'aborted'
+  providerId: text('provider_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  lastTurnAt: integer('last_turn_at', { mode: 'timestamp' }),
+});
+
+// Agent Entries 表（消息与可回放记录）
+export const agentEntries = sqliteTable('agent_entries', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  entryType: text('entry_type').notNull(), // 'user' | 'assistant' | 'toolResult' | 'custom'
+  parentEntryId: text('parent_entry_id'),
+  payloadJson: text('payload_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+// Agent Events 表（流式事件）
+export const agentEvents = sqliteTable('agent_events', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  turnId: text('turn_id'),
+  seq: integer('seq').notNull(),
+  eventType: text('event_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+// Agent Outputs 表（照片/文案产物）
+export const agentOutputs = sqliteTable('agent_outputs', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  turnId: text('turn_id'),
+  kind: text('kind').notNull(), // 'photo' | 'copy'
+  refId: text('ref_id'),
+  contentJson: text('content_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
 // 类型导出
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = typeof providers.$inferInsert;
@@ -182,6 +263,12 @@ export type InsertSceneAsset = typeof sceneAssets.$inferInsert;
 
 export type ModelAsset = typeof modelAssets.$inferSelect;
 export type InsertModelAsset = typeof modelAssets.$inferInsert;
+
+export type EmbeddingProfile = typeof embeddingProfiles.$inferSelect;
+export type InsertEmbeddingProfile = typeof embeddingProfiles.$inferInsert;
+
+export type AssetEmbedding = typeof assetEmbeddings.$inferSelect;
+export type InsertAssetEmbedding = typeof assetEmbeddings.$inferInsert;
 
 export type Setting = typeof settings.$inferSelect;
 export type InsertSetting = typeof settings.$inferInsert;
@@ -206,3 +293,15 @@ export type InsertWorkspaceMessage = typeof workspaceMessages.$inferInsert;
 
 export type WorkspaceNode = typeof workspaceNodes.$inferSelect;
 export type InsertWorkspaceNode = typeof workspaceNodes.$inferInsert;
+
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type InsertAgentSession = typeof agentSessions.$inferInsert;
+
+export type AgentEntry = typeof agentEntries.$inferSelect;
+export type InsertAgentEntry = typeof agentEntries.$inferInsert;
+
+export type AgentEvent = typeof agentEvents.$inferSelect;
+export type InsertAgentEvent = typeof agentEvents.$inferInsert;
+
+export type AgentOutput = typeof agentOutputs.$inferSelect;
+export type InsertAgentOutput = typeof agentOutputs.$inferInsert;
