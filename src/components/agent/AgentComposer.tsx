@@ -113,6 +113,10 @@ export function AgentComposer({
         }
         disabled={anyPending}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) {
+            return;
+          }
+
           if (event.key === 'Escape' && streaming) {
             event.preventDefault();
             void runAbort();
