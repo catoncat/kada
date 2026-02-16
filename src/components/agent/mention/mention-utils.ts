@@ -26,7 +26,7 @@ export interface MentionSuggestionData {
   image: string | null;
 }
 
-interface ParsedMentionToken {
+export interface ParsedMentionToken {
   mentionId: string;
   kind: AgentMentionKind;
   resourceId: string;
@@ -69,7 +69,7 @@ export function toMentionSuggestionData(
   };
 }
 
-function parseMentionTokenId(value: string): ParsedMentionToken | null {
+export function parseMentionTokenId(value: string): ParsedMentionToken | null {
   const parts = value.split(TOKEN_SEP);
   if (parts.length < 5) return null;
   const [prefix, mentionId, kind, encodedResourceId, encodedResourceTitle] =
@@ -131,4 +131,3 @@ export function mergeMentionsFromOccurrences(
 
   return next;
 }
-

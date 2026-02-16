@@ -26,6 +26,7 @@ import {
   AGENT_MENTION_KIND_LABEL,
   MENTION_MARKUP,
   mergeMentionsFromOccurrences,
+  parseMentionTokenId,
   toMentionSuggestionData,
   type MentionSuggestionData,
 } from './mention-utils';
@@ -49,6 +50,7 @@ interface MentionComposerProps {
 const SUGGESTIONS_HEIGHT_CAP = 320;
 const SUGGESTIONS_EDGE_PADDING = 12;
 const SUGGESTIONS_FALLBACK_HEIGHT = 240;
+const AUTO_BIND_IMAGE_LIMIT = 1;
 
 function MentionSuggestionsContainer({
   children,
@@ -182,6 +184,7 @@ const mentionInputStyle: MentionsInputStyle = {
 
 export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerProps>(
   ({ value, disabled, placeholder, onChange, onKeyDown }, ref) => {
+    const latestValueRef = useRef(value);
     const inputElementRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(
       null,
     );
@@ -201,6 +204,9 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
     );
     const [pickLoading, setPickLoading] = useState(false);
     const [pickError, setPickError] = useState<string | null>(null);
+    const [autoBindingMentionIds, setAutoBindingMentionIds] = useState<Set<string>>(
+      () => new Set(),
+    );
 
     const pickTarget = useMemo(
       () =>
@@ -210,6 +216,10 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
           : null,
       [pickTargetId, value.mentions],
     );
+
+    useEffect(() => {
+      latestValueRef.current = value;
+    }, [value]);
 
     useEffect(() => {
       return () => {
@@ -312,6 +322,86 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
         });
       },
       [onChange, value.mentions],
+    );
+
+    const applyMentionImages = useCallback(
+      (mentionId: string, images: AgentMentionImageRef[]): boolean => {
+        const current = latestValueRef.current;
+        const targetIndex = current.mentions.findIndex(
+          (mention) => mention.mentionId === mentionId,
+        );
+        if (targetIndex < 0) return false;
+
+        const nextMentions = current.mentions.map((mention) =>
+          mention.mentionId === mentionId
+            ? {
+                ...mention,
+                images,
+              }
+            : mention,
+        );
+
+        onChange({
+          ...current,
+          mentions: nextMentions,
+        });
+
+        return true;
+      },
+      [onChange],
+    );
+
+    const applyMentionImagesWithRetry = useCallback(
+      (mentionId: string, images: AgentMentionImageRef[], retries = 8): void => {
+        if (applyMentionImages(mentionId, images)) return;
+        if (retries <= 0) return;
+        window.setTimeout(() => {
+          applyMentionImagesWithRetry(mentionId, images, retries - 1);
+        }, 40);
+      },
+      [applyMentionImages],
+    );
+
+    const setMentionAutoBinding = useCallback(
+      (mentionId: string, binding: boolean) => {
+        setAutoBindingMentionIds((prev) => {
+          const next = new Set(prev);
+          if (binding) {
+            next.add(mentionId);
+          } else {
+            next.delete(mentionId);
+          }
+          return next;
+        });
+      },
+      [],
+    );
+
+    const handleMentionAdd = useCallback(
+      (id: string | number) => {
+        if (disabled) return;
+        const parsed = parseMentionTokenId(String(id));
+        if (!parsed) return;
+
+        setMentionAutoBinding(parsed.mentionId, true);
+        void listAgentResourceImages({
+          kind: parsed.kind,
+          id: parsed.resourceId,
+          limit: AUTO_BIND_IMAGE_LIMIT,
+        })
+          .then((res) => {
+            const firstImage = res.data?.[0];
+            if (!firstImage) return;
+            applyMentionImagesWithRetry(parsed.mentionId, [firstImage]);
+          })
+          .catch(() => {
+            // 自动绑定失败时静默降级：用户仍可手动点击“选择图片”。
+          })
+          .finally(() => {
+            setMentionAutoBinding(parsed.mentionId, false);
+          });
+      },
+      [applyMentionImagesWithRetry, disabled, setMentionAutoBinding],
     );
 
     const openPickDialog = useCallback((mentionId: string) => {
@@ -449,6 +539,7 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
             markup={MENTION_MARKUP}
             data={loadMentionSuggestions}
             appendSpaceOnAdd
+            onAdd={handleMentionAdd}
             displayTransform={(_id, display) => `@${display}`}
             renderSuggestion={renderSuggestion}
             style={{
@@ -478,11 +569,12 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
                   <Button
                     size="icon-xs"
                     variant="ghost"
-                    title="选择图片"
+                    title={imageCount > 0 ? '调整图片' : '选择图片'}
                     disabled={disabled}
                     onClick={() => openPickDialog(mention.mentionId)}
                   >
-                    {isPicking && pickLoading ? (
+                    {((isPicking && pickLoading) ||
+                      autoBindingMentionIds.has(mention.mentionId)) ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <Paperclip className="h-3.5 w-3.5" />
