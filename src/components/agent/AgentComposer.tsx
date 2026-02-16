@@ -1,13 +1,11 @@
-import { useMemo, useState } from 'react';
 import { CornerUpRight, Loader2, Send, StopCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 interface QueuedFollowUpItem {
   id: string;
   text: string;
-  queuedAt: string;
-  steerSubmitted: boolean;
 }
 
 export function AgentComposer({
@@ -17,6 +15,7 @@ export function AgentComposer({
   followUpPending,
   abortPending,
   queuedFollowUps = [],
+  focusKey,
   onSend,
   onSteer,
   onFollowUp,
@@ -29,6 +28,7 @@ export function AgentComposer({
   followUpPending?: boolean;
   abortPending?: boolean;
   queuedFollowUps?: QueuedFollowUpItem[];
+  focusKey?: string | null;
   onSend: (text: string) => Promise<void>;
   onSteer: (text: string) => Promise<void>;
   onFollowUp: (text: string) => Promise<void>;
@@ -39,12 +39,12 @@ export function AgentComposer({
   const [submittingAction, setSubmittingAction] = useState<
     'send' | 'steer' | 'follow-up' | 'abort' | null
   >(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const text = input.trim();
   // sending 阶段只在“尚未进入 streaming”时阻塞，进入 streaming 后应允许继续排队/steer
   const submitting =
-    submittingAction !== null &&
-    !(submittingAction === 'send' && streaming);
+    submittingAction !== null && !(submittingAction === 'send' && streaming);
   const anyPending =
     submitting ||
     disabled ||
@@ -55,6 +55,12 @@ export function AgentComposer({
     Boolean(disabled) ||
     Boolean(abortPending) ||
     (submittingAction === 'send' && !streaming);
+
+  useEffect(() => {
+    if (!focusKey) return;
+    if (inputDisabled) return;
+    inputRef.current?.focus();
+  }, [focusKey, inputDisabled]);
 
   const primaryAction = useMemo(() => {
     if (!streaming) {
@@ -126,22 +132,17 @@ export function AgentComposer({
       {streaming && queuedFollowUps.length > 0 ? (
         <section className="mb-3 flex flex-wrap gap-2">
           {queuedFollowUps.map((item) => (
-            <article key={item.id} className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/20 pl-2 pr-1 py-1">
-              <p className="max-w-[220px] truncate text-xs">
-                {item.text}
-              </p>
+            <article
+              key={item.id}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/20 pl-2 pr-1 py-1"
+            >
+              <p className="max-w-[220px] truncate text-xs">{item.text}</p>
               <Button
                 size="icon-xs"
                 variant="ghost"
-                disabled={
-                  Boolean(disabled) ||
-                  Boolean(steerPending) ||
-                  item.steerSubmitted
-                }
+                disabled={Boolean(disabled) || Boolean(steerPending)}
                 title="追加 Steer"
-                onClick={() =>
-                  void onSteerQueuedFollowUp?.(item.id, item.text)
-                }
+                onClick={() => void onSteerQueuedFollowUp?.(item.id, item.text)}
               >
                 <CornerUpRight className="h-3.5 w-3.5" />
               </Button>
@@ -151,6 +152,7 @@ export function AgentComposer({
       ) : null}
 
       <Textarea
+        ref={inputRef}
         value={input}
         onChange={(event) => setInput(event.target.value)}
         rows={4}
@@ -169,7 +171,11 @@ export function AgentComposer({
 
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            void run(primaryAction.action, primaryAction.handler, primaryAction.value);
+            void run(
+              primaryAction.action,
+              primaryAction.handler,
+              primaryAction.value,
+            );
           }
         }}
       />
@@ -187,7 +193,8 @@ export function AgentComposer({
           }}
         >
           {(streaming &&
-            (submittingAction === 'follow-up' || submittingAction === 'steer')) ||
+            (submittingAction === 'follow-up' ||
+              submittingAction === 'steer')) ||
           (!streaming && submittingAction === 'send') ? (
             <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
           ) : (

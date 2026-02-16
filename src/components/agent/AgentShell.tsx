@@ -43,8 +43,12 @@ function eventFromChunk(chunk: AgentTurnStreamChunk): AgentTurnEvent {
 interface QueuedFollowUpItem {
   id: string;
   text: string;
-  queuedAt: string;
-  steerSubmitted: boolean;
+}
+
+interface StreamingInsertion {
+  id: string;
+  text: string;
+  position: number;
 }
 
 export function AgentShell() {
@@ -62,6 +66,9 @@ export function AgentShell() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [events, setEvents] = useState<AgentTurnEvent[]>([]);
   const [streamingAssistantText, setStreamingAssistantText] = useState('');
+  const [streamingInsertions, setStreamingInsertions] = useState<
+    StreamingInsertion[]
+  >([]);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<
     Array<{ id: string; text: string; createdAt: string }>
@@ -134,6 +141,7 @@ export function AgentShell() {
   useEffect(() => {
     setEvents([]);
     setStreamingAssistantText('');
+    setStreamingInsertions([]);
     setErrorText(null);
     setOptimisticUserMessages([]);
     setQueuedFollowUps([]);
@@ -164,6 +172,17 @@ export function AgentShell() {
 
   const removeOptimisticUserMessage = (id: string) => {
     setOptimisticUserMessages((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const appendStreamingInsertion = (text: string): string => {
+    const id = `stream-insert-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const position = streamingAssistantText.length;
+    setStreamingInsertions((prev) => [...prev, { id, text, position }]);
+    return id;
+  };
+
+  const removeStreamingInsertion = (id: string) => {
+    setStreamingInsertions((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleCreateSession = async () => {
@@ -228,6 +247,7 @@ export function AgentShell() {
 
     if (event.type === 'turn.started') {
       setQueuedFollowUps([]);
+      setStreamingInsertions([]);
       return;
     }
 
@@ -260,8 +280,6 @@ export function AgentShell() {
           {
             id,
             text,
-            queuedAt: event.timestamp,
-            steerSubmitted: false,
           },
         ]);
       }
@@ -271,6 +289,7 @@ export function AgentShell() {
     if (event.type === 'turn.completed' || event.type === 'turn.failed') {
       void Promise.all([sessionDetailQuery.refetch(), outputsQuery.refetch()]);
       setQueuedFollowUps([]);
+      setStreamingInsertions([]);
       setOptimisticUserMessages([]);
       if (event.type === 'turn.completed') {
         setStreamingAssistantText('');
@@ -287,6 +306,7 @@ export function AgentShell() {
 
     if (event.type === 'session.aborted') {
       setQueuedFollowUps([]);
+      setStreamingInsertions([]);
       setOptimisticUserMessages([]);
       setErrorText('已中断当前会话执行。');
     }
@@ -302,6 +322,7 @@ export function AgentShell() {
 
     setErrorText(null);
     setStreamingAssistantText('');
+    setStreamingInsertions([]);
     setQueuedFollowUps([]);
 
     try {
@@ -324,12 +345,17 @@ export function AgentShell() {
 
   const handleSteer = async (text: string) => {
     if (!activeSessionId) return;
-    const optimisticId = appendOptimisticUserMessage(text);
+    const insertionId = turnStream.isStreaming
+      ? appendStreamingInsertion(text)
+      : null;
+    const optimisticId =
+      turnStream.isStreaming ? null : appendOptimisticUserMessage(text);
     try {
       await steerMutation.mutateAsync({ sessionId: activeSessionId, text });
       setErrorText(null);
     } catch (error) {
-      removeOptimisticUserMessage(optimisticId);
+      if (insertionId) removeStreamingInsertion(insertionId);
+      if (optimisticId) removeOptimisticUserMessage(optimisticId);
       setErrorText(error instanceof Error ? error.message : 'Steer 失败');
     }
   };
@@ -358,6 +384,7 @@ export function AgentShell() {
         sessionsQuery.refetch(),
       ]);
       setOptimisticUserMessages([]);
+      setStreamingInsertions([]);
       setQueuedFollowUps([]);
       setErrorText('已中断当前会话执行。');
     } catch (error) {
@@ -372,24 +399,25 @@ export function AgentShell() {
       return;
     }
 
-    const optimisticId = appendOptimisticUserMessage(text);
+    const currentQueue = queuedFollowUps;
+    const removedIndex = currentQueue.findIndex((item) => item.id === itemId);
+    if (removedIndex === -1) return;
+    const removedItem = currentQueue[removedIndex];
 
-    setQueuedFollowUps((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, steerSubmitted: true } : item,
-      ),
-    );
+    setQueuedFollowUps((prev) => prev.filter((item) => item.id !== itemId));
+    const insertionId = appendStreamingInsertion(text);
 
     try {
       await steerMutation.mutateAsync({ sessionId: activeSessionId, text });
       setErrorText(null);
     } catch (error) {
-      removeOptimisticUserMessage(optimisticId);
-      setQueuedFollowUps((prev) =>
-        prev.map((item) =>
-          item.id === itemId ? { ...item, steerSubmitted: false } : item,
-        ),
-      );
+      removeStreamingInsertion(insertionId);
+      setQueuedFollowUps((prev) => {
+        const next = [...prev];
+        const insertAt = Math.max(0, Math.min(removedIndex, next.length));
+        next.splice(insertAt, 0, removedItem);
+        return next;
+      });
       setErrorText(error instanceof Error ? error.message : 'Steer 失败');
     }
   };
@@ -547,6 +575,7 @@ export function AgentShell() {
           entries={entries}
           streamingAssistantText={streamingAssistantText}
           optimisticUserMessages={optimisticUserMessages}
+          streamingInsertions={streamingInsertions}
         />
 
         <AgentComposer
@@ -555,6 +584,7 @@ export function AgentShell() {
           steerPending={steerMutation.isPending}
           followUpPending={followUpMutation.isPending}
           abortPending={abortMutation.isPending}
+          focusKey={activeSessionId}
           queuedFollowUps={queuedFollowUps}
           onSend={handleSend}
           onSteer={handleSteer}

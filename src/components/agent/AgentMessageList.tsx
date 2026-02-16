@@ -15,6 +15,12 @@ interface MessageRow {
   optimistic?: boolean;
 }
 
+interface StreamingInsertion {
+  id: string;
+  text: string;
+  position: number;
+}
+
 function extractText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '';
   const row = payload as Record<string, unknown>;
@@ -48,6 +54,7 @@ export function AgentMessageList({
   entries,
   streamingAssistantText,
   optimisticUserMessages,
+  streamingInsertions,
 }: {
   entries: AgentEntry[];
   streamingAssistantText: string;
@@ -56,6 +63,7 @@ export function AgentMessageList({
     text: string;
     createdAt: string;
   }>;
+  streamingInsertions?: StreamingInsertion[];
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -89,6 +97,67 @@ export function AgentMessageList({
 
     return [...persisted, ...optimisticRows];
   }, [entries, optimisticUserMessages]);
+
+  const streamBlocks = useMemo(() => {
+    const text = sanitizeTextForDisplay(streamingAssistantText || '');
+    const insertions = [...(streamingInsertions || [])].sort((a, b) => {
+      if (a.position !== b.position) return a.position - b.position;
+      return a.id.localeCompare(b.id);
+    });
+
+    if (!text && insertions.length === 0) return [];
+
+    const blocks: Array<
+      | { id: string; type: 'assistant'; text: string }
+      | { id: string; type: 'user'; text: string }
+    > = [];
+
+    let cursor = 0;
+    const textLength = text.length;
+
+    for (const item of insertions) {
+      const pos = Math.max(0, Math.min(item.position, textLength));
+      if (pos > cursor) {
+        const slice = text.slice(cursor, pos);
+        if (slice.trim()) {
+          blocks.push({
+            id: `assistant-${cursor}-${pos}`,
+            type: 'assistant',
+            text: slice,
+          });
+        }
+      }
+
+      blocks.push({
+        id: `insert-${item.id}`,
+        type: 'user',
+        text: sanitizeTextForDisplay(item.text),
+      });
+
+      cursor = pos;
+    }
+
+    if (cursor < textLength) {
+      const tail = text.slice(cursor);
+      if (tail.trim()) {
+        blocks.push({
+          id: `assistant-${cursor}-${textLength}`,
+          type: 'assistant',
+          text: tail,
+        });
+      }
+    }
+
+    if (blocks.length === 0 && text) {
+      blocks.push({
+        id: 'assistant-full',
+        type: 'assistant',
+        text,
+      });
+    }
+
+    return blocks;
+  }, [streamingAssistantText, streamingInsertions]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -138,15 +207,21 @@ export function AgentMessageList({
         </div>
       ))}
 
-      {streamingAssistantText ? (
+      {streamBlocks.length > 0 ? (
         <article className="w-full max-w-full">
-          <div className="mb-1 text-[11px] text-muted-foreground">
-            助手正在输入...
-          </div>
-          <MarkdownRenderer
-            content={sanitizeTextForDisplay(streamingAssistantText)}
-            variant="assistant"
-          />
+          {streamBlocks.map((block) =>
+            block.type === 'assistant' ? (
+              <div key={block.id} className="mb-2">
+                <MarkdownRenderer content={block.text} variant="assistant" />
+              </div>
+            ) : (
+              <div key={block.id} className="mb-2 flex justify-end">
+                <article className="max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                  <MarkdownRenderer content={block.text} variant="user" />
+                </article>
+              </div>
+            ),
+          )}
         </article>
       ) : null}
     </div>
