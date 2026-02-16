@@ -17,6 +17,7 @@ export function useAgentTurnStream() {
     async (input: {
       sessionId: string;
       text: string;
+      clientMessageId: string;
       mentions?: AgentMention[];
       onEvent: (chunk: AgentTurnStreamChunk) => void;
     }) => {
@@ -32,6 +33,7 @@ export function useAgentTurnStream() {
         await streamAgentTurn({
           sessionId: input.sessionId,
           text: input.text,
+          clientMessageId: input.clientMessageId,
           mentions: input.mentions,
           signal: controller.signal,
           onEvent: input.onEvent,

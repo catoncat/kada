@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import type { AgentMention } from '@/types/agent';
 
 interface QueuedFollowUpItem {
-  id: string;
+  clientMessageId: string;
   text: string;
 }
 
@@ -44,7 +44,10 @@ export function AgentComposer({
   onSend: (payload: AgentComposerSubmitPayload) => Promise<void>;
   onSteer: (payload: AgentComposerSubmitPayload) => Promise<void>;
   onFollowUp: (payload: AgentComposerSubmitPayload) => Promise<void>;
-  onSteerQueuedFollowUp?: (itemId: string, text: string) => Promise<void>;
+  onSteerQueuedFollowUp?: (
+    clientMessageId: string,
+    text: string,
+  ) => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<MentionComposerValue>(EMPTY_DRAFT);
@@ -185,7 +188,7 @@ export function AgentComposer({
         <section className="mb-3 flex flex-wrap gap-2">
           {queuedFollowUps.map((item) => (
             <article
-              key={item.id}
+              key={item.clientMessageId}
               className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/20 pl-2 pr-1 py-1"
             >
               <p className="max-w-[220px] truncate text-xs">{item.text}</p>
@@ -194,7 +197,9 @@ export function AgentComposer({
                 variant="ghost"
                 disabled={Boolean(disabled) || Boolean(steerPending)}
                 title="追加 Steer"
-                onClick={() => void onSteerQueuedFollowUp?.(item.id, item.text)}
+                onClick={() =>
+                  void onSteerQueuedFollowUp?.(item.clientMessageId, item.text)
+                }
               >
                 <CornerUpRight className="h-3.5 w-3.5" />
               </Button>

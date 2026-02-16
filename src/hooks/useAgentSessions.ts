@@ -4,6 +4,7 @@ import {
   createAgentSession,
   deleteAgentSession,
   followUpAgentSession,
+  getAgentCapabilities,
   getAgentSession,
   listAgentOutputs,
   listAgentSessions,
@@ -20,6 +21,7 @@ interface QueryOptions {
 export const agentKeys = {
   all: ['agent'] as const,
   sessions: () => [...agentKeys.all, 'sessions'] as const,
+  capabilities: () => [...agentKeys.all, 'capabilities'] as const,
   session: (id: string) => [...agentKeys.sessions(), id] as const,
   outputs: (sessionId: string, kind?: 'photo' | 'copy') =>
     [...agentKeys.all, 'outputs', sessionId, kind || 'all'] as const,
@@ -34,6 +36,14 @@ export function useAgentSessions(options?: QueryOptions) {
   return useQuery({
     queryKey: agentKeys.sessions(),
     queryFn: listAgentSessions,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useAgentCapabilities(options?: QueryOptions) {
+  return useQuery({
+    queryKey: agentKeys.capabilities(),
+    queryFn: getAgentCapabilities,
     enabled: options?.enabled ?? true,
   });
 }
@@ -136,12 +146,14 @@ export function useSteerAgentSession() {
     mutationFn: ({
       sessionId,
       text,
+      clientMessageId,
       mentions,
     }: {
       sessionId: string;
       text: string;
+      clientMessageId: string;
       mentions?: AgentMention[];
-    }) => steerAgentSession(sessionId, text, mentions),
+    }) => steerAgentSession(sessionId, text, clientMessageId, mentions),
   });
 }
 
@@ -150,12 +162,14 @@ export function useFollowUpAgentSession() {
     mutationFn: ({
       sessionId,
       text,
+      clientMessageId,
       mentions,
     }: {
       sessionId: string;
       text: string;
+      clientMessageId: string;
       mentions?: AgentMention[];
-    }) => followUpAgentSession(sessionId, text, mentions),
+    }) => followUpAgentSession(sessionId, text, clientMessageId, mentions),
   });
 }
 
@@ -163,13 +177,17 @@ export function usePromoteFollowUpToSteerAgentSession() {
   return useMutation({
     mutationFn: ({
       sessionId,
+      clientMessageId,
       text,
-      queueIndex,
     }: {
       sessionId: string;
-      text: string;
-      queueIndex?: number;
-    }) => promoteFollowUpToSteerAgentSession(sessionId, text, queueIndex),
+      clientMessageId: string;
+      text?: string;
+    }) =>
+      promoteFollowUpToSteerAgentSession(sessionId, {
+        clientMessageId,
+        text,
+      }),
   });
 }
 

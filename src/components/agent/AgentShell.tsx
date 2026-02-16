@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AgentComposer,
   type AgentComposerSubmitPayload,
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/context-menu';
 import {
   useAbortAgentSession,
+  useAgentCapabilities,
   useAgentOutputs,
   useAgentSession,
   useAgentSessions,
@@ -41,6 +42,7 @@ import {
   useUpdateAgentSession,
 } from '@/hooks/useAgentSessions';
 import { useAgentTurnStream } from '@/hooks/useAgentTurnStream';
+import { AgentApiError, listAgentEvents } from '@/lib/agent-api';
 import type { AgentTurnEvent, AgentTurnStreamChunk } from '@/types/agent';
 
 function eventFromChunk(chunk: AgentTurnStreamChunk): AgentTurnEvent {
@@ -48,8 +50,12 @@ function eventFromChunk(chunk: AgentTurnStreamChunk): AgentTurnEvent {
 }
 
 interface QueuedFollowUpItem {
-  id: string;
+  clientMessageId: string;
   text: string;
+  mode: 'follow-up' | 'steer';
+  state: 'queued' | 'promoted' | 'applied' | 'persisted' | 'dropped';
+  createdAt: string;
+  appliedAt?: string;
 }
 
 function toTimestamp(value: string | null | undefined): number {
@@ -112,8 +118,16 @@ async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+function createClientMessageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `cm_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
+  const capabilitiesQuery = useAgentCapabilities();
   const createSessionMutation = useCreateAgentSession();
   const updateSessionMutation = useUpdateAgentSession();
   const deleteSessionMutation = useDeleteAgentSession();
@@ -139,7 +153,8 @@ export function AgentShell() {
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUpItem[]>(
     [],
   );
-  const queueCounterRef = useRef(0);
+  const lastAckSeqRef = useRef(0);
+  const pollingRef = useRef<AbortController | null>(null);
   const insertionSeqRef = useRef(0);
   const streamingAssistantTextRef = useRef('');
   const sessionListRef = useRef<HTMLDivElement | null>(null);
@@ -246,6 +261,8 @@ export function AgentShell() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时重置本地 UI 状态
   useEffect(() => {
+    pollingRef.current?.abort();
+    pollingRef.current = null;
     setEvents([]);
     setStreamingAssistantText('');
     streamingAssistantTextRef.current = '';
@@ -253,6 +270,7 @@ export function AgentShell() {
     setErrorText(null);
     setOptimisticUserMessages([]);
     setQueuedFollowUps([]);
+    lastAckSeqRef.current = 0;
     insertionSeqRef.current = 0;
   }, [activeSessionId]);
 
@@ -266,14 +284,14 @@ export function AgentShell() {
     Boolean(activeSession?.archivedAt) ||
     abortMutation.isPending;
 
-  const setStreamingText = (value: string | ((prev: string) => string)) => {
+  const setStreamingText = useCallback((value: string | ((prev: string) => string)) => {
     const next =
       typeof value === 'function'
         ? value(streamingAssistantTextRef.current)
         : value;
     streamingAssistantTextRef.current = next;
     setStreamingAssistantText(next);
-  };
+  }, []);
 
   const appendOptimisticUserMessage = (text: string): string => {
     const id = `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -292,14 +310,24 @@ export function AgentShell() {
     setOptimisticUserMessages((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const appendStreamingInsertion = (text: string): string => {
+  const appendStreamingInsertion = (
+    clientMessageId: string,
+    text: string,
+  ): string => {
     const id = `stream-insert-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const position = streamingAssistantTextRef.current.length;
     insertionSeqRef.current += 1;
     const seq = insertionSeqRef.current;
     setStreamingInsertions((prev) => [
       ...prev,
-      { id, text, position, seq, createdAt: new Date().toISOString() },
+      {
+        id,
+        clientMessageId,
+        text,
+        position,
+        seq,
+        createdAt: new Date().toISOString(),
+      },
     ]);
     return id;
   };
@@ -378,14 +406,21 @@ export function AgentShell() {
     }
   };
 
-  const handleChunk = (chunk: AgentTurnStreamChunk) => {
-    const event = eventFromChunk(chunk);
+  const handleEvent = useCallback((
+    event: AgentTurnEvent,
+    seq?: number,
+  ) => {
+    if (typeof seq === 'number') {
+      if (seq <= lastAckSeqRef.current) {
+        return;
+      }
+      lastAckSeqRef.current = seq;
+    }
+
     setEvents((prev) => [...prev, event]);
 
     if (event.type === 'turn.started') {
-      setQueuedFollowUps([]);
-      setStreamingInsertions([]);
-      insertionSeqRef.current = 0;
+      setStreamingText('');
       return;
     }
 
@@ -408,18 +443,58 @@ export function AgentShell() {
     if (event.type === 'queue.updated') {
       const payload = (event.payload || {}) as Record<string, unknown>;
       const mode = typeof payload.mode === 'string' ? payload.mode : '';
+      const queueAction =
+        typeof payload.queueAction === 'string' ? payload.queueAction : '';
       const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+      const clientMessageId =
+        typeof payload.clientMessageId === 'string'
+          ? payload.clientMessageId
+          : '';
 
-      if (mode === 'follow-up' && text) {
-        queueCounterRef.current += 1;
-        const id = `${event.timestamp}-${queueCounterRef.current}`;
-        setQueuedFollowUps((prev) => [
-          ...prev,
-          {
-            id,
-            text,
-          },
-        ]);
+      if (mode === 'follow-up' && queueAction === 'queued' && text && clientMessageId) {
+        setQueuedFollowUps((prev) => {
+          const exists = prev.some((item) => item.clientMessageId === clientMessageId);
+          if (exists) return prev;
+          return [
+            ...prev,
+            {
+              clientMessageId,
+              text,
+              mode: 'follow-up',
+              state: 'queued',
+              createdAt: event.timestamp,
+            },
+          ];
+        });
+        return;
+      }
+
+      if (queueAction === 'promoted' && clientMessageId) {
+        setQueuedFollowUps((prev) =>
+          prev.map((item) =>
+            item.clientMessageId === clientMessageId
+              ? {
+                  ...item,
+                  mode: 'steer',
+                  state: 'promoted',
+                }
+              : item,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (event.type === 'steer.applied' || event.type === 'followup.applied') {
+      const payload = (event.payload || {}) as Record<string, unknown>;
+      const clientMessageId =
+        typeof payload.clientMessageId === 'string'
+          ? payload.clientMessageId
+          : '';
+      if (clientMessageId) {
+        setQueuedFollowUps((prev) =>
+          prev.filter((item) => item.clientMessageId !== clientMessageId),
+        );
       }
       return;
     }
@@ -440,7 +515,7 @@ export function AgentShell() {
           }
         },
         () => {
-          // 保留流式临时态，避免 refetch 失败导致插入气泡“瞬间消失”。
+          // 保留流式临时态，避免 refetch 失败导致插入气泡瞬时消失。
         },
       );
 
@@ -449,8 +524,8 @@ export function AgentShell() {
         const message =
           typeof payload.message === 'string' ? payload.message : '执行失败';
         setErrorText(message);
-        return;
       }
+      return;
     }
 
     if (event.type === 'session.aborted') {
@@ -461,13 +536,95 @@ export function AgentShell() {
       setErrorText(null);
       setStreamingText('');
     }
-  };
+  }, [
+    outputsQuery.refetch,
+    sessionDetailQuery.refetch,
+    sessionsQuery.refetch,
+    setStreamingText,
+  ]);
+
+  const handleChunk = useCallback((chunk: AgentTurnStreamChunk) => {
+    const event = eventFromChunk(chunk);
+    handleEvent(event, chunk.cursor);
+  }, [handleEvent]);
+
+  useEffect(() => {
+    const cursor = sessionDetailQuery.data?.cursor;
+    if (typeof cursor !== 'number') return;
+    if (cursor > lastAckSeqRef.current) {
+      lastAckSeqRef.current = cursor;
+    }
+  }, [sessionDetailQuery.data?.cursor]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const initialCursor = sessionDetailQuery.data?.cursor;
+    if (typeof initialCursor !== 'number') return;
+    if (initialCursor > lastAckSeqRef.current) {
+      lastAckSeqRef.current = initialCursor;
+    }
+    const controller = new AbortController();
+    pollingRef.current = controller;
+
+    const pollOnce = async () => {
+      if (controller.signal.aborted) return;
+      let keepPulling = true;
+      while (keepPulling && !controller.signal.aborted) {
+        const res = await listAgentEvents({
+          sessionId: activeSessionId,
+          cursor: lastAckSeqRef.current,
+          limit: 200,
+        });
+
+        for (const row of res.data) {
+          handleEvent(
+            {
+              type: row.eventType as AgentTurnEvent['type'],
+              sessionId: row.sessionId,
+              turnId: row.turnId,
+              timestamp: row.createdAt || new Date().toISOString(),
+              payload: row.payload,
+            },
+            row.seq,
+          );
+        }
+
+        keepPulling = res.data.length >= 200;
+      }
+    };
+
+    const run = async () => {
+      try {
+        await pollOnce();
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('[Agent] events polling failed:', message);
+      }
+    };
+
+    void run();
+    const timer = window.setInterval(() => {
+      void run();
+    }, turnStream.isStreaming ? 1200 : 3000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [
+    activeSessionId,
+    handleEvent,
+    sessionDetailQuery.data?.cursor,
+    turnStream.isStreaming,
+  ]);
 
   const handleSend = async ({ text, mentions }: AgentComposerSubmitPayload) => {
     if (!activeSessionId) {
       setErrorText('请先创建会话');
       return;
     }
+    const clientMessageId = createClientMessageId();
 
     const optimisticId = appendOptimisticUserMessage(text);
 
@@ -481,6 +638,7 @@ export function AgentShell() {
       await turnStream.runTurn({
         sessionId: activeSessionId,
         text,
+        clientMessageId,
         mentions,
         onEvent: handleChunk,
       });
@@ -491,6 +649,31 @@ export function AgentShell() {
       ]);
       removeOptimisticUserMessage(optimisticId);
     } catch (error) {
+      if (
+        error instanceof AgentApiError &&
+        error.code === 'SESSION_RUNNING' &&
+        capabilitiesQuery.data?.autoFollowUpOnSessionRunning !== false
+      ) {
+        try {
+          await followUpMutation.mutateAsync({
+            sessionId: activeSessionId,
+            text,
+            clientMessageId,
+            mentions,
+          });
+          removeOptimisticUserMessage(optimisticId);
+          setErrorText(null);
+          return;
+        } catch (fallbackError) {
+          removeOptimisticUserMessage(optimisticId);
+          setErrorText(
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : '发送失败',
+          );
+          return;
+        }
+      }
       removeOptimisticUserMessage(optimisticId);
       setErrorText(error instanceof Error ? error.message : '发送失败');
     }
@@ -501,13 +684,19 @@ export function AgentShell() {
     mentions,
   }: AgentComposerSubmitPayload) => {
     if (!activeSessionId) return;
+    const clientMessageId = createClientMessageId();
     const insertionId = turnStream.isStreaming
-      ? appendStreamingInsertion(text)
+      ? appendStreamingInsertion(clientMessageId, text)
       : null;
     const optimisticId =
       turnStream.isStreaming ? null : appendOptimisticUserMessage(text);
     try {
-      await steerMutation.mutateAsync({ sessionId: activeSessionId, text, mentions });
+      await steerMutation.mutateAsync({
+        sessionId: activeSessionId,
+        text,
+        clientMessageId,
+        mentions,
+      });
       setErrorText(null);
     } catch (error) {
       if (insertionId) removeStreamingInsertion(insertionId);
@@ -521,14 +710,30 @@ export function AgentShell() {
     mentions,
   }: AgentComposerSubmitPayload) => {
     if (!activeSessionId) return;
+    const clientMessageId = createClientMessageId();
+    const queuedAt = new Date().toISOString();
+    setQueuedFollowUps((prev) => [
+      ...prev,
+      {
+        clientMessageId,
+        text,
+        mode: 'follow-up',
+        state: 'queued',
+        createdAt: queuedAt,
+      },
+    ]);
     try {
       await followUpMutation.mutateAsync({
         sessionId: activeSessionId,
         text,
+        clientMessageId,
         mentions,
       });
       setErrorText(null);
     } catch (error) {
+      setQueuedFollowUps((prev) =>
+        prev.filter((item) => item.clientMessageId !== clientMessageId),
+      );
       setErrorText(error instanceof Error ? error.message : 'Follow-up 失败');
     }
   };
@@ -555,7 +760,10 @@ export function AgentShell() {
     }
   };
 
-  const handleSteerQueuedFollowUp = async (itemId: string, text: string) => {
+  const handleSteerQueuedFollowUp = async (
+    clientMessageId: string,
+    text: string,
+  ) => {
     if (!activeSessionId) return;
     if (!turnStream.isStreaming) {
       setErrorText('当前未在执行中，不能发送 steer。');
@@ -563,18 +771,22 @@ export function AgentShell() {
     }
 
     const currentQueue = queuedFollowUps;
-    const removedIndex = currentQueue.findIndex((item) => item.id === itemId);
+    const removedIndex = currentQueue.findIndex(
+      (item) => item.clientMessageId === clientMessageId,
+    );
     if (removedIndex === -1) return;
     const removedItem = currentQueue[removedIndex];
 
-    setQueuedFollowUps((prev) => prev.filter((item) => item.id !== itemId));
-    const insertionId = appendStreamingInsertion(text);
+    setQueuedFollowUps((prev) =>
+      prev.filter((item) => item.clientMessageId !== clientMessageId),
+    );
+    const insertionId = appendStreamingInsertion(clientMessageId, text);
 
     try {
       await promoteFollowUpMutation.mutateAsync({
         sessionId: activeSessionId,
+        clientMessageId,
         text,
-        queueIndex: removedIndex,
       });
       setErrorText(null);
     } catch (error) {

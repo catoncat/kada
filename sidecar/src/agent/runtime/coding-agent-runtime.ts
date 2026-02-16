@@ -1,6 +1,13 @@
 import {
   AuthStorage,
+  createBashTool,
   createAgentSession,
+  createEditTool,
+  createFindTool,
+  createGrepTool,
+  createLsTool,
+  createReadTool,
+  createWriteTool,
   DefaultResourceLoader,
   SessionManager,
   SettingsManager,
@@ -12,6 +19,7 @@ import { createResourceExtension } from '../extensions/resource-extension';
 import type {
   AgentRuntime,
   AgentRuntimeEvent,
+  AgentRuntimeQueueMessageInput,
   AgentRuntimeTurnInput,
 } from './agent-runtime';
 
@@ -33,6 +41,19 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+type PendingQueueMode = 'steer' | 'follow-up';
+
+interface PendingQueueItem {
+  clientMessageId: string;
+  mode: PendingQueueMode;
+  text: string;
+  runtimeText: string;
+  mentions: unknown[];
+  mentionDrops: Array<{ mentionId: string | null; reason: string }>;
+  createdAt: string;
+  promotedFromFollowUp: boolean;
+}
+
 function extractAssistantText(message: unknown): string {
   if (!message || typeof message !== 'object') return '';
   const row = message as { content?: unknown };
@@ -46,6 +67,185 @@ function extractAssistantText(message: unknown): string {
     })
     .join('')
     .trim();
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {};
+  return value as Record<string, unknown>;
+}
+
+function scalarToText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function pickScalarLines(source: Record<string, unknown>, keys: string[]): string[] {
+  const lines: string[] = [];
+  for (const key of keys) {
+    const value = scalarToText(source[key]);
+    if (!value) continue;
+    lines.push(`${key}: ${value}`);
+  }
+  return lines;
+}
+
+function clipText(value: string, maxLength: number): string {
+  const text = value.trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function parseJsonString(value: unknown): unknown | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function firstNonEmptyLine(value: string): string {
+  const line = value
+    .split('\n')
+    .map((item) => item.trim())
+    .find((item) => item.length > 0);
+  return line || '';
+}
+
+function shortId(value: string): string {
+  if (value.length <= 12) return value;
+  return value.slice(0, 8);
+}
+
+function getToolResultText(result: Record<string, unknown>): string {
+  const content = Array.isArray(result.content) ? result.content : [];
+  for (const item of content) {
+    const row = toRecord(item);
+    if (typeof row.text === 'string' && row.text.trim()) {
+      return row.text.trim();
+    }
+  }
+  if (typeof result.message === 'string' && result.message.trim()) {
+    return result.message.trim();
+  }
+  return '';
+}
+
+function toPrettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '';
+  }
+}
+
+function buildToolResultReadablePayload(input: {
+  toolName: string;
+  result: unknown;
+  isError: boolean;
+}): { summary: string; readableDetail: string } {
+  const toolName = input.toolName.trim() || 'tool';
+  const result = toRecord(input.result);
+  const details = toRecord(result.details);
+  const textOutput = getToolResultText(result);
+  const parsedText = toRecord(parseJsonString(textOutput));
+  const merged = { ...parsedText, ...details };
+
+  if (
+    (toolName === 'photo_enqueue_generation' ||
+      toolName === 'photo_get_generation_status') &&
+    typeof merged.status === 'string'
+  ) {
+    const taskSuffix =
+      typeof merged.taskId === 'string' && merged.taskId.trim()
+        ? ` ${shortId(merged.taskId)}`
+        : '';
+    const summary = clipText(`${merged.status}${taskSuffix}`, 120) || toolName;
+    const detailLines = pickScalarLines(merged, [
+      'status',
+      'taskId',
+      'providerId',
+      'updatedAt',
+      'error',
+      'message',
+    ]);
+    if (detailLines.length > 0) {
+      return {
+        summary,
+        readableDetail: clipText(detailLines.join('\n'), 1600),
+      };
+    }
+  }
+
+  if (toolName === 'copy_generate_variants' && textOutput) {
+    const titleLine = textOutput
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.startsWith('标题：'));
+    const summary = clipText(titleLine || firstNonEmptyLine(textOutput), 120) || toolName;
+    const detail = clipText(
+      textOutput
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 16)
+        .join('\n'),
+      1800,
+    );
+    return {
+      summary,
+      readableDetail: detail || summary,
+    };
+  }
+
+  if (textOutput) {
+    const parsed = parseJsonString(textOutput);
+    const parsedLines = pickScalarLines(toRecord(parsed), [
+      'status',
+      'taskId',
+      'providerId',
+      'updatedAt',
+      'error',
+      'message',
+    ]);
+
+    if (parsedLines.length > 0) {
+      return {
+        summary: clipText(firstNonEmptyLine(textOutput), 120) || toolName,
+        readableDetail: clipText(parsedLines.join('\n'), 1500),
+      };
+    }
+
+    return {
+      summary: clipText(firstNonEmptyLine(textOutput), 120) || toolName,
+      readableDetail: clipText(textOutput, 1800),
+    };
+  }
+
+  const detailsLines = pickScalarLines(details, [
+    'status',
+    'taskId',
+    'providerId',
+    'updatedAt',
+    'error',
+    'message',
+  ]);
+  if (detailsLines.length > 0) {
+    return {
+      summary: clipText(detailsLines[0], 120) || toolName,
+      readableDetail: clipText(detailsLines.join('\n'), 1600),
+    };
+  }
+
+  const jsonFallback = toPrettyJson(result);
+  return {
+    summary: input.isError ? `${toolName} 失败` : toolName,
+    readableDetail: clipText(jsonFallback || toolName, 1800),
+  };
 }
 
 function buildModel(provider: RuntimeProviderLike): Model<any> {
@@ -78,6 +278,10 @@ export class CodingAgentRuntime implements AgentRuntime {
   private running = false;
   private currentTurnId: string | null = null;
   private turnSink: ((event: AgentRuntimeEvent) => Promise<void> | void) | null = null;
+  private waitingForTurnPromptStart = false;
+  private pendingById = new Map<string, PendingQueueItem>();
+  private steeringQueueIds: string[] = [];
+  private followUpQueueIds: string[] = [];
   private unsub?: () => void;
 
   private constructor(input: {
@@ -91,6 +295,7 @@ export class CodingAgentRuntime implements AgentRuntime {
   }
 
   static async create(input: CreateCodingRuntimeInput): Promise<CodingAgentRuntime> {
+    const cwd = process.cwd();
     const model = buildModel(input.provider);
 
     const authStorage = new AuthStorage();
@@ -113,7 +318,7 @@ export class CodingAgentRuntime implements AgentRuntime {
     let runtimeRef: CodingAgentRuntime | null = null;
 
     const resourceLoader = new DefaultResourceLoader({
-      cwd: process.cwd(),
+      cwd,
       settingsManager,
       systemPrompt: AGENT_SYSTEM_PROMPT,
       additionalSkillPaths: [input.skillsPath],
@@ -132,14 +337,25 @@ export class CodingAgentRuntime implements AgentRuntime {
 
     await resourceLoader.reload();
 
+    const tools = [
+      createReadTool(cwd),
+      createBashTool(cwd),
+      createEditTool(cwd),
+      createWriteTool(cwd),
+      createGrepTool(cwd),
+      createFindTool(cwd),
+      createLsTool(cwd),
+    ];
+
     const { session } = await createAgentSession({
+      cwd,
       model,
       thinkingLevel: 'off',
       authStorage,
       settingsManager,
-      sessionManager: SessionManager.inMemory(process.cwd()),
+      sessionManager: SessionManager.inMemory(cwd),
       resourceLoader,
-      tools: [],
+      tools,
       scopedModels: [{ model, thinkingLevel: 'off' }],
     });
 
@@ -171,6 +387,7 @@ export class CodingAgentRuntime implements AgentRuntime {
     this.running = true;
     this.currentTurnId = input.turnId;
     this.turnSink = input.onEvent;
+    this.waitingForTurnPromptStart = true;
 
     const activeTools = this.agentSession.getActiveToolNames();
     const allTools = this.agentSession.getAllTools().map((tool) => tool.name);
@@ -205,92 +422,81 @@ export class CodingAgentRuntime implements AgentRuntime {
       this.running = false;
       this.currentTurnId = null;
       this.turnSink = null;
+      this.waitingForTurnPromptStart = false;
+      this.clearPendingQueue();
     }
   }
 
-  async steer(text: string): Promise<void> {
-    await this.agentSession.steer(text);
+  async steer(input: AgentRuntimeQueueMessageInput): Promise<void> {
+    const item = this.buildPendingItem('steer', input);
+    this.putPending(item, 'append');
+    await this.agentSession.steer(item.runtimeText);
 
     await this.emit({
       type: 'queue.updated',
       payload: {
+        queueAction: 'queued',
+        clientMessageId: item.clientMessageId,
         mode: 'steer',
-        text,
+        text: item.text,
       },
     });
   }
 
-  async followUp(text: string): Promise<void> {
-    await this.agentSession.followUp(text);
+  async followUp(input: AgentRuntimeQueueMessageInput): Promise<void> {
+    const item = this.buildPendingItem('follow-up', input);
+    this.putPending(item, 'append');
+    await this.agentSession.followUp(item.runtimeText);
 
     await this.emit({
       type: 'queue.updated',
       payload: {
+        queueAction: 'queued',
+        clientMessageId: item.clientMessageId,
         mode: 'follow-up',
-        text,
+        text: item.text,
       },
     });
   }
 
-  async promoteFollowUpToSteer(
-    text: string,
-    queueIndex?: number,
-  ): Promise<boolean> {
-    const sessionAny = this.agentSession as any;
-    const clearQueue = sessionAny?.clearQueue;
-
-    if (typeof clearQueue !== 'function') {
-      await this.steer(text);
+  async promoteFollowUpToSteer(input: {
+    clientMessageId: string;
+  }): Promise<boolean> {
+    const clientMessageId = input.clientMessageId;
+    const index = this.followUpQueueIds.findIndex((id) => id === clientMessageId);
+    if (index < 0) {
       return false;
     }
 
-    const snapshot = clearQueue.call(this.agentSession) as
-      | { steering?: unknown; followUp?: unknown }
-      | undefined;
-
-    const steeringMessages = Array.isArray(snapshot?.steering)
-      ? (snapshot?.steering.filter((item) => typeof item === 'string') as string[])
-      : [];
-
-    const followUpMessages = Array.isArray(snapshot?.followUp)
-      ? (snapshot?.followUp.filter((item) => typeof item === 'string') as string[])
-      : [];
-
-    let removed = false;
-    let removeIndex = -1;
-
-    if (
-      typeof queueIndex === 'number' &&
-      Number.isInteger(queueIndex) &&
-      queueIndex >= 0 &&
-      queueIndex < followUpMessages.length &&
-      followUpMessages[queueIndex] === text
-    ) {
-      removeIndex = queueIndex;
-      removed = true;
-    } else {
-      removeIndex = followUpMessages.findIndex((message) => message === text);
-      removed = removeIndex >= 0;
+    this.followUpQueueIds.splice(index, 1);
+    const item = this.pendingById.get(clientMessageId);
+    if (!item) {
+      return false;
     }
 
-    const remainingFollowUps = followUpMessages.filter(
-      (_message, index) => index !== removeIndex,
-    );
+    item.mode = 'steer';
+    item.promotedFromFollowUp = true;
+    this.steeringQueueIds = this.steeringQueueIds.filter((id) => id !== clientMessageId);
+    this.steeringQueueIds.unshift(clientMessageId);
+    await this.rebuildUnderlyingQueue();
 
-    for (const message of steeringMessages) {
-      await this.agentSession.steer(message);
-    }
+    await this.emit({
+      type: 'queue.updated',
+      payload: {
+        queueAction: 'promoted',
+        clientMessageId: item.clientMessageId,
+        mode: 'steer',
+        text: item.text,
+        promotedFromFollowUp: true,
+      },
+    });
 
-    for (const message of remainingFollowUps) {
-      await this.agentSession.followUp(message);
-    }
-
-    await this.steer(text);
-    return removed;
+    return true;
   }
 
   async abort(): Promise<void> {
     await this.agentSession.abort();
+    this.clearPendingQueue();
     await this.emit({
       type: 'session.aborted',
       payload: {
@@ -309,6 +515,31 @@ export class CodingAgentRuntime implements AgentRuntime {
 
   private bindEvents(): void {
     this.unsub = this.agentSession.subscribe(async (event: any) => {
+      if (event?.type === 'message_start' && event?.message?.role === 'user') {
+        if (this.waitingForTurnPromptStart) {
+          this.waitingForTurnPromptStart = false;
+          return;
+        }
+
+        const applied = this.consumeNextPending();
+        if (applied) {
+          await this.emit({
+            type: applied.mode === 'steer' ? 'steer.applied' : 'followup.applied',
+            payload: {
+              clientMessageId: applied.clientMessageId,
+              text: applied.text,
+              mode: applied.mode,
+              mentions: applied.mentions,
+              mentionDrops: applied.mentionDrops,
+              queuedAt: applied.createdAt,
+              appliedAt: nowIso(),
+              promotedFromFollowUp: applied.promotedFromFollowUp,
+            },
+          });
+        }
+        return;
+      }
+
       if (event?.type === 'message_update') {
         const assistantEvent = event.assistantMessageEvent as
           | { type?: string; delta?: string }
@@ -367,17 +598,107 @@ export class CodingAgentRuntime implements AgentRuntime {
       }
 
       if (event?.type === 'tool_execution_end') {
+        const toolName = typeof event.toolName === 'string' ? event.toolName : '';
+        const readable = buildToolResultReadablePayload({
+          toolName,
+          result: event.result,
+          isError: Boolean(event.isError),
+        });
         await this.emit({
           type: 'tool.result',
           payload: {
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
+            toolName,
             result: event.result,
             isError: Boolean(event.isError),
+            summary: readable.summary,
+            readableDetail: readable.readableDetail,
+            readableVersion: 1,
           },
         });
       }
     });
+  }
+
+  private buildPendingItem(
+    mode: PendingQueueMode,
+    input: AgentRuntimeQueueMessageInput,
+  ): PendingQueueItem {
+    return {
+      clientMessageId: input.clientMessageId,
+      mode,
+      text: input.text,
+      runtimeText: input.runtimeText,
+      mentions: Array.isArray(input.mentions) ? input.mentions : [],
+      mentionDrops: Array.isArray(input.mentionDrops) ? input.mentionDrops : [],
+      createdAt: nowIso(),
+      promotedFromFollowUp: false,
+    };
+  }
+
+  private putPending(
+    item: PendingQueueItem,
+    position: 'append' | 'prepend',
+  ): void {
+    if (this.pendingById.has(item.clientMessageId)) {
+      return;
+    }
+
+    this.pendingById.set(item.clientMessageId, item);
+    if (item.mode === 'steer') {
+      if (position === 'prepend') {
+        this.steeringQueueIds.unshift(item.clientMessageId);
+      } else {
+        this.steeringQueueIds.push(item.clientMessageId);
+      }
+      return;
+    }
+    this.followUpQueueIds.push(item.clientMessageId);
+  }
+
+  private consumeNextPending(): PendingQueueItem | null {
+    const steerId = this.steeringQueueIds.shift();
+    if (steerId) {
+      return this.takePending(steerId);
+    }
+
+    const followUpId = this.followUpQueueIds.shift();
+    if (followUpId) {
+      return this.takePending(followUpId);
+    }
+    return null;
+  }
+
+  private takePending(clientMessageId: string): PendingQueueItem | null {
+    const item = this.pendingById.get(clientMessageId);
+    if (!item) return null;
+    this.pendingById.delete(clientMessageId);
+    return item;
+  }
+
+  private async rebuildUnderlyingQueue(): Promise<void> {
+    const clearQueue = (this.agentSession as any)?.clearQueue;
+    if (typeof clearQueue === 'function') {
+      clearQueue.call(this.agentSession);
+    }
+
+    for (const id of this.steeringQueueIds) {
+      const item = this.pendingById.get(id);
+      if (!item) continue;
+      await this.agentSession.steer(item.runtimeText);
+    }
+
+    for (const id of this.followUpQueueIds) {
+      const item = this.pendingById.get(id);
+      if (!item) continue;
+      await this.agentSession.followUp(item.runtimeText);
+    }
+  }
+
+  private clearPendingQueue(): void {
+    this.pendingById.clear();
+    this.steeringQueueIds = [];
+    this.followUpQueueIds = [];
   }
 
   private async emit(input: {

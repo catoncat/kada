@@ -12,6 +12,7 @@ export interface OptimisticUserMessage {
 
 export interface StreamingInsertion {
   id: string;
+  clientMessageId: string;
   text: string;
   position: number;
   seq: number;
@@ -192,8 +193,112 @@ function getToolResultText(result: Record<string, unknown>): string {
   return '';
 }
 
+function scalarToText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return '';
+}
+
+function pickScalarLines(
+  source: Record<string, unknown>,
+  keys: string[],
+): string[] {
+  const lines: string[] = [];
+  for (const key of keys) {
+    const value = scalarToText(source[key]);
+    if (!value) continue;
+    lines.push(`${key}: ${value}`);
+  }
+  return lines;
+}
+
+function firstReadableLines(input: string, maxLines = 10): string[] {
+  return input
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, maxLines);
+}
+
+function toolResultDetail(payload: unknown): string {
+  const row = toRecord(payload);
+  const readableDetail = scalarToText(row.readableDetail);
+  if (readableDetail) {
+    return sanitizeTextForDisplay(readableDetail, 1800);
+  }
+
+  const toolName =
+    typeof row.toolName === 'string' && row.toolName.trim()
+      ? row.toolName.trim()
+      : 'tool';
+  const result = toRecord(row.result);
+  const details = toRecord(result.details);
+  const rawText = getToolResultText(result);
+  const parsedFromText = toRecord(parseJsonString(rawText));
+  const merged = { ...parsedFromText, ...details };
+
+  if (
+    toolName === 'photo_enqueue_generation' ||
+    toolName === 'photo_get_generation_status'
+  ) {
+    const lines = pickScalarLines(merged, [
+      'status',
+      'taskId',
+      'providerId',
+      'updatedAt',
+      'error',
+    ]);
+    if (lines.length > 0) return sanitizeTextForDisplay(lines.join('\n'), 800);
+  }
+
+  if (toolName === 'copy_generate_variants' && rawText) {
+    const lines = firstReadableLines(rawText, 16);
+    if (lines.length > 0) return sanitizeTextForDisplay(lines.join('\n'), 1800);
+  }
+
+  if (rawText) {
+    const parsed = parseJsonString(rawText);
+    if (parsed && typeof parsed === 'object') {
+      const parsedLines = pickScalarLines(toRecord(parsed), [
+        'status',
+        'taskId',
+        'providerId',
+        'updatedAt',
+        'error',
+        'message',
+      ]);
+      if (parsedLines.length > 0) {
+        return sanitizeTextForDisplay(parsedLines.join('\n'), 1200);
+      }
+    }
+
+    return sanitizeTextForDisplay(rawText, 1500);
+  }
+
+  const detailLines = pickScalarLines(details, [
+    'status',
+    'taskId',
+    'providerId',
+    'updatedAt',
+    'error',
+    'message',
+  ]);
+  if (detailLines.length > 0) {
+    return sanitizeTextForDisplay(detailLines.join('\n'), 1200);
+  }
+
+  return formatPayloadForDisplay(result);
+}
+
 function toolResultTitle(payload: unknown): string {
   const row = toRecord(payload);
+  const summary = scalarToText(row.summary);
+  if (summary) {
+    return sanitizeTextForDisplay(summary, 120);
+  }
+
   const toolName =
     typeof row.toolName === 'string' && row.toolName.trim()
       ? row.toolName.trim()
@@ -273,12 +378,11 @@ export function buildAgentMessageRows(input: {
     if (entry.entryType === 'toolResult') {
       const row = toRecord(entry.payload);
       const isError = Boolean(row.isError);
-      const result = toRecord(row.result);
       rows.push({
         kind: 'summary',
         id: `${entry.id}:tool-result`,
         title: toolResultTitle(entry.payload),
-        detail: formatPayloadForDisplay(result),
+        detail: toolResultDetail(entry.payload),
         createdAt: entry.createdAt,
         level: isError ? 'error' : 'info',
         category: 'tool',

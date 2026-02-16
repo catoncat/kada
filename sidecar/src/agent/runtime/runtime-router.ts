@@ -8,7 +8,11 @@ import {
   type AgentEngine,
 } from '../../services/agent-session-store';
 import { createAgentCoreRuntime } from './agent-core-runtime';
-import type { AgentRuntime, AgentRuntimeEvent } from './agent-runtime';
+import type {
+  AgentRuntime,
+  AgentRuntimeEvent,
+  AgentRuntimeQueueMessageInput,
+} from './agent-runtime';
 import { createCodingAgentRuntime } from './coding-agent-runtime';
 
 interface RuntimeHolder {
@@ -29,58 +33,109 @@ interface ProviderRuntimeShape {
   imageModel: string;
 }
 
+export class SessionRunningError extends Error {
+  readonly code = 'SESSION_RUNNING';
+
+  constructor(message = '当前会话已有执行中的 turn。') {
+    super(message);
+    this.name = 'SessionRunningError';
+  }
+}
+
 export class RuntimeRouter {
   private readonly runtimeBySession = new Map<string, RuntimeHolder>();
+  private readonly turnGateBySession = new Set<string>();
   private readonly skillsPath: string;
 
   constructor(options: RuntimeRouterOptions) {
     this.skillsPath = options.skillsPath;
   }
 
-  async runTurn(
-    sessionId: string,
-    turnId: string,
-    text: string,
-    onEvent: (event: AgentRuntimeEvent) => Promise<void> | void,
-  ): Promise<void> {
-    const runtime = await this.ensureRuntime(sessionId);
+  tryAcquireTurnGate(sessionId: string): boolean {
+    if (this.turnGateBySession.has(sessionId)) {
+      return false;
+    }
+    this.turnGateBySession.add(sessionId);
+    return true;
+  }
 
-    await setAgentSessionStatus(sessionId, 'running');
-    await touchAgentSessionTurn(sessionId);
+  releaseTurnGate(sessionId: string): void {
+    this.turnGateBySession.delete(sessionId);
+  }
+
+  async runTurn(input: {
+    sessionId: string;
+    turnId: string;
+    text: string;
+    onEvent: (event: AgentRuntimeEvent) => Promise<void> | void;
+    beforeRun?: () => Promise<void>;
+    gateAlreadyAcquired?: boolean;
+  }): Promise<void> {
+    const sessionId = input.sessionId;
+    const gateAlreadyAcquired = input.gateAlreadyAcquired === true;
+
+    if (!gateAlreadyAcquired && !this.tryAcquireTurnGate(sessionId)) {
+      throw new SessionRunningError();
+    }
+    if (gateAlreadyAcquired && !this.turnGateBySession.has(sessionId)) {
+      throw new Error(`turn gate not acquired for session: ${sessionId}`);
+    }
 
     try {
-      await runtime.runTurn({
-        turnId,
-        text,
-        onEvent,
-      });
-      await this.setStatusIfNotAborted(sessionId, 'idle');
-    } catch (error) {
-      await this.setStatusIfNotAborted(sessionId, 'failed');
-      throw error;
+      const runtime = await this.ensureRuntime(sessionId);
+      if (runtime.isRunning()) {
+        throw new SessionRunningError();
+      }
+
+      if (input.beforeRun) {
+        await input.beforeRun();
+      }
+
+      await setAgentSessionStatus(sessionId, 'running');
+      await touchAgentSessionTurn(sessionId);
+
+      try {
+        await runtime.runTurn({
+          turnId: input.turnId,
+          text: input.text,
+          onEvent: input.onEvent,
+        });
+        await this.setStatusIfNotAborted(sessionId, 'idle');
+      } catch (error) {
+        await this.setStatusIfNotAborted(sessionId, 'failed');
+        throw error;
+      }
+    } finally {
+      this.releaseTurnGate(sessionId);
     }
   }
 
-  async steer(sessionId: string, text: string): Promise<void> {
+  async steer(
+    sessionId: string,
+    input: AgentRuntimeQueueMessageInput,
+  ): Promise<void> {
     const runtime = await this.ensureRuntime(sessionId);
-    await runtime.steer(text);
+    await runtime.steer(input);
   }
 
-  async followUp(sessionId: string, text: string): Promise<void> {
+  async followUp(
+    sessionId: string,
+    input: AgentRuntimeQueueMessageInput,
+  ): Promise<void> {
     const runtime = await this.ensureRuntime(sessionId);
-    await runtime.followUp(text);
+    await runtime.followUp(input);
   }
 
   async promoteFollowUpToSteer(
     sessionId: string,
-    text: string,
-    queueIndex?: number,
+    input: {
+      clientMessageId: string;
+    },
   ): Promise<boolean> {
     const runtime = await this.ensureRuntime(sessionId);
     if (typeof runtime.promoteFollowUpToSteer === 'function') {
-      return runtime.promoteFollowUpToSteer(text, queueIndex);
+      return runtime.promoteFollowUpToSteer(input);
     }
-    await runtime.steer(text);
     return false;
   }
 
@@ -88,11 +143,18 @@ export class RuntimeRouter {
     const runtime = await this.ensureRuntime(sessionId);
     await runtime.abort();
     await setAgentSessionStatus(sessionId, 'aborted');
+    this.releaseTurnGate(sessionId);
   }
 
   async isRunning(sessionId: string): Promise<boolean> {
-    const runtime = await this.ensureRuntime(sessionId);
-    return runtime.isRunning();
+    if (this.turnGateBySession.has(sessionId)) {
+      return true;
+    }
+    const holder = this.runtimeBySession.get(sessionId);
+    if (holder) {
+      return holder.runtime.isRunning();
+    }
+    return false;
   }
 
   async disposeSession(sessionId: string): Promise<void> {

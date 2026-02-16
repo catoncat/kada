@@ -63,6 +63,12 @@ export interface AgentSessionDetail extends AgentSessionSummary {
   cursor: number;
 }
 
+export interface AgentCapabilities {
+  autoFollowUpOnSessionRunning: boolean;
+  queueAppliedEvent: boolean;
+  externalEventBridge: boolean;
+}
+
 export interface AgentTurnEvent {
   type:
     | 'turn.started'
@@ -76,6 +82,8 @@ export interface AgentTurnEvent {
     | 'photo.ready'
     | 'copy.ready'
     | 'queue.updated'
+    | 'steer.applied'
+    | 'followup.applied'
     | 'turn.completed'
     | 'turn.failed'
     | 'session.aborted';

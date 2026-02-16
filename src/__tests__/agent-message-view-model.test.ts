@@ -154,6 +154,35 @@ describe('agent message view model', () => {
     });
   });
 
+  it('prefers backend readable summary/detail for toolResult rows', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'tool-result-readable',
+          entryType: 'toolResult',
+          payload: {
+            toolName: 'photo_get_generation_status',
+            isError: false,
+            summary: 'succeeded abc12345',
+            readableDetail: 'status: succeeded\ntaskId: abc12345',
+            result: {
+              content: [{ type: 'text', text: '{"status":"succeeded","taskId":"abc12345"}' }],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'summary',
+      category: 'tool',
+      level: 'info',
+      title: 'succeeded abc12345',
+      detail: 'status: succeeded\ntaskId: abc12345',
+    });
+  });
+
   it('maps errored toolResult entries into error summary rows', () => {
     const rows = buildAgentMessageRows({
       entries: [

@@ -1,6 +1,7 @@
 import { apiUrl } from '@/lib/api-config';
 import type {
   AgentMention,
+  AgentCapabilities,
   AgentMentionImageRef,
   AgentMentionKind,
   AgentOutput,
@@ -132,12 +133,13 @@ export async function deleteAgentSession(sessionId: string): Promise<void> {
 export async function steerAgentSession(
   sessionId: string,
   text: string,
+  clientMessageId: string,
   mentions?: AgentMention[],
 ): Promise<void> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/steer`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, mentions }),
+    body: JSON.stringify({ text, clientMessageId, mentions }),
   });
   const data = await readJson(res);
   if (!res.ok) {
@@ -148,6 +150,7 @@ export async function steerAgentSession(
 export async function followUpAgentSession(
   sessionId: string,
   text: string,
+  clientMessageId: string,
   mentions?: AgentMention[],
 ): Promise<void> {
   const res = await fetch(
@@ -155,7 +158,7 @@ export async function followUpAgentSession(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, mentions }),
+      body: JSON.stringify({ text, clientMessageId, mentions }),
     },
   );
   const data = await readJson(res);
@@ -166,15 +169,20 @@ export async function followUpAgentSession(
 
 export async function promoteFollowUpToSteerAgentSession(
   sessionId: string,
-  text: string,
-  queueIndex?: number,
+  input: {
+    clientMessageId: string;
+    text?: string;
+  },
 ): Promise<void> {
   const res = await fetch(
     apiUrl(`/api/agent/sessions/${sessionId}/follow-up/promote`),
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, queueIndex }),
+      body: JSON.stringify({
+        clientMessageId: input.clientMessageId,
+        text: input.text,
+      }),
     },
   );
   const data = await readJson(res);
@@ -196,8 +204,12 @@ export async function abortAgentSession(sessionId: string): Promise<void> {
 export async function listAgentEvents(input: {
   sessionId: string;
   cursor?: number;
+  limit?: number;
 }): Promise<{
   data: Array<{
+    id: string;
+    sessionId: string;
+    turnId: string | null;
     seq: number;
     eventType: string;
     payload: unknown;
@@ -209,6 +221,9 @@ export async function listAgentEvents(input: {
   const params = new URLSearchParams();
   if (typeof input.cursor === 'number' && Number.isFinite(input.cursor)) {
     params.set('cursor', String(Math.floor(input.cursor)));
+  }
+  if (typeof input.limit === 'number' && Number.isFinite(input.limit)) {
+    params.set('limit', String(Math.max(1, Math.floor(input.limit))));
   }
 
   const url = apiUrl(
@@ -222,6 +237,9 @@ export async function listAgentEvents(input: {
 
   return data as {
     data: Array<{
+      id: string;
+      sessionId: string;
+      turnId: string | null;
       seq: number;
       eventType: string;
       payload: unknown;
@@ -285,6 +303,7 @@ function parseSseChunk(chunk: string): AgentTurnStreamChunk[] {
 export async function streamAgentTurn(input: {
   sessionId: string;
   text: string;
+  clientMessageId: string;
   mentions?: AgentMention[];
   signal?: AbortSignal;
   onEvent: (chunk: AgentTurnStreamChunk) => void;
@@ -294,7 +313,11 @@ export async function streamAgentTurn(input: {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: input.text, mentions: input.mentions }),
+      body: JSON.stringify({
+        text: input.text,
+        clientMessageId: input.clientMessageId,
+        mentions: input.mentions,
+      }),
       signal: input.signal,
     },
   );
@@ -337,6 +360,15 @@ export async function streamAgentTurn(input: {
       input.onEvent(chunk);
     }
   }
+}
+
+export async function getAgentCapabilities(): Promise<AgentCapabilities> {
+  const res = await fetch(apiUrl('/api/agent/capabilities'));
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, '获取 Agent 能力配置失败');
+  }
+  return data as AgentCapabilities;
 }
 
 export async function searchAgentResources(input: {

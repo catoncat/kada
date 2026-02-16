@@ -10,6 +10,7 @@ import { imageGenerationHandler } from './handlers/image-generation';
 import { planGenerationHandler } from './handlers/plan-generation';
 import { embeddingIndexHandler } from './handlers/embedding-index';
 import { embeddingReindexHandler } from './handlers/embedding-reindex';
+import { dispatchAgentTaskEvent } from '../services/agent-external-event-dispatcher';
 
 interface TaskHandlerContext {
   taskId: string;
@@ -28,6 +29,28 @@ const handlers: Record<string, TaskHandler> = {
   'embedding-index': embeddingIndexHandler,
   'embedding-reindex': embeddingReindexHandler,
 };
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function extractSessionId(value: unknown): string | null {
+  const row = toRecord(value);
+  if (typeof row.sessionId === 'string' && row.sessionId.trim()) {
+    return row.sessionId.trim();
+  }
+  return null;
+}
+
+function extractTurnId(value: unknown): string | null {
+  const row = toRecord(value);
+  if (typeof row.turnId === 'string' && row.turnId.trim()) {
+    return row.turnId.trim();
+  }
+  return null;
+}
 
 // Worker 状态
 let isRunning = false;
@@ -126,8 +149,15 @@ async function processNextTask() {
     })
     .where(eq(tasks.id, task.id));
 
+  let input: unknown = null;
+  let sessionId: string | null = null;
+  let turnId: string | null = null;
+
   try {
-    const input = JSON.parse(task.input);
+    input = JSON.parse(task.input);
+    sessionId = extractSessionId(input);
+    turnId = extractTurnId(input);
+
     const output = await handler(input, {
       taskId: task.id,
       taskType: task.type,
@@ -145,6 +175,22 @@ async function processNextTask() {
       .where(eq(tasks.id, task.id));
 
     console.log(`✅ Task ${task.id} (${task.type}) completed`);
+
+    if (sessionId) {
+      await dispatchAgentTaskEvent({
+        sessionId,
+        taskId: task.id,
+        taskType: task.type,
+        status: 'completed',
+        output,
+        turnId,
+      }).catch((error) => {
+        console.error(
+          `[Worker] dispatch agent task completed event failed for ${task.id}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    }
   } catch (error: any) {
     // 标记为 failed
     await db
@@ -157,6 +203,25 @@ async function processNextTask() {
       .where(eq(tasks.id, task.id));
 
     console.error(`❌ Task ${task.id} (${task.type}) failed:`, error.message);
+
+    if (sessionId) {
+      await dispatchAgentTaskEvent({
+        sessionId,
+        taskId: task.id,
+        taskType: task.type,
+        status: 'failed',
+        error: error?.message || 'Unknown error',
+        output: null,
+        turnId,
+      }).catch((dispatchError) => {
+        console.error(
+          `[Worker] dispatch agent task failed event failed for ${task.id}:`,
+          dispatchError instanceof Error
+            ? dispatchError.message
+            : String(dispatchError),
+        );
+      });
+    }
   }
 }
 

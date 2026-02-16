@@ -12,6 +12,8 @@ export type AgentRuntimeEventType =
   | 'photo.ready'
   | 'copy.ready'
   | 'queue.updated'
+  | 'steer.applied'
+  | 'followup.applied'
   | 'turn.completed'
   | 'turn.failed'
   | 'session.aborted';
@@ -30,14 +32,24 @@ export interface AgentRuntimeTurnInput {
   onEvent: (event: AgentRuntimeEvent) => Promise<void> | void;
 }
 
+export interface AgentRuntimeQueueMessageInput {
+  clientMessageId: string;
+  text: string;
+  runtimeText: string;
+  mentions?: unknown[];
+  mentionDrops?: Array<{ mentionId: string | null; reason: string }>;
+}
+
 export interface AgentRuntime {
   readonly engine: AgentRuntimeEngine;
   readonly sessionId: string;
 
   runTurn(input: AgentRuntimeTurnInput): Promise<void>;
-  steer(text: string): Promise<void>;
-  followUp(text: string): Promise<void>;
-  promoteFollowUpToSteer?(text: string, queueIndex?: number): Promise<boolean>;
+  steer(input: AgentRuntimeQueueMessageInput): Promise<void>;
+  followUp(input: AgentRuntimeQueueMessageInput): Promise<void>;
+  promoteFollowUpToSteer?(input: {
+    clientMessageId: string;
+  }): Promise<boolean>;
   abort(): Promise<void>;
   isRunning(): boolean;
   dispose(): Promise<void>;

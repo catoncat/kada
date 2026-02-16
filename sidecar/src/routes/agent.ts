@@ -3,6 +3,7 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
 import { RuntimeRouter } from '../agent/runtime/runtime-router';
+import { getAgentFlags } from '../config/agent-flags';
 import {
   buildAgentMentionsContextBlock,
   isAgentMentionKind,
@@ -35,6 +36,7 @@ export const agentRoutes = new Hono();
 
 const skillsPath = path.resolve(process.cwd(), 'src', 'agent', 'skills');
 const runtimeRouter = new RuntimeRouter({ skillsPath });
+const agentFlags = getAgentFlags();
 
 function toError(message: string, code: string) {
   return { error: message, code };
@@ -52,6 +54,14 @@ function parsePositiveInt(
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, parsed);
+}
+
+function parseClientMessageId(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const raw = payload.clientMessageId;
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  return text || null;
 }
 
 function eventToOutputKind(type: string): AgentOutputKind | null {
@@ -110,6 +120,14 @@ agentRoutes.get('/resources/:kind/:id/images', async (c) => {
     data: result.data,
     total: result.data.length,
     resourceTitle: result.resourceTitle,
+  });
+});
+
+agentRoutes.get('/capabilities', async (c) => {
+  return c.json({
+    autoFollowUpOnSessionRunning: agentFlags.autoFollowUpOnSessionRunning,
+    queueAppliedEvent: agentFlags.queueAppliedEvent,
+    externalEventBridge: agentFlags.externalEventBridge,
   });
 });
 
@@ -237,11 +255,15 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const clientMessageId = parseClientMessageId(body);
   const rawMentions =
     isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('消息不能为空。', 'INVALID_PAYLOAD'), 400);
+  }
+  if (!clientMessageId) {
+    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
   const session = await getAgentSessionRecord(sessionId);
@@ -262,21 +284,31 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
   const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
 
   const turnId = randomUUID();
-  await appendAgentEntry({
-    sessionId,
-    entryType: 'user',
-    payload: {
-      text,
-      turnId,
-      mentions: mentionsResolution.mentions,
-      mentionDrops: mentionsResolution.dropped,
-    },
-  });
+  if (!runtimeRouter.tryAcquireTurnGate(sessionId)) {
+    return c.json(
+      toError('会话正在执行中，请稍后或改为 follow-up。', 'SESSION_RUNNING'),
+      409,
+    );
+  }
+  const lockedSession = await getAgentSessionRecord(sessionId);
+  if (!lockedSession) {
+    runtimeRouter.releaseTurnGate(sessionId);
+    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+  if (lockedSession.archivedAt) {
+    runtimeRouter.releaseTurnGate(sessionId);
+    return c.json(
+      toError('会话已归档，无法继续对话。', 'SESSION_ARCHIVED'),
+      409,
+    );
+  }
 
   const encoder = new TextEncoder();
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+  let stream: ReadableStream<Uint8Array>;
+  try {
+    stream = new ReadableStream<Uint8Array>({
+      start(controller) {
       let closed = false;
       let sawTurnFailed = false;
 
@@ -304,6 +336,38 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
           eventType: event.type,
           payload: event.payload,
         });
+
+        if (
+          agentFlags.queueAppliedEvent &&
+          (event.type === 'steer.applied' || event.type === 'followup.applied')
+        ) {
+          const payload = isRecord(event.payload)
+            ? (event.payload as Record<string, unknown>)
+            : {};
+          await appendAgentEntry({
+            sessionId,
+            entryType: 'user',
+            payload: {
+              text: typeof payload.text === 'string' ? payload.text : '',
+              mode:
+                event.type === 'steer.applied'
+                  ? 'steer'
+                  : 'follow-up',
+              turnId,
+              clientMessageId:
+                typeof payload.clientMessageId === 'string'
+                  ? payload.clientMessageId
+                  : null,
+              mentions: Array.isArray(payload.mentions) ? payload.mentions : [],
+              mentionDrops: Array.isArray(payload.mentionDrops)
+                ? payload.mentionDrops
+                : [],
+              queuedAt: payload.queuedAt || null,
+              appliedAt: payload.appliedAt || event.timestamp,
+              promotedFromFollowUp: Boolean(payload.promotedFromFollowUp),
+            },
+          });
+        }
 
         if (event.type === 'assistant.completed') {
           await appendAgentEntry({
@@ -351,7 +415,27 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
       };
 
       runtimeRouter
-        .runTurn(sessionId, turnId, runtimeText, onRuntimeEvent)
+        .runTurn({
+          sessionId,
+          turnId,
+          text: runtimeText,
+          onEvent: onRuntimeEvent,
+          gateAlreadyAcquired: true,
+          beforeRun: async () => {
+            await appendAgentEntry({
+              sessionId,
+              entryType: 'user',
+              payload: {
+                text,
+                mode: 'turn',
+                turnId,
+                clientMessageId,
+                mentions: mentionsResolution.mentions,
+                mentionDrops: mentionsResolution.dropped,
+              },
+            });
+          },
+        })
         .then(closeStream)
         .catch(async (error) => {
           const message = error instanceof Error ? error.message : '执行失败';
@@ -378,11 +462,14 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
         });
 
       c.req.raw.signal.addEventListener('abort', () => {
-        void runtimeRouter.abort(sessionId).catch(() => undefined);
         closeStream();
       });
-    },
-  });
+      },
+    });
+  } catch (error) {
+    runtimeRouter.releaseTurnGate(sessionId);
+    throw error;
+  }
 
   return new Response(stream, {
     status: 200,
@@ -399,11 +486,15 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const clientMessageId = parseClientMessageId(body);
   const rawMentions =
     isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('steer 文本不能为空。', 'INVALID_PAYLOAD'), 400);
+  }
+  if (!clientMessageId) {
+    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
   const session = await getAgentSessionRecord(sessionId);
@@ -434,17 +525,26 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
   );
   const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
 
-  await runtimeRouter.steer(sessionId, runtimeText);
-  await appendAgentEntry({
-    sessionId,
-    entryType: 'user',
-    payload: {
-      text,
-      mode: 'steer',
-      mentions: mentionsResolution.mentions,
-      mentionDrops: mentionsResolution.dropped,
-    },
+  await runtimeRouter.steer(sessionId, {
+    clientMessageId,
+    text,
+    runtimeText,
+    mentions: mentionsResolution.mentions,
+    mentionDrops: mentionsResolution.dropped,
   });
+  if (!agentFlags.queueAppliedEvent) {
+    await appendAgentEntry({
+      sessionId,
+      entryType: 'user',
+      payload: {
+        text,
+        mode: 'steer',
+        clientMessageId,
+        mentions: mentionsResolution.mentions,
+        mentionDrops: mentionsResolution.dropped,
+      },
+    });
+  }
   await touchAgentSessionTurn(sessionId);
   return c.json({
     success: true,
@@ -457,11 +557,15 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const clientMessageId = parseClientMessageId(body);
   const rawMentions =
     isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('follow-up 文本不能为空。', 'INVALID_PAYLOAD'), 400);
+  }
+  if (!clientMessageId) {
+    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
   const session = await getAgentSessionRecord(sessionId);
@@ -492,7 +596,26 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   );
   const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
 
-  await runtimeRouter.followUp(sessionId, runtimeText);
+  await runtimeRouter.followUp(sessionId, {
+    clientMessageId,
+    text,
+    runtimeText,
+    mentions: mentionsResolution.mentions,
+    mentionDrops: mentionsResolution.dropped,
+  });
+  if (!agentFlags.queueAppliedEvent) {
+    await appendAgentEntry({
+      sessionId,
+      entryType: 'user',
+      payload: {
+        text,
+        mode: 'follow-up',
+        clientMessageId,
+        mentions: mentionsResolution.mentions,
+        mentionDrops: mentionsResolution.dropped,
+      },
+    });
+  }
   await touchAgentSessionTurn(sessionId);
   return c.json({
     success: true,
@@ -505,16 +628,11 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
-  const queueIndex =
-    typeof body?.queueIndex === 'number' &&
-    Number.isInteger(body.queueIndex) &&
-    body.queueIndex >= 0
-      ? body.queueIndex
-      : undefined;
+  const clientMessageId = parseClientMessageId(body);
 
-  if (!text) {
+  if (!clientMessageId) {
     return c.json(
-      toError('promote follow-up 文本不能为空。', 'INVALID_PAYLOAD'),
+      toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'),
       400,
     );
   }
@@ -543,18 +661,20 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
 
   const removed = await runtimeRouter.promoteFollowUpToSteer(
     sessionId,
-    text,
-    queueIndex,
+    { clientMessageId },
   );
-  await appendAgentEntry({
-    sessionId,
-    entryType: 'user',
-    payload: {
-      text,
-      mode: 'steer',
-      promotedFromFollowUp: removed,
-    },
-  });
+  if (!agentFlags.queueAppliedEvent && removed && text) {
+    await appendAgentEntry({
+      sessionId,
+      entryType: 'user',
+      payload: {
+        text,
+        mode: 'steer',
+        clientMessageId,
+        promotedFromFollowUp: true,
+      },
+    });
+  }
   await touchAgentSessionTurn(sessionId);
 
   return c.json({ success: true, removed });

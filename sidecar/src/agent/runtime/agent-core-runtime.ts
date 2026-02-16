@@ -3,6 +3,7 @@ import type { Message, Model } from '@mariozechner/pi-ai';
 import type {
   AgentRuntime,
   AgentRuntimeEvent,
+  AgentRuntimeQueueMessageInput,
   AgentRuntimeTurnInput,
 } from './agent-runtime';
 import {
@@ -29,6 +30,19 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+type PendingQueueMode = 'steer' | 'follow-up';
+
+interface PendingQueueItem {
+  clientMessageId: string;
+  mode: PendingQueueMode;
+  text: string;
+  runtimeText: string;
+  mentions: unknown[];
+  mentionDrops: Array<{ mentionId: string | null; reason: string }>;
+  createdAt: string;
+  promotedFromFollowUp: boolean;
+}
+
 function toLlmMessages(messages: AgentMessage[]): Message[] {
   return messages.flatMap((message) => {
     if (!message || typeof message !== 'object') return [];
@@ -43,22 +57,6 @@ function toLlmMessages(messages: AgentMessage[]): Message[] {
 function extractAssistantText(message: unknown): string {
   if (!message || typeof message !== 'object') return '';
   const row = message as { content?: unknown };
-  if (!Array.isArray(row.content)) return '';
-  return row.content
-    .map((item) => {
-      if (!item || typeof item !== 'object') return '';
-      const block = item as { type?: string; text?: string };
-      if (block.type === 'text' && typeof block.text === 'string') return block.text;
-      return '';
-    })
-    .join('')
-    .trim();
-}
-
-function extractQueuedMessageText(message: unknown): string {
-  if (!message || typeof message !== 'object') return '';
-  const row = message as { content?: unknown };
-  if (typeof row.content === 'string') return row.content;
   if (!Array.isArray(row.content)) return '';
   return row.content
     .map((item) => {
@@ -101,6 +99,10 @@ export class AgentCoreRuntime implements AgentRuntime {
   private running = false;
   private currentTurnId: string | null = null;
   private turnSink: ((event: AgentRuntimeEvent) => Promise<void> | void) | null = null;
+  private waitingForTurnPromptStart = false;
+  private pendingById = new Map<string, PendingQueueItem>();
+  private steeringQueueIds: string[] = [];
+  private followUpQueueIds: string[] = [];
   private unsub?: () => void;
 
   private constructor(input: {
@@ -172,6 +174,7 @@ export class AgentCoreRuntime implements AgentRuntime {
     this.running = true;
     this.currentTurnId = input.turnId;
     this.turnSink = input.onEvent;
+    this.waitingForTurnPromptStart = true;
 
     const activeTools = this.agent.state.tools.map((tool) => tool.name);
 
@@ -202,94 +205,89 @@ export class AgentCoreRuntime implements AgentRuntime {
       this.running = false;
       this.currentTurnId = null;
       this.turnSink = null;
+      this.waitingForTurnPromptStart = false;
+      this.clearPendingQueue();
     }
   }
 
-  async steer(text: string): Promise<void> {
+  async steer(input: AgentRuntimeQueueMessageInput): Promise<void> {
+    const item = this.buildPendingItem('steer', input);
+    this.putPending(item, 'append');
     this.agent.steer({
       role: 'user',
-      content: text,
+      content: item.runtimeText,
       timestamp: Date.now(),
     });
 
     await this.emit({
       type: 'queue.updated',
       payload: {
+        queueAction: 'queued',
+        clientMessageId: item.clientMessageId,
         mode: 'steer',
-        text,
+        text: item.text,
       },
     });
   }
 
-  async followUp(text: string): Promise<void> {
+  async followUp(input: AgentRuntimeQueueMessageInput): Promise<void> {
+    const item = this.buildPendingItem('follow-up', input);
+    this.putPending(item, 'append');
     this.agent.followUp({
       role: 'user',
-      content: text,
+      content: item.runtimeText,
       timestamp: Date.now(),
     });
 
     await this.emit({
       type: 'queue.updated',
       payload: {
+        queueAction: 'queued',
+        clientMessageId: item.clientMessageId,
         mode: 'follow-up',
-        text,
+        text: item.text,
       },
     });
   }
 
-  async promoteFollowUpToSteer(
-    text: string,
-    queueIndex?: number,
-  ): Promise<boolean> {
-    const agentAny = this.agent as any;
-    const steeringQueue = Array.isArray(agentAny?.steeringQueue)
-      ? [...(agentAny.steeringQueue as unknown[])]
-      : [];
-    const followUpQueue = Array.isArray(agentAny?.followUpQueue)
-      ? [...(agentAny.followUpQueue as unknown[])]
-      : [];
-
-    if (typeof agentAny?.clearAllQueues === 'function') {
-      agentAny.clearAllQueues();
+  async promoteFollowUpToSteer(input: {
+    clientMessageId: string;
+  }): Promise<boolean> {
+    const clientMessageId = input.clientMessageId;
+    const index = this.followUpQueueIds.findIndex((id) => id === clientMessageId);
+    if (index < 0) {
+      return false;
     }
 
-    let removed = false;
-    let removeIndex = -1;
-
-    if (
-      typeof queueIndex === 'number' &&
-      Number.isInteger(queueIndex) &&
-      queueIndex >= 0 &&
-      queueIndex < followUpQueue.length &&
-      extractQueuedMessageText(followUpQueue[queueIndex]) === text
-    ) {
-      removeIndex = queueIndex;
-      removed = true;
-    } else {
-      removeIndex = followUpQueue.findIndex(
-        (message) => extractQueuedMessageText(message) === text,
-      );
-      removed = removeIndex >= 0;
+    this.followUpQueueIds.splice(index, 1);
+    const item = this.pendingById.get(clientMessageId);
+    if (!item) {
+      return false;
     }
 
-    const remainingFollowUps = followUpQueue.filter(
-      (_message, index) => index !== removeIndex,
-    );
+    item.mode = 'steer';
+    item.promotedFromFollowUp = true;
+    this.steeringQueueIds = this.steeringQueueIds.filter((id) => id !== clientMessageId);
+    this.steeringQueueIds.unshift(clientMessageId);
+    this.rebuildUnderlyingQueue();
 
-    for (const message of steeringQueue) {
-      this.agent.steer(message as any);
-    }
+    await this.emit({
+      type: 'queue.updated',
+      payload: {
+        queueAction: 'promoted',
+        clientMessageId: item.clientMessageId,
+        mode: 'steer',
+        text: item.text,
+        promotedFromFollowUp: true,
+      },
+    });
 
-    for (const message of remainingFollowUps) {
-      this.agent.followUp(message as any);
-    }
-
-    await this.steer(text);
-    return removed;
+    return true;
   }
 
   async abort(): Promise<void> {
     this.agent.abort();
+    this.clearPendingQueue();
     await this.emit({
       type: 'session.aborted',
       payload: {
@@ -307,6 +305,31 @@ export class AgentCoreRuntime implements AgentRuntime {
 
   private bindEvents(): void {
     this.unsub = this.agent.subscribe(async (event: any) => {
+      if (event?.type === 'message_start' && event?.message?.role === 'user') {
+        if (this.waitingForTurnPromptStart) {
+          this.waitingForTurnPromptStart = false;
+          return;
+        }
+
+        const applied = this.consumeNextPending();
+        if (applied) {
+          await this.emit({
+            type: applied.mode === 'steer' ? 'steer.applied' : 'followup.applied',
+            payload: {
+              clientMessageId: applied.clientMessageId,
+              text: applied.text,
+              mode: applied.mode,
+              mentions: applied.mentions,
+              mentionDrops: applied.mentionDrops,
+              queuedAt: applied.createdAt,
+              appliedAt: nowIso(),
+              promotedFromFollowUp: applied.promotedFromFollowUp,
+            },
+          });
+        }
+        return;
+      }
+
       if (event?.type === 'message_update') {
         const assistantEvent = event.assistantMessageEvent as
           | { type?: string; delta?: string }
@@ -333,6 +356,95 @@ export class AgentCoreRuntime implements AgentRuntime {
         });
       }
     });
+  }
+
+  private buildPendingItem(
+    mode: PendingQueueMode,
+    input: AgentRuntimeQueueMessageInput,
+  ): PendingQueueItem {
+    return {
+      clientMessageId: input.clientMessageId,
+      mode,
+      text: input.text,
+      runtimeText: input.runtimeText,
+      mentions: Array.isArray(input.mentions) ? input.mentions : [],
+      mentionDrops: Array.isArray(input.mentionDrops) ? input.mentionDrops : [],
+      createdAt: nowIso(),
+      promotedFromFollowUp: false,
+    };
+  }
+
+  private putPending(
+    item: PendingQueueItem,
+    position: 'append' | 'prepend',
+  ): void {
+    if (this.pendingById.has(item.clientMessageId)) {
+      return;
+    }
+
+    this.pendingById.set(item.clientMessageId, item);
+    if (item.mode === 'steer') {
+      if (position === 'prepend') {
+        this.steeringQueueIds.unshift(item.clientMessageId);
+      } else {
+        this.steeringQueueIds.push(item.clientMessageId);
+      }
+      return;
+    }
+    this.followUpQueueIds.push(item.clientMessageId);
+  }
+
+  private consumeNextPending(): PendingQueueItem | null {
+    const steerId = this.steeringQueueIds.shift();
+    if (steerId) {
+      return this.takePending(steerId);
+    }
+
+    const followUpId = this.followUpQueueIds.shift();
+    if (followUpId) {
+      return this.takePending(followUpId);
+    }
+    return null;
+  }
+
+  private takePending(clientMessageId: string): PendingQueueItem | null {
+    const item = this.pendingById.get(clientMessageId);
+    if (!item) return null;
+    this.pendingById.delete(clientMessageId);
+    return item;
+  }
+
+  private rebuildUnderlyingQueue(): void {
+    const agentAny = this.agent as any;
+    if (typeof agentAny?.clearAllQueues === 'function') {
+      agentAny.clearAllQueues();
+    }
+
+    for (const id of this.steeringQueueIds) {
+      const item = this.pendingById.get(id);
+      if (!item) continue;
+      this.agent.steer({
+        role: 'user',
+        content: item.runtimeText,
+        timestamp: Date.now(),
+      });
+    }
+
+    for (const id of this.followUpQueueIds) {
+      const item = this.pendingById.get(id);
+      if (!item) continue;
+      this.agent.followUp({
+        role: 'user',
+        content: item.runtimeText,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private clearPendingQueue(): void {
+    this.pendingById.clear();
+    this.steeringQueueIds = [];
+    this.followUpQueueIds = [];
   }
 
   private async emit(input: {
