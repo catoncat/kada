@@ -74,3 +74,20 @@
 ```ts
 import { cn } from '@/lib/utils';
 ```
+
+## Agent Chat ToolResult 交互规范
+
+适用范围：`/workspace` 聊天区 `toolResult` 展示层。
+
+1. 流式过程区只允许“高度上限”而非固定高度：  
+   `max-height: clamp(84px, 22vh, 168px)` + `overflow-y: auto`。
+2. 流式过程结束后采用短暂收敛（约 `300~500ms`）后隐藏，不长期占据消息区。
+3. 过程行样式保持克制，仅展示“状态点 + 文本”，禁止额外解释性标签。
+4. 行文本需要去噪：
+   - 相邻重复行去重
+   - 多空白折叠
+   - 超长文本截断（保留关键信息）
+5. 折叠详情默认展示可读文本（key-value / 短段落），不默认展示 raw JSON 树。
+6. 字段优先级固定：
+   - 摘要：`enhancedSummary > summary > fallback`
+   - 详情：`enhancedDetail > readableDetail > fallback`

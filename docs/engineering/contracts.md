@@ -378,3 +378,63 @@ Sidecar 在调用 runtime 前将 mentions 解析为结构化上下文块并拼�
 
 1. 前端消息展示仍使用原始 `text`，不展示注入块。
 2. 注入块为内部执行协议，可随实现演进但需保持“可观测 + 可降级”。
+
+## 9) ToolResult 可读化契约（Rule First + AI Overlay）
+
+> 适用范围：`tool.result`/`tool.result.enhanced` 与会话详情聚合返回。
+
+### 9.1 能力声明
+
+`GET /api/agent/capabilities` 增加：
+
+```json
+{
+  "toolResultEnhancement": true
+}
+```
+
+### 9.2 事件契约
+
+新增事件类型：
+
+- `tool.result.enhanced`
+
+事件 payload 最小字段：
+
+```json
+{
+  "entryId": "agent_entry_id",
+  "enhancedVersion": 1,
+  "enhancedAt": "2026-02-16T10:00:00.000Z"
+}
+```
+
+### 9.3 `toolResult` payload 合并字段（读取态）
+
+保留兼容字段：
+
+- `summary`
+- `readableDetail`
+- `readableVersion`
+
+新增增强字段：
+
+- `enhancedSummary`
+- `enhancedDetail`
+- `enhancedConfidence`
+- `enhancedAt`
+- `enhancedVersion`
+
+可选诊断字段：
+
+- `enhancedModel`
+- `enhancedReason`
+- `enhancementStatus`
+- `enhancementLatencyMs`
+- `enhancementError`
+
+### 9.4 前端读取优先级（强约束）
+
+1. 摘要：`enhancedSummary > summary > fallback(raw)`
+2. 详情：`enhancedDetail > readableDetail > fallback(raw)`
+3. 默认不展示 raw JSON；仅开发态或极端 fallback 才显示。

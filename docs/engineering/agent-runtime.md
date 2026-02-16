@@ -107,6 +107,7 @@
 - `tool.call`
 - `tool.progress`
 - `tool.result`
+- `tool.result.enhanced`
 - `photo.task.created`
 - `photo.task.updated`
 - `photo.ready`
@@ -122,6 +123,8 @@
 - 每个会话内 `seq` 单调递增（可断线续播）
 - `assistant.completed` 会写入 `agent_entries`
 - `tool.result` 会写入 `agent_entries`
+- `tool.result` 同步写入规则可读层（`agent_toolresult_readability`）并按条件异步入队增强任务
+- `tool.result.enhanced` 仅写事件，不改写 `agent_entries` 原始 payload（读取时 merge）
 - `photo.ready` / `copy.ready` 会写入 `agent_outputs`
 
 ## 6. 数据模型
@@ -146,6 +149,22 @@
 - `id`, `session_id`, `turn_id`, `kind`, `ref_id`, `content_json`, `created_at`
 - `photo` 通过 `ref_id` 关联 artifact
 - `copy` 直接落结构化内容
+
+### 6.5 `agent_toolresult_readability`
+
+- `id`, `entry_id(unique)`, `session_id`, `turn_id`, `tool_call_id`
+- `source_hash`, `source_size`
+- `rule_summary`, `rule_detail`
+- `enhanced_summary`, `enhanced_detail`, `enhanced_confidence`
+- `enhanced_model`, `enhanced_reason`
+- `status(pending|completed|failed|skipped)`, `latency_ms`, `error`
+- `created_at`, `updated_at`
+
+约束：
+
+1. `agent_entries(entryType='toolResult')` 作为事实层，不做就地改写。
+2. 可读层通过 `entry_id` 关联，前端读取时按优先级合并。
+3. 增强失败或超时回退规则层，不阻断主会话流。
 
 ## 7. 工具命名约束（重要）
 
@@ -215,6 +234,7 @@ OpenAI 兼容工具名需匹配：`^[a-zA-Z0-9_-]+$`。
 
 - 主消息流 + 工具时间线 + 右侧产物栏（photo/copy）
 - 断线后优先走 events cursor 增量补齐
+- `tool.result.enhanced` 到达后仅触发当前会话局部刷新（debounce），不打断输入态
 
 ## 11. 调试与验收（最小手册）
 
