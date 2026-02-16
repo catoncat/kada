@@ -4,6 +4,7 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
+  Copy,
   Image as ImageIcon,
   Loader2,
   Plus,
@@ -82,6 +83,33 @@ function statusLabel(status: string): string {
   if (status === 'failed') return '失败';
   if (status === 'aborted') return '空闲';
   return '空闲';
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  if (!copied) {
+    throw new Error('当前环境不支持剪贴板写入');
+  }
 }
 
 export function AgentShell() {
@@ -338,6 +366,15 @@ export function AgentShell() {
         setActiveSessionId(sessionId);
       }
       setErrorText(error instanceof Error ? error.message : '删除会话失败');
+    }
+  };
+
+  const handleCopySessionId = async (sessionId: string) => {
+    try {
+      await copyToClipboard(sessionId);
+      setErrorText(null);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : '复制 Chat ID 失败');
     }
   };
 
@@ -619,6 +656,11 @@ export function AgentShell() {
         </ContextMenuTrigger>
 
         <ContextMenuPopup>
+          <ContextMenuItem onClick={() => void handleCopySessionId(session.id)}>
+            <Copy className="h-4 w-4" />
+            复制 Chat ID
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => void handleArchiveSession(session.id, !isArchived)}
           >
