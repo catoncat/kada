@@ -1,6 +1,10 @@
 import { apiUrl } from '@/lib/api-config';
 import type {
+  AgentMention,
+  AgentMentionImageRef,
+  AgentMentionKind,
   AgentOutput,
+  AgentResourceSearchItem,
   AgentSessionDetail,
   AgentSessionSummary,
   AgentTurnStreamChunk,
@@ -128,11 +132,12 @@ export async function deleteAgentSession(sessionId: string): Promise<void> {
 export async function steerAgentSession(
   sessionId: string,
   text: string,
+  mentions?: AgentMention[],
 ): Promise<void> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/steer`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, mentions }),
   });
   const data = await readJson(res);
   if (!res.ok) {
@@ -143,18 +148,38 @@ export async function steerAgentSession(
 export async function followUpAgentSession(
   sessionId: string,
   text: string,
+  mentions?: AgentMention[],
 ): Promise<void> {
   const res = await fetch(
     apiUrl(`/api/agent/sessions/${sessionId}/follow-up`),
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, mentions }),
     },
   );
   const data = await readJson(res);
   if (!res.ok) {
     throw toApiError(res, data, 'Follow-up 失败');
+  }
+}
+
+export async function promoteFollowUpToSteerAgentSession(
+  sessionId: string,
+  text: string,
+  queueIndex?: number,
+): Promise<void> {
+  const res = await fetch(
+    apiUrl(`/api/agent/sessions/${sessionId}/follow-up/promote`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, queueIndex }),
+    },
+  );
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, 'Follow-up 插入失败');
   }
 }
 
@@ -260,6 +285,7 @@ function parseSseChunk(chunk: string): AgentTurnStreamChunk[] {
 export async function streamAgentTurn(input: {
   sessionId: string;
   text: string;
+  mentions?: AgentMention[];
   signal?: AbortSignal;
   onEvent: (chunk: AgentTurnStreamChunk) => void;
 }): Promise<void> {
@@ -268,7 +294,7 @@ export async function streamAgentTurn(input: {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: input.text }),
+      body: JSON.stringify({ text: input.text, mentions: input.mentions }),
       signal: input.signal,
     },
   );
@@ -311,4 +337,57 @@ export async function streamAgentTurn(input: {
       input.onEvent(chunk);
     }
   }
+}
+
+export async function searchAgentResources(input: {
+  q: string;
+  kinds?: AgentMentionKind[];
+  limit?: number;
+}): Promise<{ data: AgentResourceSearchItem[]; total: number }> {
+  const params = new URLSearchParams();
+  params.set('q', input.q || '');
+  if (Array.isArray(input.kinds) && input.kinds.length > 0) {
+    params.set('kinds', input.kinds.join(','));
+  }
+  if (typeof input.limit === 'number' && Number.isFinite(input.limit)) {
+    params.set('limit', String(Math.max(1, Math.floor(input.limit))));
+  }
+
+  const res = await fetch(apiUrl(`/api/agent/resources/search?${params.toString()}`));
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, 'Agent 资源搜索失败');
+  }
+
+  return data as { data: AgentResourceSearchItem[]; total: number };
+}
+
+export async function listAgentResourceImages(input: {
+  kind: AgentMentionKind;
+  id: string;
+  limit?: number;
+}): Promise<{
+  data: AgentMentionImageRef[];
+  total: number;
+  resourceTitle?: string | null;
+}> {
+  const params = new URLSearchParams();
+  if (typeof input.limit === 'number' && Number.isFinite(input.limit)) {
+    params.set('limit', String(Math.max(1, Math.floor(input.limit))));
+  }
+
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(
+    apiUrl(`/api/agent/resources/${input.kind}/${input.id}/images${suffix}`),
+  );
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, 'Agent 资源图片加载失败');
+  }
+
+  return data as {
+    data: AgentMentionImageRef[];
+    total: number;
+    resourceTitle?: string | null;
+  };
 }

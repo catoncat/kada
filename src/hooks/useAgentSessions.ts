@@ -7,10 +7,11 @@ import {
   getAgentSession,
   listAgentOutputs,
   listAgentSessions,
+  promoteFollowUpToSteerAgentSession,
   steerAgentSession,
   updateAgentSession,
 } from '@/lib/agent-api';
-import type { AgentSessionSummary } from '@/types/agent';
+import type { AgentMention, AgentSessionSummary } from '@/types/agent';
 
 interface QueryOptions {
   enabled?: boolean;
@@ -132,15 +133,43 @@ export function useDeleteAgentSession() {
 
 export function useSteerAgentSession() {
   return useMutation({
-    mutationFn: ({ sessionId, text }: { sessionId: string; text: string }) =>
-      steerAgentSession(sessionId, text),
+    mutationFn: ({
+      sessionId,
+      text,
+      mentions,
+    }: {
+      sessionId: string;
+      text: string;
+      mentions?: AgentMention[];
+    }) => steerAgentSession(sessionId, text, mentions),
   });
 }
 
 export function useFollowUpAgentSession() {
   return useMutation({
-    mutationFn: ({ sessionId, text }: { sessionId: string; text: string }) =>
-      followUpAgentSession(sessionId, text),
+    mutationFn: ({
+      sessionId,
+      text,
+      mentions,
+    }: {
+      sessionId: string;
+      text: string;
+      mentions?: AgentMention[];
+    }) => followUpAgentSession(sessionId, text, mentions),
+  });
+}
+
+export function usePromoteFollowUpToSteerAgentSession() {
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      text,
+      queueIndex,
+    }: {
+      sessionId: string;
+      text: string;
+      queueIndex?: number;
+    }) => promoteFollowUpToSteerAgentSession(sessionId, text, queueIndex),
   });
 }
 

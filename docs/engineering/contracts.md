@@ -293,3 +293,88 @@ Provider 在前端 localStorage 存储，并在每次请求时随 body 发送给
   - 返回任务列表
   - 查看同来源最近任务
   - 跳转来源页面
+
+## 8) Agent Chat Mentions 契约（`@` 资源引用）
+
+> 适用范围：`/workspace` 的 AgentShell 输入链路。
+
+### 8.1 Mention 类型
+
+```json
+{
+  "kind": "project | scene | model | image",
+  "mentionId": "mnt_xxx",
+  "resourceId": "string",
+  "resourceTitle": "string",
+  "images": [
+    {
+      "id": "img_xxx",
+      "kind": "image | scene | model | project",
+      "resourceId": "string",
+      "filePath": "/uploads/xxx.jpg",
+      "label": "可选展示文案"
+    }
+  ]
+}
+```
+
+字段说明：
+
+- `kind`：被引用资源的类型。
+- `mentionId`：输入层 token 的实例 ID（同一资源可多次出现，mentionId 不同）。
+- `resourceId`：资源实体 ID。
+- `resourceTitle`：发送时用于结构化上下文展示。
+- `images`：该 mention 绑定的参考图片列表（可空）。
+
+### 8.2 发送契约（turn/steer/follow-up）
+
+三个接口 body 统一扩展为：
+
+```json
+{
+  "text": "用户可见文本",
+  "mentions": [
+    {
+      "kind": "scene",
+      "mentionId": "mnt_1",
+      "resourceId": "scene_123",
+      "resourceTitle": "木质客厅场景",
+      "images": [
+        {
+          "id": "ga_001",
+          "kind": "image",
+          "resourceId": "ga_001",
+          "filePath": "/uploads/a.jpg"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 8.3 降级规则（硬性）
+
+1. 资源不存在：丢弃该 mention。
+2. 图片不存在/不可读：丢弃该图片。
+3. mention 全部失效：按纯文本 `text` 执行。
+4. 任一降级不得阻断发送，不返回 4xx。
+
+### 8.4 Runtime 注入格式
+
+Sidecar 在调用 runtime 前将 mentions 解析为结构化上下文块并拼接到输入（仅执行链路）：
+
+```text
+[MENTIONS_CONTEXT]
+- mention: mnt_1
+  kind: scene
+  resourceId: scene_123
+  title: 木质客厅场景
+  images:
+    - /uploads/a.jpg
+[/MENTIONS_CONTEXT]
+```
+
+约束：
+
+1. 前端消息展示仍使用原始 `text`，不展示注入块。
+2. 注入块为内部执行协议，可随实现演进但需保持“可观测 + 可降级”。

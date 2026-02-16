@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { streamAgentTurn } from '@/lib/agent-api';
-import type { AgentTurnStreamChunk } from '@/types/agent';
+import type { AgentMention, AgentTurnStreamChunk } from '@/types/agent';
 
 export function useAgentTurnStream() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -17,6 +17,7 @@ export function useAgentTurnStream() {
     async (input: {
       sessionId: string;
       text: string;
+      mentions?: AgentMention[];
       onEvent: (chunk: AgentTurnStreamChunk) => void;
     }) => {
       if (isStreaming) {
@@ -31,6 +32,7 @@ export function useAgentTurnStream() {
         await streamAgentTurn({
           sessionId: input.sessionId,
           text: input.text,
+          mentions: input.mentions,
           signal: controller.signal,
           onEvent: input.onEvent,
         });

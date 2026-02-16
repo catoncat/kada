@@ -1,5 +1,30 @@
 export type AgentEngine = 'coding-agent' | 'agent-core';
 export type AgentSessionStatus = 'idle' | 'running' | 'failed' | 'aborted';
+export type AgentMentionKind = 'project' | 'scene' | 'model' | 'image';
+
+export interface AgentMentionImageRef {
+  id: string;
+  kind: AgentMentionKind;
+  resourceId: string;
+  filePath: string;
+  label?: string;
+}
+
+export interface AgentMention {
+  mentionId: string;
+  kind: AgentMentionKind;
+  resourceId: string;
+  resourceTitle: string;
+  images?: AgentMentionImageRef[];
+}
+
+export interface AgentResourceSearchItem {
+  kind: AgentMentionKind;
+  id: string;
+  title: string;
+  subtitle: string;
+  image: string | null;
+}
 
 export interface AgentSessionSummary {
   id: string;

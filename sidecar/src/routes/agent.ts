@@ -4,6 +4,14 @@ import { Hono } from 'hono';
 import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
 import { RuntimeRouter } from '../agent/runtime/runtime-router';
 import {
+  buildAgentMentionsContextBlock,
+  isAgentMentionKind,
+  listAgentResourceImages,
+  parseAgentMentionKinds,
+  resolveAgentMentionsForRuntime,
+  searchAgentResources,
+} from '../services/agent-resource-search';
+import {
   appendAgentEvent,
   getLatestAgentEventCursor,
   listAgentEvents,
@@ -19,6 +27,7 @@ import {
   listAgentEntries,
   listAgentOutputs,
   listAgentSessionRecords,
+  touchAgentSessionTurn,
   updateAgentSessionRecord,
 } from '../services/agent-session-store';
 
@@ -33,6 +42,16 @@ function toError(message: string, code: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function parsePositiveInt(
+  value: string | null | undefined,
+  fallback: number,
+): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, parsed);
 }
 
 function eventToOutputKind(type: string): AgentOutputKind | null {
@@ -59,6 +78,40 @@ function extractOutputRefId(type: string, payload: unknown): string | null {
 
   return null;
 }
+
+agentRoutes.get('/resources/search', async (c) => {
+  const q = c.req.query('q') || '';
+  const kinds = parseAgentMentionKinds(c.req.query('kinds'));
+  const limit = parsePositiveInt(c.req.query('limit'), 20);
+  const data = await searchAgentResources({ q, kinds, limit });
+  return c.json({ data, total: data.length });
+});
+
+agentRoutes.get('/resources/:kind/:id/images', async (c) => {
+  const kindRaw = c.req.param('kind');
+  if (!isAgentMentionKind(kindRaw)) {
+    return c.json(toError('资源类型不支持。', 'INVALID_KIND'), 400);
+  }
+
+  const id = c.req.param('id');
+  const limit = parsePositiveInt(c.req.query('limit'), 40);
+
+  const result = await listAgentResourceImages({
+    kind: kindRaw,
+    id,
+    limit,
+  });
+
+  if (!result.found) {
+    return c.json(toError('资源不存在。', 'RESOURCE_NOT_FOUND'), 404);
+  }
+
+  return c.json({
+    data: result.data,
+    total: result.data.length,
+    resourceTitle: result.resourceTitle,
+  });
+});
 
 agentRoutes.get('/sessions', async (c) => {
   const data = await listAgentSessionRecords();
@@ -184,6 +237,8 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const rawMentions =
+    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('消息不能为空。', 'INVALID_PAYLOAD'), 400);
@@ -200,6 +255,12 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
     );
   }
 
+  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+  const mentionsContext = buildAgentMentionsContextBlock(
+    mentionsResolution.mentions,
+  );
+  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
   const turnId = randomUUID();
   await appendAgentEntry({
     sessionId,
@@ -207,6 +268,8 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
     payload: {
       text,
       turnId,
+      mentions: mentionsResolution.mentions,
+      mentionDrops: mentionsResolution.dropped,
     },
   });
 
@@ -288,7 +351,7 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
       };
 
       runtimeRouter
-        .runTurn(sessionId, turnId, text, onRuntimeEvent)
+        .runTurn(sessionId, turnId, runtimeText, onRuntimeEvent)
         .then(closeStream)
         .catch(async (error) => {
           const message = error instanceof Error ? error.message : '执行失败';
@@ -336,6 +399,8 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const rawMentions =
+    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('steer 文本不能为空。', 'INVALID_PAYLOAD'), 400);
@@ -363,14 +428,37 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
     );
   }
 
-  await runtimeRouter.steer(sessionId, text);
-  return c.json({ success: true });
+  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+  const mentionsContext = buildAgentMentionsContextBlock(
+    mentionsResolution.mentions,
+  );
+  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
+  await runtimeRouter.steer(sessionId, runtimeText);
+  await appendAgentEntry({
+    sessionId,
+    entryType: 'user',
+    payload: {
+      text,
+      mode: 'steer',
+      mentions: mentionsResolution.mentions,
+      mentionDrops: mentionsResolution.dropped,
+    },
+  });
+  await touchAgentSessionTurn(sessionId);
+  return c.json({
+    success: true,
+    mentionsResolved: mentionsResolution.mentions.length,
+    mentionsDropped: mentionsResolution.dropped.length,
+  });
 });
 
 agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const rawMentions =
+    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
 
   if (!text) {
     return c.json(toError('follow-up 文本不能为空。', 'INVALID_PAYLOAD'), 400);
@@ -398,8 +486,78 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
     );
   }
 
-  await runtimeRouter.followUp(sessionId, text);
-  return c.json({ success: true });
+  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+  const mentionsContext = buildAgentMentionsContextBlock(
+    mentionsResolution.mentions,
+  );
+  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
+  await runtimeRouter.followUp(sessionId, runtimeText);
+  await touchAgentSessionTurn(sessionId);
+  return c.json({
+    success: true,
+    mentionsResolved: mentionsResolution.mentions.length,
+    mentionsDropped: mentionsResolution.dropped.length,
+  });
+});
+
+agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
+  const sessionId = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const queueIndex =
+    typeof body?.queueIndex === 'number' &&
+    Number.isInteger(body.queueIndex) &&
+    body.queueIndex >= 0
+      ? body.queueIndex
+      : undefined;
+
+  if (!text) {
+    return c.json(
+      toError('promote follow-up 文本不能为空。', 'INVALID_PAYLOAD'),
+      400,
+    );
+  }
+
+  const session = await getAgentSessionRecord(sessionId);
+  if (!session) {
+    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+  if (session.archivedAt) {
+    return c.json(
+      toError('会话已归档，无法执行 follow-up promote。', 'SESSION_ARCHIVED'),
+      409,
+    );
+  }
+
+  const running = await runtimeRouter.isRunning(sessionId);
+  if (!running) {
+    return c.json(
+      toError(
+        '当前会话没有执行中的 turn，无法执行 follow-up promote。',
+        'SESSION_NOT_RUNNING',
+      ),
+      409,
+    );
+  }
+
+  const removed = await runtimeRouter.promoteFollowUpToSteer(
+    sessionId,
+    text,
+    queueIndex,
+  );
+  await appendAgentEntry({
+    sessionId,
+    entryType: 'user',
+    payload: {
+      text,
+      mode: 'steer',
+      promotedFromFollowUp: removed,
+    },
+  });
+  await touchAgentSessionTurn(sessionId);
+
+  return c.json({ success: true, removed });
 });
 
 agentRoutes.post('/sessions/:id/abort', async (c) => {

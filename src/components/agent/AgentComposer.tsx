@@ -1,12 +1,24 @@
 import { ArrowUp, CornerUpRight, Loader2, StopCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MentionComposer, type MentionComposerValue } from '@/components/agent/mention';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import type { AgentMention } from '@/types/agent';
 
 interface QueuedFollowUpItem {
   id: string;
   text: string;
 }
+
+export interface AgentComposerSubmitPayload {
+  text: string;
+  mentions?: AgentMention[];
+}
+
+const EMPTY_DRAFT: MentionComposerValue = {
+  markup: '',
+  text: '',
+  mentions: [],
+};
 
 export function AgentComposer({
   disabled,
@@ -29,19 +41,19 @@ export function AgentComposer({
   abortPending?: boolean;
   queuedFollowUps?: QueuedFollowUpItem[];
   focusKey?: string | null;
-  onSend: (text: string) => Promise<void>;
-  onSteer: (text: string) => Promise<void>;
-  onFollowUp: (text: string) => Promise<void>;
+  onSend: (payload: AgentComposerSubmitPayload) => Promise<void>;
+  onSteer: (payload: AgentComposerSubmitPayload) => Promise<void>;
+  onFollowUp: (payload: AgentComposerSubmitPayload) => Promise<void>;
   onSteerQueuedFollowUp?: (itemId: string, text: string) => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
-  const [input, setInput] = useState('');
+  const [draft, setDraft] = useState<MentionComposerValue>(EMPTY_DRAFT);
   const [submittingAction, setSubmittingAction] = useState<
     'send' | 'steer' | 'follow-up' | 'abort' | null
   >(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const text = input.trim();
+  const text = draft.text.trim();
   // sending 阶段只在“尚未进入 streaming”时阻塞，进入 streaming 后应允许继续排队/steer
   const submitting =
     submittingAction !== null && !(submittingAction === 'send' && streaming);
@@ -67,8 +79,18 @@ export function AgentComposer({
       return {
         action: 'send' as const,
         handler: onSend,
-        value: text,
+        payload: {
+          text,
+          mentions: draft.mentions,
+        },
         label: '发送任务',
+      };
+    }
+
+    if (!text) {
+      return {
+        action: 'abort' as const,
+        label: '打断执行',
       };
     }
 
@@ -77,7 +99,10 @@ export function AgentComposer({
       return {
         action: 'steer' as const,
         handler: onSteer,
-        value: content,
+        payload: {
+          text: content,
+          mentions: draft.mentions,
+        },
         label: '立即 Steer',
       };
     }
@@ -85,25 +110,42 @@ export function AgentComposer({
     return {
       action: 'follow-up' as const,
       handler: onFollowUp,
-      value: text,
+      payload: {
+        text,
+        mentions: draft.mentions,
+      },
       label: '继续（Follow-up）',
     };
-  }, [onFollowUp, onSend, onSteer, streaming, text]);
+  }, [draft.mentions, onFollowUp, onSend, onSteer, streaming, text]);
+
+  const primaryDisabled =
+    primaryAction.action === 'abort'
+      ? Boolean(disabled) ||
+        Boolean(abortPending) ||
+        submittingAction === 'abort'
+      : !primaryAction.payload.text.trim() || anyPending;
 
   const run = async (
     action: 'send' | 'steer' | 'follow-up',
-    fn: (value: string) => Promise<void>,
-    value: string,
+    fn: (payload: AgentComposerSubmitPayload) => Promise<void>,
+    payload: AgentComposerSubmitPayload,
   ) => {
-    const normalized = value.trim();
+    const normalized = payload.text.trim();
+    const mentions = Array.isArray(payload.mentions)
+      ? payload.mentions
+      : undefined;
     if (!normalized || anyPending) return;
 
-    setInput('');
+    const prevDraft = draft;
+    setDraft(EMPTY_DRAFT);
     setSubmittingAction(action);
     try {
-      await fn(normalized);
+      await fn({
+        text: normalized,
+        mentions: mentions?.length ? mentions : undefined,
+      });
     } catch (error) {
-      setInput(normalized);
+      setDraft(prevDraft);
       throw error;
     } finally {
       setSubmittingAction(null);
@@ -125,6 +167,16 @@ export function AgentComposer({
     } finally {
       setSubmittingAction(null);
     }
+  };
+
+  const runPrimaryAction = (options?: { allowAbort?: boolean }) => {
+    const allowAbort = options?.allowAbort ?? true;
+    if (primaryAction.action === 'abort') {
+      if (!allowAbort) return;
+      void runAbort();
+      return;
+    }
+    void run(primaryAction.action, primaryAction.handler, primaryAction.payload);
   };
 
   return (
@@ -152,15 +204,17 @@ export function AgentComposer({
       ) : null}
 
       <div className="relative">
-        <Textarea
+        <MentionComposer
           ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          rows={4}
+          value={draft}
+          onChange={setDraft}
           placeholder="输入消息"
           disabled={inputDisabled}
-          style={{ paddingBottom: '3rem' }}
           onKeyDown={(event) => {
+            if (event.defaultPrevented) {
+              return;
+            }
+
             if (event.nativeEvent.isComposing) {
               return;
             }
@@ -173,56 +227,29 @@ export function AgentComposer({
 
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
-              void run(
-                primaryAction.action,
-                primaryAction.handler,
-                primaryAction.value,
-              );
+              if (!text) return;
+              runPrimaryAction({ allowAbort: false });
             }
           }}
         />
 
-        {streaming ? (
-          <Button
-            size="icon-sm"
-            variant="destructive-outline"
-            className="absolute bottom-2 left-2 z-10 rounded-full"
-            disabled={
-              Boolean(disabled) ||
-              Boolean(abortPending) ||
-              submittingAction === 'abort'
-            }
-            onClick={() => void runAbort()}
-            title="打断执行"
-            aria-label="打断执行"
-          >
-            {submittingAction === 'abort' ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <StopCircle className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        ) : null}
-
         <Button
           size="icon"
           className="absolute bottom-2 right-2 z-10 rounded-full"
-          disabled={!text || anyPending}
-          onClick={() => {
-            void run(
-              primaryAction.action,
-              primaryAction.handler,
-              primaryAction.value,
-            );
-          }}
+          disabled={primaryDisabled}
+          onClick={() => runPrimaryAction()}
           title={primaryAction.label}
           aria-label={primaryAction.label}
         >
-          {(streaming &&
+          {(primaryAction.action === 'abort' &&
+            (submittingAction === 'abort' || Boolean(abortPending))) ||
+          (streaming &&
             (submittingAction === 'follow-up' ||
               submittingAction === 'steer')) ||
           (!streaming && submittingAction === 'send') ? (
             <Loader2 className="h-4 w-4 animate-spin" />
+          ) : primaryAction.action === 'abort' ? (
+            <StopCircle className="h-4 w-4" />
           ) : (
             <ArrowUp className="h-4 w-4" />
           )}

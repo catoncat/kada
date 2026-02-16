@@ -123,6 +123,45 @@ Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以
 - `/workspace` 前端路由仍保留，作为 Agent 工作台入口。
 - 会话与流式执行相关能力统一由 `/api/agent/**` 承载。
 
+## Agent（/api/agent）（已实现）
+
+### 会话与流式执行
+
+- `GET /api/agent/sessions` → `{ data, total }`
+- `POST /api/agent/sessions` → `AgentSessionSummary`
+- `GET /api/agent/sessions/:id` → `AgentSessionDetail`
+- `PATCH /api/agent/sessions/:id` → `AgentSessionSummary`
+- `DELETE /api/agent/sessions/:id` → `{ success: true }`
+- `POST /api/agent/sessions/:id/turn`（SSE）
+  - 请求：`{ text: string, mentions?: AgentMention[] }`
+- `POST /api/agent/sessions/:id/steer`
+  - 请求：`{ text: string, mentions?: AgentMention[] }`
+- `POST /api/agent/sessions/:id/follow-up`
+  - 请求：`{ text: string, mentions?: AgentMention[] }`
+- `POST /api/agent/sessions/:id/follow-up/promote`
+  - 请求：`{ text: string, queueIndex?: number }`
+- `POST /api/agent/sessions/:id/abort` → `{ success: true }`
+- `GET /api/agent/sessions/:id/events` → `{ data, cursor, total }`
+- `GET /api/agent/sessions/:id/outputs` → `{ data, total }`
+
+### 资源引用（`@` mentions）
+
+- `GET /api/agent/resources/search?q=&kinds=&limit=`
+  - 说明：按 `project/scene/model/image` 搜索候选，`kinds` 支持逗号分隔过滤
+  - 响应：`{ data: AgentResourceSearchItem[], total }`
+- `GET /api/agent/resources/:kind/:id/images`
+  - 说明：获取该资源可用于 pick 的图片列表
+  - 响应：`{ data: AgentMentionImageRef[], total }`
+
+### mentions 降级策略
+
+发送 `turn/steer/follow-up` 时，Sidecar 会在执行前验证 mentions：
+
+1. 失效资源会被丢弃；
+2. 失效图片会被丢弃；
+3. 若 mentions 全部失效，自动退化为纯文本 `text` 执行；
+4. 降级不阻断发送。
+
 ## AI 网关（/api/ai）（已实现）
 
 这组接口用于直接调用 Provider。Phase A 起，建议 UI 侧把“会产生版本/需要落盘的生成类动作”逐步迁移到 `Tasks + Artifacts` 模型中，而不是长期依赖 base64。
