@@ -24,12 +24,14 @@ export function ChatPanel({
   sending,
   onApplyCard,
   applyingCardId,
+  focusKey,
 }: {
   messages: WorkspaceMessage[];
   onSend: (text: string) => Promise<void>;
   sending: boolean;
   onApplyCard: (card: WorkspaceActionCard) => void;
   applyingCardId: string | null;
+  focusKey?: string | null;
 }) {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -51,8 +53,9 @@ export function ChatPanel({
   });
 
   useEffect(() => {
+    if (!focusKey) return;
     inputRef.current?.focus();
-  }, []);
+  }, [focusKey]);
 
   const handleSubmit = async () => {
     const text = input.trim();

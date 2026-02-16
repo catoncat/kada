@@ -656,6 +656,7 @@ export function WorkspaceShell({
           sending={postMessageMutation.isPending}
           onApplyCard={(card) => void handleApplyCard(card)}
           applyingCardId={applyingCardId}
+          focusKey={activeSessionId}
         />
 
         <input
