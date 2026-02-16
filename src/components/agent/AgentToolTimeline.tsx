@@ -1,6 +1,4 @@
 import { useMemo } from 'react';
-import { CornerUpRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { formatPayloadForDisplay } from '@/lib/agent-display';
 import type { AgentTurnEvent } from '@/types/agent';
 
@@ -11,13 +9,6 @@ interface TimelineItem {
   status: 'running' | 'completed' | 'error' | 'info';
 }
 
-interface QueuedFollowUpItem {
-  id: string;
-  text: string;
-  queuedAt: string;
-  steerSubmitted: boolean;
-}
-
 function toText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean')
@@ -25,22 +16,10 @@ function toText(value: unknown): string {
   return 'unknown';
 }
 
-function toTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString('zh-CN', { hour12: false });
-}
-
 export function AgentToolTimeline({
   events,
-  queuedFollowUps = [],
-  steerDisabled = false,
-  onSteerQueuedFollowUp,
 }: {
   events: AgentTurnEvent[];
-  queuedFollowUps?: QueuedFollowUpItem[];
-  steerDisabled?: boolean;
-  onSteerQueuedFollowUp?: (itemId: string, text: string) => void;
 }) {
   const items = useMemo(() => {
     const rows: TimelineItem[] = [];
@@ -145,45 +124,9 @@ export function AgentToolTimeline({
       <div className="border-b px-4 py-3">
         <h3 className="text-sm font-semibold">工具时间线</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          展示工具调用、生图任务与文案产出过程。
+          调试视图：展示工具调用、生图任务与文案产出过程。
         </p>
       </div>
-
-      {queuedFollowUps.length > 0 ? (
-        <section className="border-b px-3 py-3">
-          <div className="mb-2 text-xs font-medium">排队 Follow-up</div>
-          <div className="space-y-2">
-            {queuedFollowUps.map((item) => (
-              <article key={item.id} className="rounded-lg border p-2 text-xs">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-muted-foreground">
-                    {toTime(item.queuedAt)}
-                  </span>
-                  <Button
-                    size="icon-xs"
-                    variant="outline"
-                    disabled={steerDisabled || item.steerSubmitted}
-                    title="立即 Steer（不会移除原 Follow-up）"
-                    onClick={() =>
-                      onSteerQueuedFollowUp?.(item.id, item.text)
-                    }
-                  >
-                    <CornerUpRight className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <p className="whitespace-pre-wrap break-words text-[11px]">
-                  {item.text}
-                </p>
-                {item.steerSubmitted ? (
-                  <p className="mt-1 text-[10px] text-amber-700">
-                    已追加 steer（原 follow-up 仍会保留执行）
-                  </p>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {items.length === 0 ? (

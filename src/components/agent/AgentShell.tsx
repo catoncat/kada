@@ -1,6 +1,7 @@
 import {
   Archive,
   ArchiveRestore,
+  Bug,
   ChevronDown,
   ChevronRight,
   Loader2,
@@ -58,6 +59,7 @@ export function AgentShell() {
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
   const [events, setEvents] = useState<AgentTurnEvent[]>([]);
   const [streamingAssistantText, setStreamingAssistantText] = useState('');
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -146,6 +148,23 @@ export function AgentShell() {
     createSessionMutation.isPending ||
     Boolean(activeSession?.archivedAt) ||
     abortMutation.isPending;
+
+  const appendOptimisticUserMessage = (text: string): string => {
+    const id = `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    setOptimisticUserMessages((prev) => [
+      ...prev,
+      {
+        id,
+        text,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    return id;
+  };
+
+  const removeOptimisticUserMessage = (id: string) => {
+    setOptimisticUserMessages((prev) => prev.filter((item) => item.id !== id));
+  };
 
   const handleCreateSession = async () => {
     try {
@@ -252,6 +271,7 @@ export function AgentShell() {
     if (event.type === 'turn.completed' || event.type === 'turn.failed') {
       void Promise.all([sessionDetailQuery.refetch(), outputsQuery.refetch()]);
       setQueuedFollowUps([]);
+      setOptimisticUserMessages([]);
       if (event.type === 'turn.completed') {
         setStreamingAssistantText('');
       }
@@ -267,6 +287,7 @@ export function AgentShell() {
 
     if (event.type === 'session.aborted') {
       setQueuedFollowUps([]);
+      setOptimisticUserMessages([]);
       setErrorText('已中断当前会话执行。');
     }
   };
@@ -277,15 +298,7 @@ export function AgentShell() {
       return;
     }
 
-    const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    setOptimisticUserMessages((prev) => [
-      ...prev,
-      {
-        id: optimisticId,
-        text,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    const optimisticId = appendOptimisticUserMessage(text);
 
     setErrorText(null);
     setStreamingAssistantText('');
@@ -302,33 +315,33 @@ export function AgentShell() {
         outputsQuery.refetch(),
         sessionsQuery.refetch(),
       ]);
-      setOptimisticUserMessages((prev) =>
-        prev.filter((item) => item.id !== optimisticId),
-      );
+      removeOptimisticUserMessage(optimisticId);
     } catch (error) {
-      setOptimisticUserMessages((prev) =>
-        prev.filter((item) => item.id !== optimisticId),
-      );
+      removeOptimisticUserMessage(optimisticId);
       setErrorText(error instanceof Error ? error.message : '发送失败');
     }
   };
 
   const handleSteer = async (text: string) => {
     if (!activeSessionId) return;
+    const optimisticId = appendOptimisticUserMessage(text);
     try {
       await steerMutation.mutateAsync({ sessionId: activeSessionId, text });
       setErrorText(null);
     } catch (error) {
+      removeOptimisticUserMessage(optimisticId);
       setErrorText(error instanceof Error ? error.message : 'Steer 失败');
     }
   };
 
   const handleFollowUp = async (text: string) => {
     if (!activeSessionId) return;
+    const optimisticId = appendOptimisticUserMessage(text);
     try {
       await followUpMutation.mutateAsync({ sessionId: activeSessionId, text });
       setErrorText(null);
     } catch (error) {
+      removeOptimisticUserMessage(optimisticId);
       setErrorText(error instanceof Error ? error.message : 'Follow-up 失败');
     }
   };
@@ -359,6 +372,8 @@ export function AgentShell() {
       return;
     }
 
+    const optimisticId = appendOptimisticUserMessage(text);
+
     setQueuedFollowUps((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, steerSubmitted: true } : item,
@@ -369,6 +384,7 @@ export function AgentShell() {
       await steerMutation.mutateAsync({ sessionId: activeSessionId, text });
       setErrorText(null);
     } catch (error) {
+      removeOptimisticUserMessage(optimisticId);
       setQueuedFollowUps((prev) =>
         prev.map((item) =>
           item.id === itemId ? { ...item, steerSubmitted: false } : item,
@@ -505,7 +521,17 @@ export function AgentShell() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="border-b bg-background px-3 py-2 text-xs text-muted-foreground">
-          当前状态：{activeStatus}
+          <div className="flex items-center justify-between gap-2">
+            <span>当前状态：{activeStatus}</span>
+            <Button
+              size="xs"
+              variant={showTimeline ? 'secondary' : 'outline'}
+              onClick={() => setShowTimeline((prev) => !prev)}
+            >
+              <Bug className="mr-1 h-3.5 w-3.5" />
+              {showTimeline ? '隐藏调试时间线' : '显示调试时间线'}
+            </Button>
+          </div>
         </div>
 
         {errorText ? (
@@ -529,21 +555,18 @@ export function AgentShell() {
           steerPending={steerMutation.isPending}
           followUpPending={followUpMutation.isPending}
           abortPending={abortMutation.isPending}
+          queuedFollowUps={queuedFollowUps}
           onSend={handleSend}
           onSteer={handleSteer}
           onFollowUp={handleFollowUp}
+          onSteerQueuedFollowUp={(itemId, text) =>
+            handleSteerQueuedFollowUp(itemId, text)
+          }
           onAbort={handleAbort}
         />
       </div>
 
-      <AgentToolTimeline
-        events={events}
-        queuedFollowUps={queuedFollowUps}
-        steerDisabled={!turnStream.isStreaming || steerMutation.isPending}
-        onSteerQueuedFollowUp={(itemId, text) =>
-          void handleSteerQueuedFollowUp(itemId, text)
-        }
-      />
+      {showTimeline ? <AgentToolTimeline events={events} /> : null}
       <AgentOutputRail outputs={outputs} />
     </div>
   );
