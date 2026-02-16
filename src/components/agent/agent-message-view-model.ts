@@ -41,6 +41,7 @@ export interface AgentSummaryRow {
   detail: string;
   createdAt: string | null;
   level: 'info' | 'error';
+  category?: 'system' | 'tool';
 }
 
 export type AgentMessageListRow = AgentMessageRow | AgentSummaryRow;
@@ -148,6 +149,89 @@ function fallbackMessageText(payload: unknown): string {
   return formatPayloadForDisplay(payload);
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {};
+  return value as Record<string, unknown>;
+}
+
+function firstNonEmptyLine(value: string): string {
+  const line = value
+    .split('\n')
+    .map((item) => item.trim())
+    .find((item) => item.length > 0);
+  return line || '';
+}
+
+function shortId(value: string): string {
+  if (value.length <= 12) return value;
+  return value.slice(0, 8);
+}
+
+function parseJsonString(value: unknown): unknown | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function getToolResultText(result: Record<string, unknown>): string {
+  const content = Array.isArray(result.content) ? result.content : [];
+  for (const item of content) {
+    const row = toRecord(item);
+    if (typeof row.text === 'string' && row.text.trim()) {
+      return row.text.trim();
+    }
+  }
+  if (typeof result.message === 'string' && result.message.trim()) {
+    return result.message.trim();
+  }
+  return '';
+}
+
+function toolResultTitle(payload: unknown): string {
+  const row = toRecord(payload);
+  const toolName =
+    typeof row.toolName === 'string' && row.toolName.trim()
+      ? row.toolName.trim()
+      : 'tool';
+
+  const result = toRecord(row.result);
+  const details = toRecord(result.details);
+  const rawText = getToolResultText(result);
+  const jsonText = parseJsonString(rawText);
+  const parsedText = toRecord(jsonText);
+  const merged = { ...parsedText, ...details };
+
+  if (
+    (toolName === 'photo_enqueue_generation' ||
+      toolName === 'photo_get_generation_status') &&
+    typeof merged.status === 'string'
+  ) {
+    const task =
+      typeof merged.taskId === 'string' ? ` ${shortId(merged.taskId)}` : '';
+    return `${merged.status}${task}`;
+  }
+
+  if (toolName === 'copy_generate_variants') {
+    const titleLine = rawText
+      .split('\n')
+      .map((item) => item.trim())
+      .find((item) => item.startsWith('标题：'));
+    if (titleLine) return sanitizeTextForDisplay(titleLine, 120);
+  }
+
+  const firstLine = firstNonEmptyLine(rawText);
+  if (firstLine) {
+    return sanitizeTextForDisplay(firstLine, 120);
+  }
+
+  return toolName;
+}
+
 export function buildAgentMessageRows(input: {
   entries: AgentEntry[];
   optimisticUserMessages?: OptimisticUserMessage[];
@@ -166,7 +250,13 @@ export function buildAgentMessageRows(input: {
   }
 
   for (const entry of entries) {
-    if (entry.entryType !== 'user' && entry.entryType !== 'assistant') continue;
+    if (
+      entry.entryType !== 'user' &&
+      entry.entryType !== 'assistant' &&
+      entry.entryType !== 'toolResult'
+    ) {
+      continue;
+    }
 
     if (entry.entryType === 'user') {
       const text = extractText(entry.payload) || fallbackMessageText(entry.payload);
@@ -176,6 +266,22 @@ export function buildAgentMessageRows(input: {
         role: 'user',
         text,
         createdAt: entry.createdAt,
+      });
+      continue;
+    }
+
+    if (entry.entryType === 'toolResult') {
+      const row = toRecord(entry.payload);
+      const isError = Boolean(row.isError);
+      const result = toRecord(row.result);
+      rows.push({
+        kind: 'summary',
+        id: `${entry.id}:tool-result`,
+        title: toolResultTitle(entry.payload),
+        detail: formatPayloadForDisplay(result),
+        createdAt: entry.createdAt,
+        level: isError ? 'error' : 'info',
+        category: 'tool',
       });
       continue;
     }
@@ -217,6 +323,7 @@ export function buildAgentMessageRows(input: {
       detail: formatPayloadForDisplay(entry.payload),
       createdAt: entry.createdAt,
       level: summary.level,
+      category: 'system',
     });
   }
 
