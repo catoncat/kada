@@ -254,7 +254,7 @@ export function AgentComposer({
               return;
             }
 
-            if (event.key === 'Enter' && !event.shiftKey) {
+            if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
               event.preventDefault();
               if (!text) return;
               runPrimaryAction({ allowAbort: false });

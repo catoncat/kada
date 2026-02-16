@@ -1,4 +1,5 @@
 import { Loader2, Paperclip } from 'lucide-react';
+import { useHotkey } from '@tanstack/react-hotkeys';
 import {
   forwardRef,
   useCallback,
@@ -18,6 +19,7 @@ import {
 } from 'react-mentions';
 import { Button } from '@/components/ui/button';
 import { listAgentResourceImages, searchAgentResources } from '@/lib/agent-api';
+import { getImageUrl } from '@/lib/scene-assets-api';
 import { cn } from '@/lib/utils';
 import type { AgentMention, AgentMentionImageRef } from '@/types/agent';
 import { MentionPickDialog } from './MentionPickDialog';
@@ -57,6 +59,7 @@ const SUGGESTIONS_HEIGHT_CAP = 320;
 const SUGGESTIONS_EDGE_PADDING = 12;
 const SUGGESTIONS_FALLBACK_HEIGHT = 240;
 const AUTO_BIND_IMAGE_LIMIT = 1;
+type MentionSelectionMode = 'resource-only' | 'primary-image' | 'pick-images';
 
 function MentionSuggestionsContainer({
   children,
@@ -224,6 +227,9 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
     const [autoBindingMentionIds, setAutoBindingMentionIds] = useState<Set<string>>(
       () => new Set(),
     );
+    const selectionModeByTokenIdRef = useRef<Map<string, MentionSelectionMode>>(
+      new Map(),
+    );
 
     const pickTarget = useMemo(
       () =>
@@ -341,6 +347,40 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       [onChange, value.mentions],
     );
 
+    const setTokenSelectionMode = useCallback(
+      (tokenId: string, mode: MentionSelectionMode) => {
+        selectionModeByTokenIdRef.current.set(tokenId, mode);
+      },
+      [],
+    );
+
+    const consumeTokenSelectionMode = useCallback((tokenId: string) => {
+      const mode = selectionModeByTokenIdRef.current.get(tokenId);
+      if (mode) {
+        selectionModeByTokenIdRef.current.delete(tokenId);
+      }
+      return mode;
+    }, []);
+
+    const openPickDialogWithRetry = useCallback(
+      (mentionId: string, retries = 8): void => {
+        const mentionExists = latestValueRef.current.mentions.some(
+          (mention) => mention.mentionId === mentionId,
+        );
+        if (!mentionExists) {
+          if (retries <= 0) return;
+          window.setTimeout(() => {
+            openPickDialogWithRetry(mentionId, retries - 1);
+          }, 40);
+          return;
+        }
+        setPickTargetId(mentionId);
+        setPickReloadKey((prev) => prev + 1);
+        setPickOpen(true);
+      },
+      [],
+    );
+
     const applyMentionImages = useCallback(
       (mentionId: string, images: AgentMentionImageRef[]): boolean => {
         const current = latestValueRef.current;
@@ -397,8 +437,18 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
     const handleMentionAdd = useCallback(
       (id: string | number) => {
         if (disabled) return;
-        const parsed = parseMentionTokenId(String(id));
+        const tokenId = String(id);
+        const parsed = parseMentionTokenId(tokenId);
         if (!parsed) return;
+        const mode =
+          consumeTokenSelectionMode(tokenId) || ('primary-image' as const);
+
+        if (mode === 'pick-images') {
+          openPickDialogWithRetry(parsed.mentionId);
+        }
+        if (mode === 'resource-only') {
+          return;
+        }
 
         setMentionAutoBinding(parsed.mentionId, true);
         void listAgentResourceImages({
@@ -418,7 +468,13 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
             setMentionAutoBinding(parsed.mentionId, false);
           });
       },
-      [applyMentionImagesWithRetry, disabled, setMentionAutoBinding],
+      [
+        applyMentionImagesWithRetry,
+        consumeTokenSelectionMode,
+        disabled,
+        openPickDialogWithRetry,
+        setMentionAutoBinding,
+      ],
     );
 
     const openPickDialog = useCallback((mentionId: string) => {
@@ -426,6 +482,23 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       setPickReloadKey((prev) => prev + 1);
       setPickOpen(true);
     }, []);
+
+    useHotkey(
+      'Alt+Enter',
+      () => {
+        if (disabled) return;
+        const lastMention = latestValueRef.current.mentions.at(-1);
+        if (!lastMention) return;
+        openPickDialog(lastMention.mentionId);
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled,
+        ignoreInputs: false,
+        preventDefault: true,
+        stopPropagation: true,
+      },
+    );
 
     const handlePickOpenChange = useCallback((open: boolean) => {
       setPickOpen(open);
@@ -493,23 +566,58 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
         focused: boolean,
       ) => {
         const item = suggestion as MentionSuggestionData;
+        const tokenId = String(item.id);
+        const assignMode = (mode: MentionSelectionMode) =>
+          setTokenSelectionMode(tokenId, mode);
         return (
           <div
             className={cn(
-              'flex items-center justify-between gap-2 rounded-md px-1',
+              'flex items-start justify-between gap-2 rounded-md px-1',
               focused && 'bg-accent/70',
             )}
           >
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{highlightedDisplay}</p>
               <p className="truncate text-[11px] text-muted-foreground">
                 {AGENT_MENTION_KIND_LABEL[item.kind]} · {item.subtitle}
               </p>
             </div>
+            <div className="flex shrink-0 items-center gap-1 pt-0.5">
+              <button
+                type="button"
+                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  assignMode('resource-only');
+                }}
+              >
+                仅资源
+              </button>
+              <button
+                type="button"
+                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  assignMode('primary-image');
+                }}
+              >
+                主图
+              </button>
+              <button
+                type="button"
+                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  assignMode('pick-images');
+                }}
+              >
+                多图...
+              </button>
+            </div>
           </div>
         );
       },
-      [],
+      [setTokenSelectionMode],
     );
 
     const renderSuggestionsContainer = useCallback(
@@ -574,16 +682,30 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
               const imageCount = mention.images?.length || 0;
               const isPicking =
                 pickOpen && pickTarget?.mentionId === mention.mentionId;
+              const preview = mention.images?.[0];
+              const previewLabel = preview?.label || preview?.filePath || '预览图';
               return (
                 <article
                   key={mention.mentionId}
-                  className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/20 px-2 py-1"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-muted/20 px-2 py-1"
                 >
+                  {preview ? (
+                    <img
+                      src={getImageUrl(preview.filePath)}
+                      alt={previewLabel}
+                      className="h-5 w-5 rounded-full border object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+                      {AGENT_MENTION_KIND_LABEL[mention.kind].slice(0, 1)}
+                    </span>
+                  )}
                   <p className="max-w-[220px] truncate text-xs">
                     {AGENT_MENTION_KIND_LABEL[mention.kind]} · {mention.resourceTitle}
                   </p>
                   <span className="text-[10px] text-muted-foreground">
-                    {imageCount} 图
+                    {imageCount > 0 ? `${imageCount} 图` : '未选图'}
                   </span>
                   <Button
                     size="icon-xs"
