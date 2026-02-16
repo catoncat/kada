@@ -6,6 +6,9 @@ import { Textarea } from '@/components/ui/textarea';
 export function AgentComposer({
   disabled,
   streaming,
+  steerPending,
+  followUpPending,
+  abortPending,
   onSend,
   onSteer,
   onFollowUp,
@@ -13,25 +16,77 @@ export function AgentComposer({
 }: {
   disabled?: boolean;
   streaming: boolean;
+  steerPending?: boolean;
+  followUpPending?: boolean;
+  abortPending?: boolean;
   onSend: (text: string) => Promise<void>;
   onSteer: (text: string) => Promise<void>;
   onFollowUp: (text: string) => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const [input, setInput] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<
+    'send' | 'steer' | 'follow-up' | 'abort' | null
+  >(null);
 
   const text = input.trim();
+  const submitting = submittingAction !== null;
+  const anyPending =
+    submitting ||
+    disabled ||
+    Boolean(steerPending) ||
+    Boolean(followUpPending) ||
+    Boolean(abortPending);
 
-  const run = async (fn: (value: string) => Promise<void>) => {
-    if (!text || disabled || submitting) return;
+  const run = async (
+    action: 'send' | 'steer' | 'follow-up',
+    fn: (value: string) => Promise<void>,
+    value: string,
+  ) => {
+    const normalized = value.trim();
+    if (!normalized || anyPending) return;
 
-    setSubmitting(true);
+    setSubmittingAction(action);
     try {
-      await fn(text);
+      await fn(normalized);
       setInput('');
     } finally {
-      setSubmitting(false);
+      setSubmittingAction(null);
+    }
+  };
+
+  const resolvePrimaryAction = () => {
+    if (!streaming) {
+      return {
+        action: 'send' as const,
+        handler: onSend,
+        value: text,
+      };
+    }
+
+    if (text.startsWith('/steer')) {
+      const content = text.replace(/^\/steer\s*/i, '').trim();
+      return {
+        action: 'steer' as const,
+        handler: onSteer,
+        value: content,
+      };
+    }
+
+    return {
+      action: 'follow-up' as const,
+      handler: onFollowUp,
+      value: text,
+    };
+  };
+
+  const runAbort = async () => {
+    if (anyPending || !streaming) return;
+    setSubmittingAction('abort');
+    try {
+      await onAbort();
+    } finally {
+      setSubmittingAction(null);
     }
   };
 
@@ -41,57 +96,67 @@ export function AgentComposer({
         value={input}
         onChange={(event) => setInput(event.target.value)}
         rows={4}
-        placeholder={streaming ? '可发送 steer/follow-up 指令' : '输入你的任务目标，回车发送'}
-        disabled={disabled || submitting}
+        placeholder={
+          streaming
+            ? '运行中：默认继续消息（follow-up）；输入 /steer 可立即纠偏'
+            : '输入你的任务目标（Enter 发送）'
+        }
+        disabled={anyPending}
         onKeyDown={(event) => {
+          if (event.key === 'Escape' && streaming) {
+            event.preventDefault();
+            void runAbort();
+            return;
+          }
+
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            void run(streaming ? onFollowUp : onSend);
+            const target = resolvePrimaryAction();
+            void run(target.action, target.handler, target.value);
           }
         }}
       />
 
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {streaming
+          ? '默认发送=Follow-up；输入 /steer 开头可立即纠偏；Esc 或“打断执行”可中断。'
+          : '发送会启动一个新回合。'}
+      </p>
+
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          disabled={!text || disabled || submitting || streaming}
-          onClick={() => void run(onSend)}
+          disabled={!text || anyPending}
+          onClick={() => {
+            const target = resolvePrimaryAction();
+            void run(target.action, target.handler, target.value);
+          }}
         >
-          {submitting && !streaming ? (
+          {submittingAction === 'send' ||
+          submittingAction === 'follow-up' ||
+          submittingAction === 'steer' ? (
             <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
           ) : (
             <Send className="mr-1 h-3.5 w-3.5" />
           )}
-          发送
+          {streaming ? '继续（Follow-up）' : '发送任务'}
         </Button>
 
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!text || disabled || submitting || !streaming}
-          onClick={() => void run(onSteer)}
-        >
-          Steer
-        </Button>
-
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!text || disabled || submitting || !streaming}
-          onClick={() => void run(onFollowUp)}
-        >
-          Follow-up
-        </Button>
-
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!streaming || disabled || submitting}
-          onClick={() => void onAbort()}
-        >
-          <StopCircle className="mr-1 h-3.5 w-3.5" />
-          Abort
-        </Button>
+        {streaming ? (
+          <Button
+            size="sm"
+            variant="destructive-outline"
+            disabled={anyPending}
+            onClick={() => void runAbort()}
+          >
+            {submittingAction === 'abort' ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <StopCircle className="mr-1 h-3.5 w-3.5" />
+            )}
+            打断执行
+          </Button>
+        ) : null}
       </div>
     </div>
   );

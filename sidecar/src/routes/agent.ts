@@ -254,6 +254,14 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
 
+  const running = await runtimeRouter.isRunning(sessionId);
+  if (!running) {
+    return c.json(
+      toError('当前会话没有执行中的 turn，无法执行 steer。', 'SESSION_NOT_RUNNING'),
+      409,
+    );
+  }
+
   await runtimeRouter.steer(sessionId, text);
   return c.json({ success: true });
 });
@@ -272,6 +280,14 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
 
+  const running = await runtimeRouter.isRunning(sessionId);
+  if (!running) {
+    return c.json(
+      toError('当前会话没有执行中的 turn，无法执行 follow-up。', 'SESSION_NOT_RUNNING'),
+      409,
+    );
+  }
+
   await runtimeRouter.followUp(sessionId, text);
   return c.json({ success: true });
 });
@@ -283,15 +299,12 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
 
-  await runtimeRouter.abort(sessionId);
+  const running = await runtimeRouter.isRunning(sessionId);
+  if (!running) {
+    return c.json(toError('当前会话没有执行中的 turn。', 'SESSION_NOT_RUNNING'), 409);
+  }
 
-  await appendAgentEvent({
-    sessionId,
-    eventType: 'session.aborted',
-    payload: {
-      reason: 'manual',
-    },
-  });
+  await runtimeRouter.abort(sessionId);
 
   return c.json({ success: true });
 });

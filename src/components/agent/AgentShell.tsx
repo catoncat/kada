@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { AgentComposer } from '@/components/agent/AgentComposer';
 import { AgentMessageList } from '@/components/agent/AgentMessageList';
@@ -22,6 +22,13 @@ function eventFromChunk(chunk: AgentTurnStreamChunk): AgentTurnEvent {
   return chunk.event;
 }
 
+interface QueuedFollowUpItem {
+  id: string;
+  text: string;
+  queuedAt: string;
+  steerSubmitted: boolean;
+}
+
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
   const createSessionMutation = useCreateAgentSession();
@@ -37,6 +44,8 @@ export function AgentShell() {
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<
     Array<{ id: string; text: string; createdAt: string }>
   >([]);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUpItem[]>([]);
+  const queueCounterRef = useRef(0);
 
   const sessions = sessionsQuery.data?.data || [];
 
@@ -59,6 +68,7 @@ export function AgentShell() {
     setStreamingAssistantText('');
     setErrorText(null);
     setOptimisticUserMessages([]);
+    setQueuedFollowUps([]);
   }, [activeSessionId]);
 
   const entries = sessionDetailQuery.data?.entries || [];
@@ -84,6 +94,11 @@ export function AgentShell() {
     const event = eventFromChunk(chunk);
     setEvents((prev) => [...prev, event]);
 
+    if (event.type === 'turn.started') {
+      setQueuedFollowUps([]);
+      return;
+    }
+
     if (event.type === 'assistant.delta') {
       const payload = (event.payload || {}) as Record<string, unknown>;
       const delta = typeof payload.delta === 'string' ? payload.delta : '';
@@ -100,8 +115,30 @@ export function AgentShell() {
       return;
     }
 
+    if (event.type === 'queue.updated') {
+      const payload = (event.payload || {}) as Record<string, unknown>;
+      const mode = typeof payload.mode === 'string' ? payload.mode : '';
+      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+      if (mode === 'follow-up' && text) {
+        queueCounterRef.current += 1;
+        const id = `${event.timestamp}-${queueCounterRef.current}`;
+        setQueuedFollowUps((prev) => [
+          ...prev,
+          {
+            id,
+            text,
+            queuedAt: event.timestamp,
+            steerSubmitted: false,
+          },
+        ]);
+      }
+      return;
+    }
+
     if (event.type === 'turn.completed' || event.type === 'turn.failed') {
       void Promise.all([sessionDetailQuery.refetch(), outputsQuery.refetch()]);
+      setQueuedFollowUps([]);
       if (event.type === 'turn.completed') {
         setStreamingAssistantText('');
       }
@@ -111,7 +148,13 @@ export function AgentShell() {
         const message =
           typeof payload.message === 'string' ? payload.message : '执行失败';
         setErrorText(message);
+        return;
       }
+    }
+
+    if (event.type === 'session.aborted') {
+      setQueuedFollowUps([]);
+      setErrorText('已中断当前会话执行。');
     }
   };
 
@@ -133,6 +176,7 @@ export function AgentShell() {
 
     setErrorText(null);
     setStreamingAssistantText('');
+    setQueuedFollowUps([]);
 
     try {
       await turnStream.runTurn({
@@ -179,26 +223,53 @@ export function AgentShell() {
   const handleAbort = async () => {
     if (!activeSessionId) return;
 
-    turnStream.abort();
-
     try {
       await abortMutation.mutateAsync(activeSessionId);
+      turnStream.abort();
       await Promise.all([
         sessionDetailQuery.refetch(),
         outputsQuery.refetch(),
         sessionsQuery.refetch(),
       ]);
       setOptimisticUserMessages([]);
+      setQueuedFollowUps([]);
       setErrorText('已中断当前会话执行。');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '中断失败');
     }
   };
 
+  const handleSteerQueuedFollowUp = async (itemId: string, text: string) => {
+    if (!activeSessionId) return;
+    if (!turnStream.isStreaming) {
+      setErrorText('当前未在执行中，不能发送 steer。');
+      return;
+    }
+
+    setQueuedFollowUps((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, steerSubmitted: true } : item,
+      ),
+    );
+
+    try {
+      await steerMutation.mutateAsync({ sessionId: activeSessionId, text });
+      setErrorText(null);
+    } catch (error) {
+      setQueuedFollowUps((prev) =>
+        prev.map((item) =>
+          item.id === itemId ? { ...item, steerSubmitted: false } : item,
+        ),
+      );
+      setErrorText(error instanceof Error ? error.message : 'Steer 失败');
+    }
+  };
+
   const activeStatus = useMemo(() => {
+    if (turnStream.isStreaming) return 'running';
     const session = sessions.find((item) => item.id === activeSessionId);
     return session?.status || 'idle';
-  }, [activeSessionId, sessions]);
+  }, [activeSessionId, sessions, turnStream.isStreaming]);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -270,6 +341,9 @@ export function AgentShell() {
         <AgentComposer
           disabled={composerDisabled}
           streaming={turnStream.isStreaming}
+          steerPending={steerMutation.isPending}
+          followUpPending={followUpMutation.isPending}
+          abortPending={abortMutation.isPending}
           onSend={handleSend}
           onSteer={handleSteer}
           onFollowUp={handleFollowUp}
@@ -277,7 +351,14 @@ export function AgentShell() {
         />
       </div>
 
-      <AgentToolTimeline events={events} />
+      <AgentToolTimeline
+        events={events}
+        queuedFollowUps={queuedFollowUps}
+        steerDisabled={!turnStream.isStreaming || steerMutation.isPending}
+        onSteerQueuedFollowUp={(itemId, text) =>
+          void handleSteerQueuedFollowUp(itemId, text)
+        }
+      />
       <AgentOutputRail outputs={outputs} />
     </div>
   );

@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../db';
+import { getDb, getSqlite } from '../db';
 import { agentEvents, type AgentEvent } from '../db/schema';
 
 export interface AgentEventRecord {
@@ -38,19 +38,6 @@ function normalize(row: AgentEvent): AgentEventRecord {
   };
 }
 
-async function getNextSeq(sessionId: string): Promise<number> {
-  const db = getDb();
-  const rows = await db
-    .select({
-      maxSeq: sql<number>`COALESCE(MAX(${agentEvents.seq}), 0)`,
-    })
-    .from(agentEvents)
-    .where(eq(agentEvents.sessionId, sessionId));
-
-  const current = rows[0]?.maxSeq ?? 0;
-  return Number.isFinite(current) ? current + 1 : 1;
-}
-
 export async function appendAgentEvent(input: {
   sessionId: string;
   turnId?: string | null;
@@ -58,19 +45,36 @@ export async function appendAgentEvent(input: {
   payload: unknown;
 }): Promise<AgentEventRecord> {
   const db = getDb();
+  const sqlite = getSqlite();
   const id = randomUUID();
-  const now = new Date();
-  const seq = await getNextSeq(input.sessionId);
+  const payloadJson = JSON.stringify(input.payload ?? null);
+  const createdAtUnix = Math.floor(Date.now() / 1000);
 
-  await db.insert(agentEvents).values({
-    id,
-    sessionId: input.sessionId,
-    turnId: input.turnId || null,
-    seq,
-    eventType: input.eventType,
-    payloadJson: JSON.stringify(input.payload ?? null),
-    createdAt: now,
-  });
+  // 使用单条 SQL 语句原子分配 seq，避免并发写入导致重复序号。
+  sqlite
+    .prepare(
+      `
+      INSERT INTO agent_events (id, session_id, turn_id, seq, event_type, payload_json, created_at)
+      VALUES (
+        ?,
+        ?,
+        ?,
+        (SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_events WHERE session_id = ?),
+        ?,
+        ?,
+        ?
+      )
+      `,
+    )
+    .run(
+      id,
+      input.sessionId,
+      input.turnId || null,
+      input.sessionId,
+      input.eventType,
+      payloadJson,
+      createdAtUnix,
+    );
 
   const [row] = await db
     .select()
