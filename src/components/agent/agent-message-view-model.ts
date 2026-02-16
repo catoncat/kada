@@ -14,6 +14,8 @@ export interface StreamingInsertion {
   id: string;
   text: string;
   position: number;
+  seq: number;
+  createdAt?: string;
 }
 
 interface ParsedAssistantPayload {
@@ -122,8 +124,8 @@ function summaryTitleForAssistant(payload: ParsedAssistantPayload): {
 
   if (payload.stopReason === 'aborted') {
     return {
-      title: '回合已中断',
-      level: 'error',
+      title: '回合已停止',
+      level: 'info',
     };
   }
 

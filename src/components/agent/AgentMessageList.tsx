@@ -116,17 +116,17 @@ export function AgentMessageList({
   }, [entries, optimisticUserMessages]);
 
   const streamBlocks = useMemo(() => {
-    const text = sanitizeTextForDisplay(streamingAssistantText || '');
+    const text = streamingAssistantText || '';
     const insertions = [...(streamingInsertions || [])].sort((a, b) => {
       if (a.position !== b.position) return a.position - b.position;
-      return a.id.localeCompare(b.id);
+      return a.seq - b.seq;
     });
 
     if (!text && insertions.length === 0) return [];
 
     const blocks: Array<
       | { id: string; type: 'assistant'; text: string }
-      | { id: string; type: 'user'; text: string }
+      | { id: string; type: 'user'; text: string; createdAt?: string }
     > = [];
 
     let cursor = 0;
@@ -135,7 +135,7 @@ export function AgentMessageList({
     for (const item of insertions) {
       const pos = Math.max(0, Math.min(item.position, textLength));
       if (pos > cursor) {
-        const slice = text.slice(cursor, pos);
+        const slice = sanitizeTextForDisplay(text.slice(cursor, pos));
         if (slice.trim()) {
           blocks.push({
             id: `assistant-${cursor}-${pos}`,
@@ -149,13 +149,14 @@ export function AgentMessageList({
         id: `insert-${item.id}`,
         type: 'user',
         text: sanitizeTextForDisplay(item.text),
+        createdAt: item.createdAt,
       });
 
       cursor = pos;
     }
 
     if (cursor < textLength) {
-      const tail = text.slice(cursor);
+      const tail = sanitizeTextForDisplay(text.slice(cursor));
       if (tail.trim()) {
         blocks.push({
           id: `assistant-${cursor}-${textLength}`,
@@ -169,12 +170,16 @@ export function AgentMessageList({
       blocks.push({
         id: 'assistant-full',
         type: 'assistant',
-        text,
+        text: sanitizeTextForDisplay(text),
       });
     }
 
     return blocks;
   }, [streamingAssistantText, streamingInsertions]);
+  const firstStreamingAssistantIndex = useMemo(
+    () => streamBlocks.findIndex((block) => block.type === 'assistant'),
+    [streamBlocks],
+  );
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -238,26 +243,33 @@ export function AgentMessageList({
           row.kind === 'summary' ? renderSummaryRow(row) : renderMessageRow(row),
         )}
 
-        {streamBlocks.length > 0 ? (
-          <article className="w-full max-w-[min(100%,78ch)]">
-            <div className="mb-1 text-[11px] text-muted-foreground">
-              助手正在输入...
-            </div>
-            {streamBlocks.map((block) =>
+        {streamBlocks.length > 0
+          ? streamBlocks.map((block, index) =>
               block.type === 'assistant' ? (
-                <div key={block.id} className="mb-2">
-                  <MarkdownRenderer content={block.text} variant="assistant" />
+                <div key={block.id} className="flex justify-start">
+                  <article className="w-full max-w-[min(100%,78ch)]">
+                    {index === firstStreamingAssistantIndex ? (
+                      <div className="mb-1 text-[11px] text-muted-foreground">
+                        助手正在输入...
+                      </div>
+                    ) : null}
+                    <MarkdownRenderer content={block.text} variant="assistant" />
+                  </article>
                 </div>
               ) : (
-                <div key={block.id} className="mb-2 flex justify-end">
+                <div key={block.id} className="flex justify-end">
                   <article className="max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                    {block.createdAt ? (
+                      <div className="mb-1 text-right text-[11px] text-primary-foreground/70">
+                        {formatTime(block.createdAt)}
+                      </div>
+                    ) : null}
                     <MarkdownRenderer content={block.text} variant="user" />
                   </article>
                 </div>
               ),
-            )}
-          </article>
-        ) : null}
+            )
+          : null}
       </div>
 
       {showScrollToBottom ? (

@@ -89,9 +89,9 @@ export function AgentToolTimeline({
       if (event.type === 'session.aborted') {
         rows.push({
           id,
-          title: '会话已中断',
+          title: '会话已停止',
           subtitle: formatPayloadForDisplay(event.payload),
-          status: 'error',
+          status: 'info',
         });
         continue;
       }

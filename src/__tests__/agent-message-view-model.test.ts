@@ -86,7 +86,7 @@ describe('agent message view model', () => {
     });
   });
 
-  it('maps empty aborted assistant rows into error summary cards', () => {
+  it('maps empty aborted assistant rows into neutral summary cards', () => {
     const rows = buildAgentMessageRows({
       entries: [
         entry({
@@ -105,8 +105,8 @@ describe('agent message view model', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       kind: 'summary',
-      level: 'error',
-      title: '回合已中断',
+      level: 'info',
+      title: '回合已停止',
     });
   });
 
