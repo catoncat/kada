@@ -2,6 +2,7 @@ export interface AgentFlags {
   externalEventBridge: boolean;
   queueAppliedEvent: boolean;
   autoFollowUpOnSessionRunning: boolean;
+  toolResultEnhancement: boolean;
 }
 
 function readBoolEnv(name: string, fallback: boolean): boolean {
@@ -30,5 +31,6 @@ export function getAgentFlags(): AgentFlags {
       'AGENT_AUTO_FOLLOWUP_ON_SESSION_RUNNING',
       true,
     ),
+    toolResultEnhancement: readBoolEnv('AGENT_TOOLRESULT_ENHANCEMENT', true),
   };
 }

@@ -10,6 +10,7 @@ import { imageGenerationHandler } from './handlers/image-generation';
 import { planGenerationHandler } from './handlers/plan-generation';
 import { embeddingIndexHandler } from './handlers/embedding-index';
 import { embeddingReindexHandler } from './handlers/embedding-reindex';
+import { agentToolResultEnhanceHandler } from './handlers/agent-toolresult-enhance';
 import { dispatchAgentTaskEvent } from '../services/agent-external-event-dispatcher';
 
 interface TaskHandlerContext {
@@ -28,7 +29,12 @@ const handlers: Record<string, TaskHandler> = {
   'plan-generation': planGenerationHandler,
   'embedding-index': embeddingIndexHandler,
   'embedding-reindex': embeddingReindexHandler,
+  'agent-toolresult-enhance': agentToolResultEnhanceHandler,
 };
+
+function shouldDispatchExternalTaskEvent(taskType: string): boolean {
+  return taskType === 'image-generation';
+}
 
 function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -176,7 +182,7 @@ async function processNextTask() {
 
     console.log(`✅ Task ${task.id} (${task.type}) completed`);
 
-    if (sessionId) {
+    if (sessionId && shouldDispatchExternalTaskEvent(task.type)) {
       await dispatchAgentTaskEvent({
         sessionId,
         taskId: task.id,
@@ -204,7 +210,7 @@ async function processNextTask() {
 
     console.error(`❌ Task ${task.id} (${task.type}) failed:`, error.message);
 
-    if (sessionId) {
+    if (sessionId && shouldDispatchExternalTaskEvent(task.type)) {
       await dispatchAgentTaskEvent({
         sessionId,
         taskId: task.id,

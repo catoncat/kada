@@ -10,6 +10,10 @@ import {
   agentOutputs,
   agentSessions,
 } from '../db/schema';
+import {
+  type ToolResultReadabilityRecord,
+  getToolResultReadabilityByEntryIds,
+} from './agent-toolresult-readability-store';
 
 export type AgentEngine = 'coding-agent' | 'agent-core';
 export type AgentSessionStatus = 'idle' | 'running' | 'failed' | 'aborted';
@@ -91,6 +95,55 @@ function normalizeEntry(row: AgentEntry): AgentEntryRecord {
     payload: safeParseJson(row.payloadJson),
     createdAt: toIso(row.createdAt),
   };
+}
+
+function mergeToolResultReadabilityPayload(
+  payload: unknown,
+  readability: ToolResultReadabilityRecord,
+): unknown {
+  const base =
+    payload && typeof payload === 'object'
+      ? { ...(payload as Record<string, unknown>) }
+      : {};
+
+  base.summary =
+    (base.summary as string | undefined) || readability.ruleSummary;
+  base.readableDetail =
+    (base.readableDetail as string | undefined) || readability.ruleDetail;
+  base.readableVersion =
+    (base.readableVersion as number | undefined) || 2;
+
+  if (readability.enhancedSummary) {
+    base.enhancedSummary = readability.enhancedSummary;
+  }
+  if (readability.enhancedDetail) {
+    base.enhancedDetail = readability.enhancedDetail;
+  }
+  if (typeof readability.enhancedConfidence === 'number') {
+    base.enhancedConfidence = readability.enhancedConfidence;
+  }
+  if (readability.updatedAt) {
+    base.enhancedAt = readability.updatedAt;
+  }
+  if (readability.enhancedModel) {
+    base.enhancedModel = readability.enhancedModel;
+  }
+  if (readability.enhancedReason) {
+    base.enhancedReason = readability.enhancedReason;
+  }
+
+  if (readability.status && readability.status !== 'pending') {
+    base.enhancementStatus = readability.status;
+  }
+  if (typeof readability.latencyMs === 'number') {
+    base.enhancementLatencyMs = readability.latencyMs;
+  }
+  if (readability.error) {
+    base.enhancementError = readability.error;
+  }
+  base.enhancedVersion = 1;
+
+  return base;
 }
 
 function normalizeOutput(row: AgentOutput): AgentOutputRecord {
@@ -282,7 +335,33 @@ export async function listAgentEntries(
     .orderBy(desc(agentEntries.createdAt), desc(agentEntries.id))
     .limit(limit);
 
-  return rows.reverse().map(normalizeEntry);
+  const entries = rows.reverse().map(normalizeEntry);
+  const targetEntryIds = entries
+    .filter((entry) => entry.entryType === 'toolResult')
+    .map((entry) => entry.id);
+
+  if (targetEntryIds.length === 0) {
+    return entries;
+  }
+
+  const readabilityMap = await getToolResultReadabilityByEntryIds(targetEntryIds);
+  if (readabilityMap.size === 0) {
+    return entries;
+  }
+
+  return entries.map((entry) => {
+    if (entry.entryType !== 'toolResult') {
+      return entry;
+    }
+    const readability = readabilityMap.get(entry.id);
+    if (!readability) {
+      return entry;
+    }
+    return {
+      ...entry,
+      payload: mergeToolResultReadabilityPayload(entry.payload, readability),
+    };
+  });
 }
 
 export async function appendAgentOutput(input: {

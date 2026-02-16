@@ -57,7 +57,7 @@ export function MentionPickDialog({
               ? `当前引用：${kindText}「${target.resourceTitle}」`
               : '请选择要绑定到引用的图片'}
             {' · '}
-            快捷键：Alt+Enter 打开当前输入中的多图选择
+            快捷键：Alt+Enter（候选中=手动挑图，输入框中=打开待补图引用）
           </DialogDescription>
         </DialogHeader>
 

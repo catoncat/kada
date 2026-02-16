@@ -1,3 +1,4 @@
+import { Check, Copy } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildAgentMessageRows,
@@ -36,6 +37,28 @@ function isNearBottom(element: HTMLDivElement): boolean {
 
 function scrollToBottom(element: HTMLDivElement) {
   element.scrollTop = element.scrollHeight;
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -192,7 +215,13 @@ function renderSummaryRow(row: Extract<AgentMessageListRow, { kind: 'summary' }>
   );
 }
 
-function renderMessageRow(row: Extract<AgentMessageListRow, { kind: 'message' }>) {
+function renderMessageRow(
+  row: Extract<AgentMessageListRow, { kind: 'message' }>,
+  options?: {
+    copiedRowId?: string | null;
+    onCopyAssistantMessage?: (rowId: string, text: string) => void;
+  },
+) {
   return (
     <div
       key={row.id}
@@ -211,9 +240,23 @@ function renderMessageRow(row: Extract<AgentMessageListRow, { kind: 'message' }>
           <MarkdownRenderer content={row.text} variant="user" />
         </article>
       ) : (
-        <article className="w-full max-w-[min(100%,78ch)]">
-          <div className="mb-1 text-[11px] text-muted-foreground">
-            {formatTime(row.createdAt)}
+        <article className="group w-full max-w-[min(100%,78ch)]">
+          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span>{formatTime(row.createdAt)}</span>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="opacity-0 transition-opacity group-hover:opacity-100"
+              title="复制这条回复"
+              aria-label="复制这条回复"
+              onClick={() => options?.onCopyAssistantMessage?.(row.id, row.text)}
+            >
+              {options?.copiedRowId === row.id ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </Button>
           </div>
           <MarkdownRenderer content={row.text} variant="assistant" />
         </article>
@@ -245,6 +288,8 @@ export function AgentMessageList({
   const contentVersionRef = useRef('');
   const [nearBottom, setNearBottom] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [thinkingFrame, setThinkingFrame] = useState(0);
+  const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     return buildAgentMessageRows({
@@ -318,6 +363,12 @@ export function AgentMessageList({
     () => streamBlocks.findIndex((block) => block.type === 'assistant'),
     [streamBlocks],
   );
+  const shouldShowThinking =
+    Boolean(streaming) &&
+    !streamingAssistantText.trim() &&
+    streamBlocks.every((block) => block.type !== 'assistant');
+  const thinkingText = `Thinking${'.'.repeat((thinkingFrame % 3) + 1)}`;
+
   const streamingToolRows = useMemo(
     () => buildStreamingToolRows(events || [], Boolean(streaming)),
     [events, streaming],
@@ -342,6 +393,21 @@ export function AgentMessageList({
       element.removeEventListener('scroll', onScroll);
     };
   }, []);
+
+  useEffect(() => {
+    if (!shouldShowThinking) {
+      setThinkingFrame(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setThinkingFrame((prev) => (prev + 1) % 3);
+    }, 420);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [shouldShowThinking]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -374,6 +440,20 @@ export function AgentMessageList({
     setShowScrollToBottom(false);
   };
 
+  const handleCopyAssistantMessage = (rowId: string, text: string) => {
+    if (!text.trim()) return;
+    void copyToClipboard(text)
+      .then(() => {
+        setCopiedRowId(rowId);
+        window.setTimeout(() => {
+          setCopiedRowId((prev) => (prev === rowId ? null : prev));
+        }, 1200);
+      })
+      .catch(() => {
+        // ignore copy failure in message list UI
+      });
+  };
+
   return (
     <div className="relative min-h-0 flex-1">
       <div
@@ -381,15 +461,14 @@ export function AgentMessageList({
         data-testid="agent-message-scroll"
         className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3 py-4"
       >
-        {rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            先输入你的目标，例如“找 3
-            个轻法式外景风格并生成首图，再给一版小红书文案”。
-          </div>
-        ) : null}
 
         {rows.map((row) =>
-          row.kind === 'summary' ? renderSummaryRow(row) : renderMessageRow(row),
+          row.kind === 'summary'
+            ? renderSummaryRow(row)
+            : renderMessageRow(row, {
+                copiedRowId,
+                onCopyAssistantMessage: handleCopyAssistantMessage,
+              }),
         )}
 
         {streaming && streamingToolRows.length > 0 ? (
@@ -413,6 +492,17 @@ export function AgentMessageList({
               </div>
             </div>
           </article>
+        ) : null}
+
+        {shouldShowThinking ? (
+          <div className="flex justify-start">
+            <article className="w-full max-w-[min(100%,78ch)]">
+              <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-muted/20 px-2.5 py-1 text-[12px] text-muted-foreground">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70" />
+                <span>{thinkingText}</span>
+              </div>
+            </article>
+          </div>
         ) : null}
 
         {streamBlocks.length > 0

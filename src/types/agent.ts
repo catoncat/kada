@@ -67,6 +67,7 @@ export interface AgentCapabilities {
   autoFollowUpOnSessionRunning: boolean;
   queueAppliedEvent: boolean;
   externalEventBridge: boolean;
+  toolResultEnhancement: boolean;
 }
 
 export interface AgentTurnEvent {
@@ -77,6 +78,7 @@ export interface AgentTurnEvent {
     | 'tool.call'
     | 'tool.progress'
     | 'tool.result'
+    | 'tool.result.enhanced'
     | 'photo.task.created'
     | 'photo.task.updated'
     | 'photo.ready'

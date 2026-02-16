@@ -7,6 +7,7 @@ export type AgentRuntimeEventType =
   | 'tool.call'
   | 'tool.progress'
   | 'tool.result'
+  | 'tool.result.enhanced'
   | 'photo.task.created'
   | 'photo.task.updated'
   | 'photo.ready'

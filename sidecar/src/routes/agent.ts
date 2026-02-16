@@ -1,9 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { Hono } from 'hono';
 import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
 import { RuntimeRouter } from '../agent/runtime/runtime-router';
 import { getAgentFlags } from '../config/agent-flags';
+import { getDb } from '../db';
+import { tasks } from '../db/schema';
 import { getAgentTraceContext, setAgentTraceContext } from '../services/agent-trace-context';
 import {
   appendClientTraceBatch,
@@ -25,6 +27,11 @@ import {
   getLatestAgentEventCursor,
   listAgentEvents,
 } from '../services/agent-event-store';
+import {
+  appendToolResultReadability,
+  countRecentReadabilityBySession,
+  updateToolResultReadabilityStatus,
+} from '../services/agent-toolresult-readability-store';
 import {
   type AgentEngine,
   type AgentOutputKind,
@@ -123,6 +130,91 @@ function extractOutputRefId(type: string, payload: unknown): string | null {
   return null;
 }
 
+const KNOWN_TOOL_NAMES = new Set([
+  'photo_compose_prompt',
+  'photo_enqueue_generation',
+  'photo_get_generation_status',
+  'copy_generate_variants',
+  'copy_rewrite_by_tone',
+  'resource_search_scenes',
+  'resource_search_models',
+  'resource_get_project_context',
+]);
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const row = value as Record<string, unknown>;
+    const keys = Object.keys(row).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function firstTextFromResult(result: Record<string, unknown>): string {
+  const content = Array.isArray(result.content) ? result.content : [];
+  for (const item of content) {
+    const row = isRecord(item) ? item : null;
+    const text = row && typeof row.text === 'string' ? row.text.trim() : '';
+    if (text) return text;
+  }
+  return '';
+}
+
+function looksLikeStackNoise(text: string): boolean {
+  return /(traceback|exception|stack| at\s+\S+\s*\(|error:|npm\s+err|\bwarn\b)/i.test(
+    text,
+  );
+}
+
+function shouldEnhanceToolResult(payload: Record<string, unknown>): boolean {
+  const isError = Boolean(payload.isError);
+  const toolName =
+    typeof payload.toolName === 'string' ? payload.toolName.trim() : '';
+  const ruleScore =
+    typeof payload.ruleScore === 'number' ? payload.ruleScore : 0.5;
+
+  const rawStats = isRecord(payload.rawStats) ? payload.rawStats : {};
+  const chars =
+    typeof rawStats.chars === 'number'
+      ? rawStats.chars
+      : stableSerialize(payload.result).length;
+  const jsonDepth =
+    typeof rawStats.jsonDepth === 'number' ? rawStats.jsonDepth : 0;
+
+  const result = isRecord(payload.result) ? payload.result : {};
+  const textOutput =
+    firstTextFromResult(result) ||
+    (typeof result.message === 'string' ? result.message : '') ||
+    stableSerialize(result);
+  const stackNoise = looksLikeStackNoise(textOutput);
+
+  const unknownTool = !toolName || !KNOWN_TOOL_NAMES.has(toolName);
+  return (
+    chars >= 320 ||
+    jsonDepth >= 3 ||
+    isError ||
+    ruleScore < 0.65 ||
+    unknownTool ||
+    stackNoise
+  );
+}
+
+function buildToolResultSourceHash(input: {
+  toolName: string;
+  result: unknown;
+  locale?: string;
+}): string {
+  const locale = input.locale || 'zh-CN';
+  const normalized = `${input.toolName}|${locale}|${stableSerialize(input.result)}`;
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
 agentRoutes.get('/resources/search', async (c) => {
   const q = c.req.query('q') || '';
   const kinds = parseAgentMentionKinds(c.req.query('kinds'));
@@ -162,6 +254,7 @@ agentRoutes.get('/capabilities', async (c) => {
     autoFollowUpOnSessionRunning: agentFlags.autoFollowUpOnSessionRunning,
     queueAppliedEvent: agentFlags.queueAppliedEvent,
     externalEventBridge: agentFlags.externalEventBridge,
+    toolResultEnhancement: agentFlags.toolResultEnhancement,
   });
 });
 
@@ -668,14 +761,106 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
           }
 
           if (event.type === 'tool.result') {
-            await appendAgentEntry({
+            const toolPayload = {
+              turnId,
+              ...(event.payload as Record<string, unknown>),
+            } as Record<string, unknown> & { turnId: string };
+            const entry = await appendAgentEntry({
               sessionId,
               entryType: 'toolResult',
-              payload: {
-                turnId,
-                ...(event.payload as Record<string, unknown>),
-              },
+              payload: toolPayload,
             });
+
+            if (agentFlags.toolResultEnhancement) {
+              const toolName =
+                typeof toolPayload.toolName === 'string'
+                  ? toolPayload.toolName.trim()
+                  : 'tool';
+              const result = isRecord(toolPayload.result) ? toolPayload.result : {};
+              const sourceHash = buildToolResultSourceHash({
+                toolName,
+                result,
+                locale: 'zh-CN',
+              });
+              const rawStats = isRecord(toolPayload.rawStats)
+                ? toolPayload.rawStats
+                : {};
+              const sourceSize =
+                typeof rawStats.chars === 'number'
+                  ? Math.max(0, Math.floor(rawStats.chars))
+                  : stableSerialize(result).length;
+              const ruleSummary =
+                typeof toolPayload.summary === 'string' && toolPayload.summary.trim()
+                  ? toolPayload.summary.trim()
+                  : toolName;
+              const ruleDetail =
+                typeof toolPayload.readableDetail === 'string' &&
+                toolPayload.readableDetail.trim()
+                  ? toolPayload.readableDetail.trim()
+                  : ruleSummary;
+
+              await appendToolResultReadability({
+                entryId: entry.id,
+                sessionId,
+                turnId,
+                toolCallId:
+                  typeof toolPayload.toolCallId === 'string'
+                    ? toolPayload.toolCallId
+                    : null,
+                sourceHash,
+                sourceSize,
+                ruleSummary,
+                ruleDetail,
+              });
+
+              const shouldQueue = shouldEnhanceToolResult(toolPayload);
+              if (shouldQueue) {
+                const recentCount = await countRecentReadabilityBySession({
+                  sessionId,
+                  since: new Date(Date.now() - 60 * 1000),
+                });
+
+                if (recentCount > 6) {
+                  await updateToolResultReadabilityStatus({
+                    entryId: entry.id,
+                    status: 'skipped',
+                    error: 'RATE_LIMITED_PER_SESSION',
+                  });
+                } else {
+                  const db = getDb();
+                  await db.insert(tasks).values({
+                    id: randomUUID(),
+                    type: 'agent-toolresult-enhance',
+                    status: 'pending',
+                    input: JSON.stringify({
+                      sessionId,
+                      turnId,
+                      entryId: entry.id,
+                      toolCallId:
+                        typeof toolPayload.toolCallId === 'string'
+                          ? toolPayload.toolCallId
+                          : null,
+                      toolName,
+                      providerId: lockedSession.providerId || null,
+                      sourceHash,
+                      sourceSize,
+                      sourcePayload: toolPayload,
+                      locale: 'zh-CN',
+                      queuedAt: new Date().toISOString(),
+                    }),
+                    relatedId: sessionId,
+                    relatedMeta: turnId,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                  });
+                }
+              } else {
+                await updateToolResultReadabilityStatus({
+                  entryId: entry.id,
+                  status: 'skipped',
+                });
+              }
+            }
           }
 
           const outputKind = eventToOutputKind(event.type);

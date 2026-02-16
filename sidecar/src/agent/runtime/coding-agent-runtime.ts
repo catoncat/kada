@@ -167,17 +167,102 @@ function toPrettyJson(value: unknown): string {
   }
 }
 
+function computeJsonDepth(value: unknown, depth = 0): number {
+  if (value === null || value === undefined) return depth;
+  if (typeof value !== 'object') return depth;
+  if (depth >= 12) return depth;
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return depth + 1;
+    return Math.max(...value.map((item) => computeJsonDepth(item, depth + 1)));
+  }
+
+  const entries = Object.values(value as Record<string, unknown>);
+  if (entries.length === 0) return depth + 1;
+  return Math.max(...entries.map((item) => computeJsonDepth(item, depth + 1)));
+}
+
+const KNOWN_READABILITY_TOOLS = new Set([
+  'photo_enqueue_generation',
+  'photo_get_generation_status',
+  'copy_generate_variants',
+  'copy_rewrite_by_tone',
+  'resource_search_scenes',
+  'resource_search_models',
+  'resource_get_project_context',
+]);
+
+function computeRuleScore(input: {
+  toolName: string;
+  isError: boolean;
+  chars: number;
+  jsonDepth: number;
+  hasStackTrace: boolean;
+  isKnownTool: boolean;
+}): number {
+  let score = 0.92;
+  if (!input.isKnownTool) score -= 0.22;
+  if (input.isError) score -= 0.14;
+  if (input.chars >= 320) score -= 0.1;
+  if (input.jsonDepth >= 3) score -= 0.08;
+  if (input.hasStackTrace) score -= 0.12;
+  return Math.max(0.2, Math.min(1, Number(score.toFixed(2))));
+}
+
 function buildToolResultReadablePayload(input: {
   toolName: string;
   result: unknown;
   isError: boolean;
-}): { summary: string; readableDetail: string } {
+}): {
+  summary: string;
+  readableDetail: string;
+  ruleScore: number;
+  ruleTags: string[];
+  rawStats: { chars: number; lines: number; jsonDepth: number };
+} {
   const toolName = input.toolName.trim() || 'tool';
   const result = toRecord(input.result);
   const details = toRecord(result.details);
   const textOutput = getToolResultText(result);
   const parsedText = toRecord(parseJsonString(textOutput));
   const merged = { ...parsedText, ...details };
+  const jsonFallback = toPrettyJson(result);
+  const sourceText = textOutput || jsonFallback || toolName;
+  const chars = sourceText.length;
+  const lines = sourceText ? sourceText.split('\n').length : 0;
+  const jsonDepth = Math.max(
+    computeJsonDepth(parseJsonString(textOutput)),
+    computeJsonDepth(details),
+    computeJsonDepth(result),
+  );
+  const hasStackTrace = /(traceback|exception|stack|at\s+\S+\s*\(|error:)/i.test(
+    sourceText,
+  );
+  const isKnownTool = KNOWN_READABILITY_TOOLS.has(toolName);
+
+  const ruleTags: string[] = [];
+  if (input.isError) ruleTags.push('error');
+  ruleTags.push(isKnownTool ? 'known-tool' : 'unknown-tool');
+  if (textOutput && parseJsonString(textOutput)) ruleTags.push('json-text');
+  if (jsonDepth >= 3) ruleTags.push('deep-json');
+  if (hasStackTrace) ruleTags.push('stacktrace');
+  if (chars >= 320) ruleTags.push('long-output');
+
+  const ruleScore = computeRuleScore({
+    toolName,
+    isError: input.isError,
+    chars,
+    jsonDepth,
+    hasStackTrace,
+    isKnownTool,
+  });
+
+  const withMeta = (data: { summary: string; readableDetail: string }) => ({
+    ...data,
+    ruleScore,
+    ruleTags,
+    rawStats: { chars, lines, jsonDepth },
+  });
 
   if (
     (toolName === 'photo_enqueue_generation' ||
@@ -198,10 +283,10 @@ function buildToolResultReadablePayload(input: {
       'message',
     ]);
     if (detailLines.length > 0) {
-      return {
+      return withMeta({
         summary,
         readableDetail: clipText(detailLines.join('\n'), 1600),
-      };
+      });
     }
   }
 
@@ -220,10 +305,10 @@ function buildToolResultReadablePayload(input: {
         .join('\n'),
       1800,
     );
-    return {
+    return withMeta({
       summary,
       readableDetail: detail || summary,
-    };
+    });
   }
 
   if (textOutput) {
@@ -238,16 +323,16 @@ function buildToolResultReadablePayload(input: {
     ]);
 
     if (parsedLines.length > 0) {
-      return {
+      return withMeta({
         summary: clipText(firstNonEmptyLine(textOutput), 120) || toolName,
         readableDetail: clipText(parsedLines.join('\n'), 1500),
-      };
+      });
     }
 
-    return {
+    return withMeta({
       summary: clipText(firstNonEmptyLine(textOutput), 120) || toolName,
       readableDetail: clipText(textOutput, 1800),
-    };
+    });
   }
 
   const detailsLines = pickScalarLines(details, [
@@ -259,17 +344,15 @@ function buildToolResultReadablePayload(input: {
     'message',
   ]);
   if (detailsLines.length > 0) {
-    return {
+    return withMeta({
       summary: clipText(detailsLines[0], 120) || toolName,
       readableDetail: clipText(detailsLines.join('\n'), 1600),
-    };
+    });
   }
-
-  const jsonFallback = toPrettyJson(result);
-  return {
+  return withMeta({
     summary: input.isError ? `${toolName} 失败` : toolName,
     readableDetail: clipText(jsonFallback || toolName, 1800),
-  };
+  });
 }
 
 function buildModel(provider: RuntimeProviderLike): Model<any> {
@@ -676,7 +759,10 @@ export class CodingAgentRuntime implements AgentRuntime {
             isError: Boolean(event.isError),
             summary: readable.summary,
             readableDetail: readable.readableDetail,
-            readableVersion: 1,
+            readableVersion: 2,
+            ruleScore: readable.ruleScore,
+            ruleTags: readable.ruleTags,
+            rawStats: readable.rawStats,
           },
         });
       }

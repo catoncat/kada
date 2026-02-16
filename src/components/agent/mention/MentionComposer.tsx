@@ -21,7 +21,11 @@ import { Button } from '@/components/ui/button';
 import { listAgentResourceImages, searchAgentResources } from '@/lib/agent-api';
 import { getImageUrl } from '@/lib/scene-assets-api';
 import { cn } from '@/lib/utils';
-import type { AgentMention, AgentMentionImageRef } from '@/types/agent';
+import type {
+  AgentMention,
+  AgentMentionImageRef,
+  AgentMentionKind,
+} from '@/types/agent';
 import { MentionPickDialog } from './MentionPickDialog';
 import { computeMentionSuggestionMaxHeight } from './mention-suggestion-layout';
 import {
@@ -60,6 +64,22 @@ const SUGGESTIONS_EDGE_PADDING = 12;
 const SUGGESTIONS_FALLBACK_HEIGHT = 240;
 const AUTO_BIND_IMAGE_LIMIT = 1;
 type MentionSelectionMode = 'resource-only' | 'primary-image' | 'pick-images';
+
+interface MentionSelectionOption {
+  mode: MentionSelectionMode;
+  label: string;
+}
+
+function getMentionSelectionOptions(kind: AgentMentionKind): MentionSelectionOption[] {
+  if (kind === 'image') {
+    return [{ mode: 'primary-image', label: '引用图片' }];
+  }
+  return [
+    { mode: 'primary-image', label: '自动首图' },
+    { mode: 'resource-only', label: '仅资源' },
+    { mode: 'pick-images', label: '手动挑图' },
+  ];
+}
 
 function MentionSuggestionsContainer({
   children,
@@ -136,6 +156,9 @@ function MentionSuggestionsContainer({
       }
     >
       {children}
+      <div className="border-t px-2 py-1.5 text-[10px] text-muted-foreground">
+        Enter 选择 · Alt+Enter 手动挑图 · → 动作 · ←/Esc 关闭动作
+      </div>
     </div>
   );
 }
@@ -230,6 +253,15 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
     const selectionModeByTokenIdRef = useRef<Map<string, MentionSelectionMode>>(
       new Map(),
     );
+    const focusedSuggestionRef = useRef<{
+      tokenId: string;
+      kind: AgentMentionKind;
+    } | null>(null);
+    const [actionMenu, setActionMenu] = useState<{
+      tokenId: string;
+      options: MentionSelectionOption[];
+      activeIndex: number;
+    } | null>(null);
 
     const pickTarget = useMemo(
       () =>
@@ -442,6 +474,8 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
         if (!parsed) return;
         const mode =
           consumeTokenSelectionMode(tokenId) || ('primary-image' as const);
+        focusedSuggestionRef.current = null;
+        setActionMenu(null);
 
         if (mode === 'pick-images') {
           openPickDialogWithRetry(parsed.mentionId);
@@ -483,20 +517,184 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       setPickOpen(true);
     }, []);
 
+    const openSelectionActionMenu = useCallback(() => {
+      const focused = focusedSuggestionRef.current;
+      if (!focused) return false;
+      const options = getMentionSelectionOptions(focused.kind);
+      if (options.length <= 1) return false;
+      const currentMode = selectionModeByTokenIdRef.current.get(focused.tokenId);
+      const activeIndex = Math.max(
+        0,
+        options.findIndex((option) => option.mode === currentMode),
+      );
+      setActionMenu({
+        tokenId: focused.tokenId,
+        options,
+        activeIndex,
+      });
+      return true;
+    }, []);
+
+    const closeSelectionActionMenu = useCallback(() => {
+      setActionMenu(null);
+    }, []);
+
+    const moveSelectionAction = useCallback((delta: -1 | 1) => {
+      setActionMenu((prev) => {
+        if (!prev || prev.options.length <= 1) return prev;
+        const len = prev.options.length;
+        const nextIndex = (prev.activeIndex + delta + len) % len;
+        return {
+          ...prev,
+          activeIndex: nextIndex,
+        };
+      });
+    }, []);
+
+    const commitSelectionAction = useCallback(() => {
+      setActionMenu((prev) => {
+        if (!prev) return prev;
+        const option = prev.options[prev.activeIndex];
+        if (option) {
+          setTokenSelectionMode(prev.tokenId, option.mode);
+        }
+        return null;
+      });
+    }, [setTokenSelectionMode]);
+
     useHotkey(
-      'Alt+Enter',
-      () => {
-        if (disabled) return;
-        const lastMention = latestValueRef.current.mentions.at(-1);
-        if (!lastMention) return;
-        openPickDialog(lastMention.mentionId);
+      'ArrowRight',
+      (event) => {
+        if (!openSelectionActionMenu()) return;
+        event.preventDefault();
+        event.stopPropagation();
       },
       {
         target: inputElementRef,
         enabled: !disabled,
         ignoreInputs: false,
-        preventDefault: true,
-        stopPropagation: true,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'ArrowLeft',
+      (event) => {
+        if (!actionMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeSelectionActionMenu();
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled && Boolean(actionMenu),
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'Escape',
+      (event) => {
+        if (!actionMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeSelectionActionMenu();
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled && Boolean(actionMenu),
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'ArrowUp',
+      (event) => {
+        if (!actionMenu || actionMenu.options.length <= 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveSelectionAction(-1);
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled && Boolean(actionMenu),
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'ArrowDown',
+      (event) => {
+        if (!actionMenu || actionMenu.options.length <= 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveSelectionAction(1);
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled && Boolean(actionMenu),
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'Enter',
+      () => {
+        if (!actionMenu) return;
+        commitSelectionAction();
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled && Boolean(actionMenu),
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
+      },
+    );
+
+    useHotkey(
+      'Alt+Enter',
+      (event) => {
+        if (disabled) return;
+        const focused = focusedSuggestionRef.current;
+        if (focused) {
+          const options = getMentionSelectionOptions(focused.kind);
+          const preferPick = options.find((option) => option.mode === 'pick-images');
+          setTokenSelectionMode(
+            focused.tokenId,
+            preferPick ? 'pick-images' : 'primary-image',
+          );
+          setActionMenu(null);
+          return;
+        }
+
+        const mentions = latestValueRef.current.mentions;
+        if (mentions.length === 0) return;
+        const fallback =
+          [...mentions]
+            .reverse()
+            .find((mention) => (mention.images?.length || 0) === 0) ||
+          mentions[mentions.length - 1];
+        if (!fallback) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openPickDialog(fallback.mentionId);
+      },
+      {
+        target: inputElementRef,
+        enabled: !disabled,
+        ignoreInputs: false,
+        preventDefault: false,
+        stopPropagation: false,
       },
     );
 
@@ -567,57 +765,74 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       ) => {
         const item = suggestion as MentionSuggestionData;
         const tokenId = String(item.id);
-        const assignMode = (mode: MentionSelectionMode) =>
-          setTokenSelectionMode(tokenId, mode);
+        const options = getMentionSelectionOptions(item.kind);
+        if (focused) {
+          focusedSuggestionRef.current = {
+            tokenId,
+            kind: item.kind,
+          };
+        }
+        const currentMode =
+          selectionModeByTokenIdRef.current.get(tokenId) || options[0]?.mode;
+        const currentOptionLabel =
+          options.find((option) => option.mode === currentMode)?.label ||
+          options[0]?.label ||
+          '自动首图';
+        const actionMenuOpen = actionMenu?.tokenId === tokenId;
         return (
-          <div
-            className={cn(
-              'flex items-start justify-between gap-2 rounded-md px-1',
-              focused && 'bg-accent/70',
-            )}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">{highlightedDisplay}</p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {AGENT_MENTION_KIND_LABEL[item.kind]} · {item.subtitle}
-              </p>
+          <div>
+            <div
+              className={cn(
+                'flex items-start justify-between gap-2 rounded-md px-1',
+                focused && 'bg-accent/70',
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm">{highlightedDisplay}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {AGENT_MENTION_KIND_LABEL[item.kind]} · {item.subtitle}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                  当前策略：{currentOptionLabel}
+                  {options.length > 1 ? '（→ 调整）' : ''}
+                </p>
+              </div>
+              {options.length > 1 ? (
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  →
+                </span>
+              ) : null}
             </div>
-            <div className="flex shrink-0 items-center gap-1 pt-0.5">
-              <button
-                type="button"
-                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  assignMode('resource-only');
-                }}
-              >
-                仅资源
-              </button>
-              <button
-                type="button"
-                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  assignMode('primary-image');
-                }}
-              >
-                主图
-              </button>
-              <button
-                type="button"
-                className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  assignMode('pick-images');
-                }}
-              >
-                多图...
-              </button>
-            </div>
+
+            {actionMenuOpen ? (
+              <div className="mt-1 space-y-0.5 rounded-md border bg-background/95 p-1">
+                {actionMenu.options.map((option, index) => (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    className={cn(
+                      'block w-full rounded px-1.5 py-1 text-left text-[11px] transition',
+                      index === actionMenu.activeIndex
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:bg-accent/70 hover:text-foreground',
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={() => {
+                      setTokenSelectionMode(tokenId, option.mode);
+                      setActionMenu(null);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       },
-      [setTokenSelectionMode],
+      [actionMenu, setTokenSelectionMode],
     );
 
     const renderSuggestionsContainer = useCallback(
@@ -644,12 +859,25 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       [ref],
     );
 
+    const handleMentionsBlur = useCallback(
+      (
+        _event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>,
+        clickedSuggestion: boolean,
+      ) => {
+        if (clickedSuggestion) return;
+        focusedSuggestionRef.current = null;
+        setActionMenu(null);
+      },
+      [],
+    );
+
     return (
       <div className="relative">
         <MentionsInput
           value={value.markup}
           onChange={handleChange}
           onKeyDown={onKeyDown}
+          onBlur={handleMentionsBlur}
           onCompositionStart={onCompositionStart}
           onCompositionEnd={onCompositionEnd}
           inputRef={handleInputRef}
