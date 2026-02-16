@@ -45,6 +45,7 @@ export async function initDatabase() {
   // 确保表存在（开发模式使用手动创建，避免迁移冲突）
   ensureTables();
   ensureColumns();
+  dropLegacyWorkspaceTables();
 
   console.log('✅ Database initialized');
 }
@@ -202,43 +203,6 @@ function ensureTables() {
       created_at INTEGER DEFAULT (unixepoch())
     );
 
-    CREATE TABLE IF NOT EXISTS workspace_sessions (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      revision INTEGER NOT NULL DEFAULT 1,
-      canvas_viewport TEXT,
-      created_at INTEGER DEFAULT (unixepoch()),
-      updated_at INTEGER DEFAULT (unixepoch()),
-      last_message_at INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS workspace_messages (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      action_cards TEXT,
-      meta TEXT,
-      created_at INTEGER DEFAULT (unixepoch())
-    );
-
-    CREATE TABLE IF NOT EXISTS workspace_nodes (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      title TEXT,
-      x INTEGER NOT NULL DEFAULT 0,
-      y INTEGER NOT NULL DEFAULT 0,
-      width INTEGER NOT NULL DEFAULT 220,
-      height INTEGER NOT NULL DEFAULT 160,
-      z_index INTEGER NOT NULL DEFAULT 1,
-      group_id TEXT,
-      meta TEXT,
-      created_at INTEGER DEFAULT (unixepoch()),
-      updated_at INTEGER DEFAULT (unixepoch())
-    );
-
     CREATE TABLE IF NOT EXISTS agent_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -355,28 +319,6 @@ function ensureColumns() {
   addColumnIfMissing('asset_embeddings', 'created_at', 'INTEGER');
   addColumnIfMissing('asset_embeddings', 'updated_at', 'INTEGER');
 
-  // workspace_sessions: 迭代期补列
-  addColumnIfMissing(
-    'workspace_sessions',
-    'status',
-    "TEXT NOT NULL DEFAULT 'active'",
-  );
-  addColumnIfMissing(
-    'workspace_sessions',
-    'revision',
-    'INTEGER NOT NULL DEFAULT 1',
-  );
-  addColumnIfMissing('workspace_sessions', 'canvas_viewport', 'TEXT');
-  addColumnIfMissing('workspace_sessions', 'last_message_at', 'INTEGER');
-
-  // workspace_messages: 迭代期补列
-  addColumnIfMissing('workspace_messages', 'action_cards', 'TEXT');
-  addColumnIfMissing('workspace_messages', 'meta', 'TEXT');
-
-  // workspace_nodes: 迭代期补列
-  addColumnIfMissing('workspace_nodes', 'group_id', 'TEXT');
-  addColumnIfMissing('workspace_nodes', 'meta', 'TEXT');
-
   // agent_sessions: 迭代期补列
   addColumnIfMissing(
     'agent_sessions',
@@ -422,6 +364,15 @@ function ensureColumns() {
     'content_json',
     "TEXT NOT NULL DEFAULT '{}'",
   );
+}
+
+function dropLegacyWorkspaceTables() {
+  if (!sqlite) return;
+  sqlite.exec(`
+    DROP TABLE IF EXISTS workspace_messages;
+    DROP TABLE IF EXISTS workspace_nodes;
+    DROP TABLE IF EXISTS workspace_sessions;
+  `);
 }
 
 export function closeDatabase() {

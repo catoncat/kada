@@ -10,6 +10,7 @@ import {
   steerAgentSession,
   updateAgentSession,
 } from '@/lib/agent-api';
+import type { AgentSessionSummary } from '@/types/agent';
 
 interface QueryOptions {
   enabled?: boolean;
@@ -22,6 +23,11 @@ export const agentKeys = {
   outputs: (sessionId: string, kind?: 'photo' | 'copy') =>
     [...agentKeys.all, 'outputs', sessionId, kind || 'all'] as const,
 };
+
+interface AgentSessionsResponse {
+  data: AgentSessionSummary[];
+  total: number;
+}
 
 export function useAgentSessions(options?: QueryOptions) {
   return useQuery({
@@ -64,6 +70,23 @@ export function useCreateAgentSession() {
       engine?: 'coding-agent' | 'agent-core';
     }) => createAgentSession(input),
     onSuccess: (session) => {
+      queryClient.setQueryData<AgentSessionsResponse>(
+        agentKeys.sessions(),
+        (prev) => {
+          const prevData = prev?.data || [];
+          const existed = prevData.some((item) => item.id === session.id);
+          const nextData = [
+            session,
+            ...prevData.filter((item) => item.id !== session.id),
+          ];
+          return {
+            data: nextData,
+            total: existed
+              ? prev?.total ?? nextData.length
+              : (prev?.total ?? prevData.length) + 1,
+          };
+        },
+      );
       queryClient.invalidateQueries({ queryKey: agentKeys.sessions() });
       queryClient.setQueryData(agentKeys.session(session.id), session);
     },

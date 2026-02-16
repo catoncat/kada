@@ -4,6 +4,7 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
+  Image as ImageIcon,
   Loader2,
   Plus,
   Trash2,
@@ -51,6 +52,39 @@ interface StreamingInsertion {
   position: number;
 }
 
+function toTimestamp(value: string | null | undefined): number {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function toRelativeTime(value: string | null | undefined): string {
+  const ts = toTimestamp(value);
+  if (!ts) return '--';
+  const diffMs = Date.now() - ts;
+  const diffMin = Math.round(diffMs / 60000);
+  if (Math.abs(diffMin) < 1) return '刚刚';
+  if (Math.abs(diffMin) < 60) return `${diffMin}m`;
+  const diffHour = Math.round(diffMin / 60);
+  if (Math.abs(diffHour) < 24) return `${diffHour}h`;
+  const diffDay = Math.round(diffHour / 24);
+  return `${diffDay}d`;
+}
+
+function statusDotClass(status: string): string {
+  if (status === 'running') return 'bg-emerald-500';
+  if (status === 'failed') return 'bg-destructive';
+  if (status === 'aborted') return 'bg-amber-500';
+  return 'bg-muted-foreground/50';
+}
+
+function statusLabel(status: string): string {
+  if (status === 'running') return '运行中';
+  if (status === 'failed') return '失败';
+  if (status === 'aborted') return '中断';
+  return '空闲';
+}
+
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
   const createSessionMutation = useCreateAgentSession();
@@ -64,6 +98,7 @@ export function AgentShell() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showOutputRail, setShowOutputRail] = useState(false);
   const [events, setEvents] = useState<AgentTurnEvent[]>([]);
   const [streamingAssistantText, setStreamingAssistantText] = useState('');
   const [streamingInsertions, setStreamingInsertions] = useState<
@@ -77,6 +112,7 @@ export function AgentShell() {
     [],
   );
   const queueCounterRef = useRef(0);
+  const sessionListRef = useRef<HTMLDivElement | null>(null);
 
   const sessions = sessionsQuery.data?.data || [];
   const activeSessions = useMemo(
@@ -91,6 +127,40 @@ export function AgentShell() {
     () => sessions.find((item) => item.id === activeSessionId) || null,
     [activeSessionId, sessions],
   );
+  const sortedActiveSessions = useMemo(
+    () =>
+      [...activeSessions].sort((a, b) => {
+        const aKey = Math.max(
+          toTimestamp(a.lastTurnAt),
+          toTimestamp(a.updatedAt),
+          toTimestamp(a.createdAt),
+        );
+        const bKey = Math.max(
+          toTimestamp(b.lastTurnAt),
+          toTimestamp(b.updatedAt),
+          toTimestamp(b.createdAt),
+        );
+        return bKey - aKey;
+      }),
+    [activeSessions],
+  );
+  const sortedArchivedSessions = useMemo(
+    () =>
+      [...archivedSessions].sort((a, b) => {
+        const aKey = Math.max(
+          toTimestamp(a.lastTurnAt),
+          toTimestamp(a.updatedAt),
+          toTimestamp(a.createdAt),
+        );
+        const bKey = Math.max(
+          toTimestamp(b.lastTurnAt),
+          toTimestamp(b.updatedAt),
+          toTimestamp(b.createdAt),
+        );
+        return bKey - aKey;
+      }),
+    [archivedSessions],
+  );
 
   useEffect(() => {
     if (sessions.length === 0) {
@@ -101,31 +171,38 @@ export function AgentShell() {
     if (activeSessionId) {
       const current = sessions.find((item) => item.id === activeSessionId);
       if (!current) {
+        // 新建/刷新窗口期先保留目标会话，避免错误回退到旧会话
+        if (createSessionMutation.isPending || sessionsQuery.isFetching) {
+          return;
+        }
+
         const nextId =
-          activeSessions[0]?.id ||
-          (showArchived ? archivedSessions[0]?.id : null) ||
+          sortedActiveSessions[0]?.id ||
+          (showArchived ? sortedArchivedSessions[0]?.id : null) ||
           null;
         setActiveSessionId(nextId);
         return;
       }
 
       if (current.archivedAt && !showArchived) {
-        setActiveSessionId(activeSessions[0]?.id || null);
+        setActiveSessionId(sortedActiveSessions[0]?.id || null);
       }
       return;
     }
 
     const nextId =
-      activeSessions[0]?.id ||
-      (showArchived ? archivedSessions[0]?.id : null) ||
+      sortedActiveSessions[0]?.id ||
+      (showArchived ? sortedArchivedSessions[0]?.id : null) ||
       null;
     if (nextId) {
       setActiveSessionId(nextId);
     }
   }, [
     activeSessionId,
-    activeSessions,
-    archivedSessions,
+    createSessionMutation.isPending,
+    sessionsQuery.isFetching,
+    sortedActiveSessions,
+    sortedArchivedSessions,
     sessions,
     showArchived,
   ]);
@@ -188,8 +265,13 @@ export function AgentShell() {
   const handleCreateSession = async () => {
     try {
       const created = await createSessionMutation.mutateAsync({});
+      setShowArchived(false);
       setActiveSessionId(created.id);
       setErrorText(null);
+      requestAnimationFrame(() => {
+        if (!sessionListRef.current) return;
+        sessionListRef.current.scrollTop = 0;
+      });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '创建会话失败');
     }
@@ -428,37 +510,62 @@ export function AgentShell() {
     return activeSession?.status || 'idle';
   }, [activeSession, turnStream.isStreaming]);
 
+  const toggleTimelinePanel = () => {
+    setShowTimeline((prev) => {
+      const next = !prev;
+      if (next) setShowOutputRail(false);
+      return next;
+    });
+  };
+
+  const toggleOutputPanel = () => {
+    setShowOutputRail((prev) => {
+      const next = !prev;
+      if (next) setShowTimeline(false);
+      return next;
+    });
+  };
+
   const renderSessionItem = (session: (typeof sessions)[number]) => {
     const isActive = session.id === activeSessionId;
     const isArchived = Boolean(session.archivedAt);
+    const isRunning = session.status === 'running';
+    const activityText = toRelativeTime(
+      session.lastTurnAt || session.updatedAt || session.createdAt,
+    );
+    const engineText = session.engine === 'coding-agent' ? 'Coding' : 'Core';
 
     return (
       <ContextMenu key={session.id}>
         <ContextMenuTrigger
-          className={`w-full rounded-lg border px-2 py-2 text-left ${
+          className={`group relative w-full rounded-xl border px-2.5 py-2 text-left transition ${
             isActive
-              ? 'border-primary bg-primary/5'
+              ? 'border-primary/40 bg-primary/8 shadow-sm'
               : isArchived
                 ? 'border-border/60 bg-muted/20 hover:bg-muted/35'
-                : 'hover:bg-muted/40'
+                : 'border-transparent hover:border-border/60 hover:bg-muted/35'
           }`}
           onClick={() => setActiveSessionId(session.id)}
         >
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2">
+            <span
+              className={`mt-1 h-2 w-2 shrink-0 rounded-full ${statusDotClass(session.status)} ${
+                isRunning ? 'animate-pulse' : ''
+              }`}
+            />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">
-                {session.title}
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-sm font-medium">
+                  {session.title}
+                </div>
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {activityText}
+                </span>
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground">
-                {session.engine} · {session.status}
+                {engineText} · {statusLabel(session.status)}
               </div>
             </div>
-
-            {isArchived ? (
-              <span className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                已归档
-              </span>
-            ) : null}
           </div>
         </ContextMenuTrigger>
 
@@ -491,7 +598,12 @@ export function AgentShell() {
       <aside className="flex h-full min-h-0 w-[260px] shrink-0 flex-col border-r bg-background">
         <div className="border-b px-3 py-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Agent 会话</h3>
+            <div>
+              <h3 className="text-sm font-semibold">会话</h3>
+              <p className="text-[11px] text-muted-foreground">
+                {sortedActiveSessions.length} 个活跃线程
+              </p>
+            </div>
             <Button
               size="sm"
               variant="outline"
@@ -503,7 +615,10 @@ export function AgentShell() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+        <div
+          ref={sessionListRef}
+          className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2"
+        >
           {sessionsQuery.isLoading ? (
             <div className="flex items-center gap-2 rounded border p-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -511,15 +626,16 @@ export function AgentShell() {
             </div>
           ) : null}
 
-          {activeSessions.length === 0 && archivedSessions.length === 0 ? (
+          {sortedActiveSessions.length === 0 &&
+          sortedArchivedSessions.length === 0 ? (
             <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
               暂无会话，点击上方“新建”开始。
             </div>
           ) : null}
 
-          {activeSessions.map(renderSessionItem)}
+          {sortedActiveSessions.map(renderSessionItem)}
 
-          {archivedSessions.length > 0 ? (
+          {sortedArchivedSessions.length > 0 ? (
             <div className="pt-1">
               <button
                 type="button"
@@ -534,12 +650,12 @@ export function AgentShell() {
                   )}
                   已归档
                 </span>
-                <span>{archivedSessions.length}</span>
+                <span>{sortedArchivedSessions.length}</span>
               </button>
 
               {showArchived ? (
                 <div className="mt-1 space-y-1">
-                  {archivedSessions.map(renderSessionItem)}
+                  {sortedArchivedSessions.map(renderSessionItem)}
                 </div>
               ) : null}
             </div>
@@ -551,14 +667,24 @@ export function AgentShell() {
         <div className="border-b bg-background px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between gap-2">
             <span>当前状态：{activeStatus}</span>
-            <Button
-              size="xs"
-              variant={showTimeline ? 'secondary' : 'outline'}
-              onClick={() => setShowTimeline((prev) => !prev)}
-            >
-              <Bug className="mr-1 h-3.5 w-3.5" />
-              {showTimeline ? '隐藏调试时间线' : '显示调试时间线'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant={showTimeline ? 'secondary' : 'outline'}
+                onClick={toggleTimelinePanel}
+              >
+                <Bug className="mr-1 h-3.5 w-3.5" />
+                {showTimeline ? '隐藏调试时间线' : '显示调试时间线'}
+              </Button>
+              <Button
+                size="xs"
+                variant={showOutputRail ? 'secondary' : 'outline'}
+                onClick={toggleOutputPanel}
+              >
+                <ImageIcon className="mr-1 h-3.5 w-3.5" />
+                {showOutputRail ? '隐藏产物栏' : `显示产物栏 (${outputs.length})`}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -597,7 +723,7 @@ export function AgentShell() {
       </div>
 
       {showTimeline ? <AgentToolTimeline events={events} /> : null}
-      <AgentOutputRail outputs={outputs} />
+      {showOutputRail ? <AgentOutputRail outputs={outputs} /> : null}
     </div>
   );
 }

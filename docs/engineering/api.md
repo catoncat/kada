@@ -116,54 +116,12 @@ Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以
 
 - `GET /api/projects/:id/tasks` → `{ tasks: Task[] }`
 
-## Workspace（/api/workspace）（已实现）
+## Workspace（/api/workspace）（已下线）
 
-独立会话中心，不与 Project 数据模型自动耦合。V1 采用 `1 会话 = 1 画布`。
+`/api/workspace/**` 已从 Sidecar 移除，调用会返回 `404`。
 
-- `GET /api/workspace/sessions` → `{ data: WorkspaceSessionSummary[], total }`
-- `POST /api/workspace/sessions`
-  - 请求：`{ title?: string }`
-  - 响应：`WorkspaceSessionDetail`
-- `GET /api/workspace/sessions/:id` → `WorkspaceSessionDetail`
-- `PATCH /api/workspace/sessions/:id`
-  - 请求：`{ title?: string, status?: "active" | "archived" }`
-  - 响应：`WorkspaceSessionDetail`
-- `DELETE /api/workspace/sessions/:id` → `{ success: true }`
-
-### 会话消息
-
-- `GET /api/workspace/sessions/:id/messages` → `{ data: WorkspaceMessage[], total }`
-- `POST /api/workspace/sessions/:id/messages`
-  - 请求：`{ content: string, selectedNodeIds?: string[], mentions?: { scenes?: string[], models?: string[] } }`
-  - 响应：`{ userMessage, assistantMessage }`
-  - 说明：助手消息中返回动作卡；消息总量保留最近 200 条。
-
-### 画布与动作
-
-- `PUT /api/workspace/sessions/:id/canvas`
-  - 请求：`{ revision: number, viewport, nodes }`
-  - 响应：`WorkspaceSessionDetail`
-  - 说明：执行 revision 乐观锁校验；冲突返回 `REVISION_CONFLICT`。
-- `POST /api/workspace/sessions/:id/actions/apply`
-  - 请求：`{ revision: number, operations: WorkspaceCanvasOperation[] }`
-  - 响应：`{ revision, nodes, appliedOperationCount }`
-  - 说明：执行动作卡 operation 并持久化新 revision。
-
-### 导入导出
-
-- `GET /api/workspace/sessions/:id/export` → `WorkspaceExportPayload`
-- `POST /api/workspace/import`
-  - 请求：`{ payload: WorkspaceExportPayload }`
-  - 响应：`WorkspaceSessionDetail`
-
-### 错误码（定稿）
-
-- `PROVIDER_REQUIRED`
-- `SESSION_NOT_FOUND`
-- `REVISION_CONFLICT`
-- `INVALID_ACTION_CARD`
-- `ASSET_NOT_FOUND`
-- `INVALID_PAYLOAD`
+- `/workspace` 前端路由仍保留，作为 Agent 工作台入口。
+- 会话与流式执行相关能力统一由 `/api/agent/**` 承载。
 
 ## AI 网关（/api/ai）（已实现）
 

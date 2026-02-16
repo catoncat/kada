@@ -1,4 +1,4 @@
-import { CornerUpRight, Loader2, Send, StopCircle } from 'lucide-react';
+import { ArrowUp, CornerUpRight, Loader2, StopCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -151,38 +151,62 @@ export function AgentComposer({
         </section>
       ) : null}
 
-      <Textarea
-        ref={inputRef}
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        rows={4}
-        placeholder="输入消息"
-        disabled={inputDisabled}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) {
-            return;
-          }
+      <div className="relative">
+        <Textarea
+          ref={inputRef}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          rows={4}
+          placeholder="输入消息"
+          disabled={inputDisabled}
+          style={{ paddingBottom: '3rem' }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) {
+              return;
+            }
 
-          if (event.key === 'Escape' && streaming) {
-            event.preventDefault();
-            void runAbort();
-            return;
-          }
+            if (event.key === 'Escape' && streaming) {
+              event.preventDefault();
+              void runAbort();
+              return;
+            }
 
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            void run(
-              primaryAction.action,
-              primaryAction.handler,
-              primaryAction.value,
-            );
-          }
-        }}
-      />
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void run(
+                primaryAction.action,
+                primaryAction.handler,
+                primaryAction.value,
+              );
+            }
+          }}
+        />
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {streaming ? (
+          <Button
+            size="icon-sm"
+            variant="destructive-outline"
+            className="absolute bottom-2 left-2 z-10 rounded-full"
+            disabled={
+              Boolean(disabled) ||
+              Boolean(abortPending) ||
+              submittingAction === 'abort'
+            }
+            onClick={() => void runAbort()}
+            title="打断执行"
+            aria-label="打断执行"
+          >
+            {submittingAction === 'abort' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <StopCircle className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        ) : null}
+
         <Button
-          size="sm"
+          size="icon"
+          className="absolute bottom-2 right-2 z-10 rounded-full"
           disabled={!text || anyPending}
           onClick={() => {
             void run(
@@ -191,37 +215,18 @@ export function AgentComposer({
               primaryAction.value,
             );
           }}
+          title={primaryAction.label}
+          aria-label={primaryAction.label}
         >
           {(streaming &&
             (submittingAction === 'follow-up' ||
               submittingAction === 'steer')) ||
           (!streaming && submittingAction === 'send') ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <Send className="mr-1 h-3.5 w-3.5" />
+            <ArrowUp className="h-4 w-4" />
           )}
-          {primaryAction.label}
         </Button>
-
-        {streaming ? (
-          <Button
-            size="sm"
-            variant="destructive-outline"
-            disabled={
-              Boolean(disabled) ||
-              Boolean(abortPending) ||
-              submittingAction === 'abort'
-            }
-            onClick={() => void runAbort()}
-          >
-            {submittingAction === 'abort' ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <StopCircle className="mr-1 h-3.5 w-3.5" />
-            )}
-            打断执行
-          </Button>
-        ) : null}
       </div>
     </div>
   );

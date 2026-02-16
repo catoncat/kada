@@ -11,9 +11,9 @@ export const navigationItems: SearchItem[] = [
     id: 'nav:workspace',
     type: 'navigation',
     title: '工作台',
-    subtitle: '自由 Chat + 画布',
+    subtitle: 'Agent 对话工作台',
     icon: Blocks,
-    keywords: ['workspace', 'chat', 'canvas', '工作台', '画布'],
+    keywords: ['workspace', 'chat', 'agent', '工作台', '智能体'],
     action: { type: 'navigate', target: { to: '/workspace' } },
   },
   {

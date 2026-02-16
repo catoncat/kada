@@ -13,7 +13,6 @@ import { projectRoutes } from './routes/projects';
 import { settingsRoutes } from './routes/settings';
 import { artifactsRoutes } from './routes/artifacts';
 import { promptsRoutes } from './routes/prompts';
-import { workspaceRoutes } from './routes/workspace';
 import { agentRoutes } from './routes/agent';
 import { embeddingsRoutes } from './routes/embeddings';
 import { initDatabase } from './db';
@@ -104,7 +103,6 @@ app.route('/api/projects', projectRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/artifacts', artifactsRoutes);
 app.route('/api/prompts', promptsRoutes);
-app.route('/api/workspace', workspaceRoutes);
 app.route('/api/agent', agentRoutes);
 app.route('/api/embeddings', embeddingsRoutes);
 
