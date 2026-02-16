@@ -1,8 +1,8 @@
+import { existsSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
-import path from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
 
 type SqliteDatabase = InstanceType<typeof Database>;
 
@@ -245,6 +245,7 @@ function ensureTables() {
       engine TEXT NOT NULL DEFAULT 'coding-agent',
       status TEXT NOT NULL DEFAULT 'idle',
       provider_id TEXT,
+      archived_at INTEGER,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch()),
       last_turn_at INTEGER
@@ -285,11 +286,17 @@ function ensureColumns() {
   if (!sqlite) return;
 
   const hasColumn = (table: string, column: string): boolean => {
-    const rows = sqlite!.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>;
+    const rows = sqlite!.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name?: string;
+    }>;
     return rows.some((r) => r.name === column);
   };
 
-  const addColumnIfMissing = (table: string, column: string, sqlType: string) => {
+  const addColumnIfMissing = (
+    table: string,
+    column: string,
+    sqlType: string,
+  ) => {
     if (hasColumn(table, column)) return;
     console.log(`🧩 Adding missing column: ${table}.${column}`);
     sqlite!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlType};`);
@@ -316,8 +323,16 @@ function ensureColumns() {
   addColumnIfMissing('embedding_profiles', 'api_key_ref', 'TEXT');
   addColumnIfMissing('embedding_profiles', 'model', "TEXT DEFAULT ''");
   addColumnIfMissing('embedding_profiles', 'vector_dim', 'INTEGER DEFAULT 0');
-  addColumnIfMissing('embedding_profiles', 'normalize', 'INTEGER NOT NULL DEFAULT 1');
-  addColumnIfMissing('embedding_profiles', 'status', "TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing(
+    'embedding_profiles',
+    'normalize',
+    'INTEGER NOT NULL DEFAULT 1',
+  );
+  addColumnIfMissing(
+    'embedding_profiles',
+    'status',
+    "TEXT NOT NULL DEFAULT 'active'",
+  );
   addColumnIfMissing('embedding_profiles', 'created_at', 'INTEGER');
   addColumnIfMissing('embedding_profiles', 'updated_at', 'INTEGER');
 
@@ -325,16 +340,32 @@ function ensureColumns() {
   addColumnIfMissing('asset_embeddings', 'asset_id', 'TEXT');
   addColumnIfMissing('asset_embeddings', 'profile_id', 'TEXT');
   addColumnIfMissing('asset_embeddings', 'vector', 'BLOB');
-  addColumnIfMissing('asset_embeddings', 'vector_norm', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(
+    'asset_embeddings',
+    'vector_norm',
+    'REAL NOT NULL DEFAULT 0',
+  );
   addColumnIfMissing('asset_embeddings', 'indexed_at', 'INTEGER');
   addColumnIfMissing('asset_embeddings', 'source_hash', "TEXT DEFAULT ''");
-  addColumnIfMissing('asset_embeddings', 'version', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(
+    'asset_embeddings',
+    'version',
+    'INTEGER NOT NULL DEFAULT 1',
+  );
   addColumnIfMissing('asset_embeddings', 'created_at', 'INTEGER');
   addColumnIfMissing('asset_embeddings', 'updated_at', 'INTEGER');
 
   // workspace_sessions: 迭代期补列
-  addColumnIfMissing('workspace_sessions', 'status', "TEXT NOT NULL DEFAULT 'active'");
-  addColumnIfMissing('workspace_sessions', 'revision', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(
+    'workspace_sessions',
+    'status',
+    "TEXT NOT NULL DEFAULT 'active'",
+  );
+  addColumnIfMissing(
+    'workspace_sessions',
+    'revision',
+    'INTEGER NOT NULL DEFAULT 1',
+  );
   addColumnIfMissing('workspace_sessions', 'canvas_viewport', 'TEXT');
   addColumnIfMissing('workspace_sessions', 'last_message_at', 'INTEGER');
 
@@ -347,25 +378,50 @@ function ensureColumns() {
   addColumnIfMissing('workspace_nodes', 'meta', 'TEXT');
 
   // agent_sessions: 迭代期补列
-  addColumnIfMissing('agent_sessions', 'engine', "TEXT NOT NULL DEFAULT 'coding-agent'");
-  addColumnIfMissing('agent_sessions', 'status', "TEXT NOT NULL DEFAULT 'idle'");
+  addColumnIfMissing(
+    'agent_sessions',
+    'engine',
+    "TEXT NOT NULL DEFAULT 'coding-agent'",
+  );
+  addColumnIfMissing(
+    'agent_sessions',
+    'status',
+    "TEXT NOT NULL DEFAULT 'idle'",
+  );
   addColumnIfMissing('agent_sessions', 'provider_id', 'TEXT');
+  addColumnIfMissing('agent_sessions', 'archived_at', 'INTEGER');
   addColumnIfMissing('agent_sessions', 'last_turn_at', 'INTEGER');
 
   // agent_entries: 迭代期补列
   addColumnIfMissing('agent_entries', 'parent_entry_id', 'TEXT');
-  addColumnIfMissing('agent_entries', 'payload_json', "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(
+    'agent_entries',
+    'payload_json',
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
 
   // agent_events: 迭代期补列
   addColumnIfMissing('agent_events', 'turn_id', 'TEXT');
   addColumnIfMissing('agent_events', 'seq', 'INTEGER NOT NULL DEFAULT 1');
-  addColumnIfMissing('agent_events', 'event_type', "TEXT NOT NULL DEFAULT 'unknown'");
-  addColumnIfMissing('agent_events', 'payload_json', "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(
+    'agent_events',
+    'event_type',
+    "TEXT NOT NULL DEFAULT 'unknown'",
+  );
+  addColumnIfMissing(
+    'agent_events',
+    'payload_json',
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
 
   // agent_outputs: 迭代期补列
   addColumnIfMissing('agent_outputs', 'turn_id', 'TEXT');
   addColumnIfMissing('agent_outputs', 'ref_id', 'TEXT');
-  addColumnIfMissing('agent_outputs', 'content_json', "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(
+    'agent_outputs',
+    'content_json',
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
 }
 
 export function closeDatabase() {

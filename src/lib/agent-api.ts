@@ -56,7 +56,10 @@ function toApiError(response: Response, body: unknown, fallback: string) {
   });
 }
 
-export async function listAgentSessions(): Promise<{ data: AgentSessionSummary[]; total: number }> {
+export async function listAgentSessions(): Promise<{
+  data: AgentSessionSummary[];
+  total: number;
+}> {
   const res = await fetch(apiUrl('/api/agent/sessions'));
   const data = await readJson(res);
   if (!res.ok) {
@@ -82,7 +85,9 @@ export async function createAgentSession(input?: {
   return data as AgentSessionSummary;
 }
 
-export async function getAgentSession(sessionId: string): Promise<AgentSessionDetail> {
+export async function getAgentSession(
+  sessionId: string,
+): Promise<AgentSessionDetail> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}`));
   const data = await readJson(res);
   if (!res.ok) {
@@ -91,7 +96,39 @@ export async function getAgentSession(sessionId: string): Promise<AgentSessionDe
   return data as AgentSessionDetail;
 }
 
-export async function steerAgentSession(sessionId: string, text: string): Promise<void> {
+export async function updateAgentSession(
+  sessionId: string,
+  input: {
+    title?: string;
+    archived?: boolean;
+  },
+): Promise<AgentSessionSummary> {
+  const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, '更新 Agent 会话失败');
+  }
+  return data as AgentSessionSummary;
+}
+
+export async function deleteAgentSession(sessionId: string): Promise<void> {
+  const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}`), {
+    method: 'DELETE',
+  });
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, '删除 Agent 会话失败');
+  }
+}
+
+export async function steerAgentSession(
+  sessionId: string,
+  text: string,
+): Promise<void> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/steer`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -103,12 +140,18 @@ export async function steerAgentSession(sessionId: string, text: string): Promis
   }
 }
 
-export async function followUpAgentSession(sessionId: string, text: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/follow-up`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
+export async function followUpAgentSession(
+  sessionId: string,
+  text: string,
+): Promise<void> {
+  const res = await fetch(
+    apiUrl(`/api/agent/sessions/${sessionId}/follow-up`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    },
+  );
   const data = await readJson(res);
   if (!res.ok) {
     throw toApiError(res, data, 'Follow-up 失败');
@@ -128,13 +171,24 @@ export async function abortAgentSession(sessionId: string): Promise<void> {
 export async function listAgentEvents(input: {
   sessionId: string;
   cursor?: number;
-}): Promise<{ data: Array<{ seq: number; eventType: string; payload: unknown; createdAt: string | null }>; cursor: number; total: number }> {
+}): Promise<{
+  data: Array<{
+    seq: number;
+    eventType: string;
+    payload: unknown;
+    createdAt: string | null;
+  }>;
+  cursor: number;
+  total: number;
+}> {
   const params = new URLSearchParams();
   if (typeof input.cursor === 'number' && Number.isFinite(input.cursor)) {
     params.set('cursor', String(Math.floor(input.cursor)));
   }
 
-  const url = apiUrl(`/api/agent/sessions/${input.sessionId}/events?${params.toString()}`);
+  const url = apiUrl(
+    `/api/agent/sessions/${input.sessionId}/events?${params.toString()}`,
+  );
   const res = await fetch(url);
   const data = await readJson(res);
   if (!res.ok) {
@@ -142,7 +196,12 @@ export async function listAgentEvents(input: {
   }
 
   return data as {
-    data: Array<{ seq: number; eventType: string; payload: unknown; createdAt: string | null }>;
+    data: Array<{
+      seq: number;
+      eventType: string;
+      payload: unknown;
+      createdAt: string | null;
+    }>;
     cursor: number;
     total: number;
   };
@@ -156,7 +215,9 @@ export async function listAgentOutputs(input: {
   if (input.kind) params.set('kind', input.kind);
 
   const res = await fetch(
-    apiUrl(`/api/agent/sessions/${input.sessionId}/outputs?${params.toString()}`),
+    apiUrl(
+      `/api/agent/sessions/${input.sessionId}/outputs?${params.toString()}`,
+    ),
   );
   const data = await readJson(res);
   if (!res.ok) {
@@ -171,9 +232,7 @@ function parseSseChunk(chunk: string): AgentTurnStreamChunk[] {
   const parsed: AgentTurnStreamChunk[] = [];
 
   for (const block of blocks) {
-    const line = block
-      .split('\n')
-      .find((entry) => entry.startsWith('data:'));
+    const line = block.split('\n').find((entry) => entry.startsWith('data:'));
     if (!line) continue;
 
     const raw = line.replace(/^data:\s*/, '').trim();
@@ -204,12 +263,15 @@ export async function streamAgentTurn(input: {
   signal?: AbortSignal;
   onEvent: (chunk: AgentTurnStreamChunk) => void;
 }): Promise<void> {
-  const res = await fetch(apiUrl(`/api/agent/sessions/${input.sessionId}/turn`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: input.text }),
-    signal: input.signal,
-  });
+  const res = await fetch(
+    apiUrl(`/api/agent/sessions/${input.sessionId}/turn`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: input.text }),
+      signal: input.signal,
+    },
+  );
 
   if (!res.ok) {
     const body = await readJson(res);

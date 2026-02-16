@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, blob, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  blob,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 // Providers 表
 export const providers = sqliteTable('providers', {
@@ -214,6 +221,7 @@ export const agentSessions = sqliteTable('agent_sessions', {
   engine: text('engine').notNull().default('coding-agent'), // 'coding-agent' | 'agent-core'
   status: text('status').notNull().default('idle'), // 'idle' | 'running' | 'failed' | 'aborted'
   providerId: text('provider_id'),
+  archivedAt: integer('archived_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
   lastTurnAt: integer('last_turn_at', { mode: 'timestamp' }),

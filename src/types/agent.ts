@@ -6,6 +6,7 @@ export interface AgentSessionSummary {
   title: string;
   engine: AgentEngine;
   status: AgentSessionStatus;
+  archivedAt: string | null;
   providerId: string | null;
   createdAt: string | null;
   updatedAt: string | null;

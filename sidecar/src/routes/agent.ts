@@ -1,24 +1,26 @@
-import { Hono } from 'hono';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import {
-  appendAgentEntry,
-  appendAgentOutput,
-  createAgentSessionRecord,
-  getAgentSessionRecord,
-  listAgentEntries,
-  listAgentOutputs,
-  listAgentSessionRecords,
-  type AgentEngine,
-  type AgentOutputKind,
-} from '../services/agent-session-store';
+import { Hono } from 'hono';
+import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
+import { RuntimeRouter } from '../agent/runtime/runtime-router';
 import {
   appendAgentEvent,
   getLatestAgentEventCursor,
   listAgentEvents,
 } from '../services/agent-event-store';
-import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
-import { RuntimeRouter } from '../agent/runtime/runtime-router';
+import {
+  type AgentEngine,
+  type AgentOutputKind,
+  appendAgentEntry,
+  appendAgentOutput,
+  createAgentSessionRecord,
+  deleteAgentSessionRecord,
+  getAgentSessionRecord,
+  listAgentEntries,
+  listAgentOutputs,
+  listAgentSessionRecords,
+  updateAgentSessionRecord,
+} from '../services/agent-session-store';
 
 export const agentRoutes = new Hono();
 
@@ -27,6 +29,10 @@ const runtimeRouter = new RuntimeRouter({ skillsPath });
 
 function toError(message: string, code: string) {
   return { error: message, code };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function eventToOutputKind(type: string): AgentOutputKind | null {
@@ -62,8 +68,10 @@ agentRoutes.get('/sessions', async (c) => {
 agentRoutes.post('/sessions', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const title = typeof body?.title === 'string' ? body.title : undefined;
-  const providerId = typeof body?.providerId === 'string' ? body.providerId : undefined;
-  const engine: AgentEngine = body?.engine === 'agent-core' ? 'agent-core' : 'coding-agent';
+  const providerId =
+    typeof body?.providerId === 'string' ? body.providerId : undefined;
+  const engine: AgentEngine =
+    body?.engine === 'agent-core' ? 'agent-core' : 'coding-agent';
 
   const session = await createAgentSessionRecord({
     title,
@@ -96,6 +104,82 @@ agentRoutes.get('/sessions/:id', async (c) => {
   });
 });
 
+agentRoutes.patch('/sessions/:id', async (c) => {
+  const sessionId = c.req.param('id');
+  const session = await getAgentSessionRecord(sessionId);
+  if (!session) {
+    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  if (!isRecord(body)) {
+    return c.json(toError('请求体格式不正确。', 'INVALID_PAYLOAD'), 400);
+  }
+
+  const updates: {
+    title?: string;
+    archived?: boolean;
+  } = {};
+
+  if (body.title !== undefined) {
+    if (typeof body.title !== 'string' || !body.title.trim()) {
+      return c.json(toError('title 不能为空。', 'INVALID_PAYLOAD'), 400);
+    }
+    updates.title = body.title.trim();
+  }
+
+  if (body.archived !== undefined) {
+    if (typeof body.archived !== 'boolean') {
+      return c.json(
+        toError('archived 必须为 boolean。', 'INVALID_PAYLOAD'),
+        400,
+      );
+    }
+
+    if (body.archived) {
+      const running = await runtimeRouter.isRunning(sessionId);
+      if (running) {
+        return c.json(
+          toError('会话正在执行中，请先中断后再归档。', 'SESSION_RUNNING'),
+          409,
+        );
+      }
+    }
+
+    updates.archived = body.archived;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return c.json(toError('缺少可更新字段。', 'INVALID_PAYLOAD'), 400);
+  }
+
+  const next = await updateAgentSessionRecord(sessionId, updates);
+  if (!next) {
+    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+
+  return c.json(next);
+});
+
+agentRoutes.delete('/sessions/:id', async (c) => {
+  const sessionId = c.req.param('id');
+  const session = await getAgentSessionRecord(sessionId);
+  if (!session) {
+    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+
+  const running = await runtimeRouter.isRunning(sessionId);
+  if (running) {
+    return c.json(
+      toError('会话正在执行中，请先中断后再删除。', 'SESSION_RUNNING'),
+      409,
+    );
+  }
+
+  await deleteAgentSessionRecord(sessionId);
+  return c.json({ success: true });
+});
+
 agentRoutes.post('/sessions/:id/turn', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
@@ -108,6 +192,12 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
   const session = await getAgentSessionRecord(sessionId);
   if (!session) {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+  }
+  if (session.archivedAt) {
+    return c.json(
+      toError('会话已归档，无法继续对话。', 'SESSION_ARCHIVED'),
+      409,
+    );
   }
 
   const turnId = randomUUID();
@@ -129,7 +219,9 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
 
       const writeEvent = (chunk: unknown) => {
         if (closed) return;
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+        );
       };
 
       const closeStream = () => {
@@ -253,11 +345,20 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
   if (!session) {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
+  if (session.archivedAt) {
+    return c.json(
+      toError('会话已归档，无法发送 steer。', 'SESSION_ARCHIVED'),
+      409,
+    );
+  }
 
   const running = await runtimeRouter.isRunning(sessionId);
   if (!running) {
     return c.json(
-      toError('当前会话没有执行中的 turn，无法执行 steer。', 'SESSION_NOT_RUNNING'),
+      toError(
+        '当前会话没有执行中的 turn，无法执行 steer。',
+        'SESSION_NOT_RUNNING',
+      ),
       409,
     );
   }
@@ -279,11 +380,20 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   if (!session) {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
+  if (session.archivedAt) {
+    return c.json(
+      toError('会话已归档，无法发送 follow-up。', 'SESSION_ARCHIVED'),
+      409,
+    );
+  }
 
   const running = await runtimeRouter.isRunning(sessionId);
   if (!running) {
     return c.json(
-      toError('当前会话没有执行中的 turn，无法执行 follow-up。', 'SESSION_NOT_RUNNING'),
+      toError(
+        '当前会话没有执行中的 turn，无法执行 follow-up。',
+        'SESSION_NOT_RUNNING',
+      ),
       409,
     );
   }
@@ -298,10 +408,16 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
   if (!session) {
     return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
   }
+  if (session.archivedAt) {
+    return c.json(toError('会话已归档。', 'SESSION_ARCHIVED'), 409);
+  }
 
   const running = await runtimeRouter.isRunning(sessionId);
   if (!running) {
-    return c.json(toError('当前会话没有执行中的 turn。', 'SESSION_NOT_RUNNING'), 409);
+    return c.json(
+      toError('当前会话没有执行中的 turn。', 'SESSION_NOT_RUNNING'),
+      409,
+    );
   }
 
   await runtimeRouter.abort(sessionId);
@@ -330,7 +446,8 @@ agentRoutes.get('/sessions/:id/events', async (c) => {
     limit: Number.isFinite(limit) ? limit : undefined,
   });
 
-  const nextCursor = data.length > 0 ? data[data.length - 1].seq : cursor ?? 0;
+  const nextCursor =
+    data.length > 0 ? data[data.length - 1].seq : (cursor ?? 0);
 
   return c.json({
     data,

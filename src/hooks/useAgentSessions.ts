@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   abortAgentSession,
   createAgentSession,
+  deleteAgentSession,
   followUpAgentSession,
   getAgentSession,
   listAgentOutputs,
   listAgentSessions,
   steerAgentSession,
+  updateAgentSession,
 } from '@/lib/agent-api';
 
 interface QueryOptions {
@@ -29,7 +31,10 @@ export function useAgentSessions(options?: QueryOptions) {
   });
 }
 
-export function useAgentSession(sessionId: string | null, options?: QueryOptions) {
+export function useAgentSession(
+  sessionId: string | null,
+  options?: QueryOptions,
+) {
   return useQuery({
     queryKey: agentKeys.session(sessionId || ''),
     queryFn: () => getAgentSession(sessionId!),
@@ -53,11 +58,51 @@ export function useCreateAgentSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input?: { title?: string; providerId?: string; engine?: 'coding-agent' | 'agent-core' }) =>
-      createAgentSession(input),
+    mutationFn: (input?: {
+      title?: string;
+      providerId?: string;
+      engine?: 'coding-agent' | 'agent-core';
+    }) => createAgentSession(input),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: agentKeys.sessions() });
       queryClient.setQueryData(agentKeys.session(session.id), session);
+    },
+  });
+}
+
+export function useUpdateAgentSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      input,
+    }: {
+      sessionId: string;
+      input: { title?: string; archived?: boolean };
+    }) => updateAgentSession(sessionId, input),
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.sessions() });
+      queryClient.setQueryData(agentKeys.session(session.id), session);
+    },
+  });
+}
+
+export function useDeleteAgentSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) => deleteAgentSession(sessionId),
+    onSuccess: (_result, sessionId) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.sessions() });
+      queryClient.removeQueries({
+        queryKey: agentKeys.session(sessionId),
+        exact: true,
+      });
+      queryClient.removeQueries({
+        queryKey: agentKeys.outputs(sessionId),
+        exact: false,
+      });
     },
   });
 }

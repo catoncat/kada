@@ -1,13 +1,14 @@
-import { and, desc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
-  agentEntries,
-  agentOutputs,
-  agentSessions,
   type AgentEntry,
   type AgentOutput,
   type AgentSession,
+  agentEntries,
+  agentEvents,
+  agentOutputs,
+  agentSessions,
 } from '../db/schema';
 
 export type AgentEngine = 'coding-agent' | 'agent-core';
@@ -19,6 +20,7 @@ export interface AgentSessionSummary {
   title: string;
   engine: AgentEngine;
   status: AgentSessionStatus;
+  archivedAt: string | null;
   providerId: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -61,7 +63,9 @@ function safeParseJson(value: string | null | undefined): unknown {
 function normalizeSession(row: AgentSession): AgentSessionSummary {
   const engine = row.engine === 'agent-core' ? 'agent-core' : 'coding-agent';
   const status: AgentSessionStatus =
-    row.status === 'running' || row.status === 'failed' || row.status === 'aborted'
+    row.status === 'running' ||
+    row.status === 'failed' ||
+    row.status === 'aborted'
       ? row.status
       : 'idle';
 
@@ -70,6 +74,7 @@ function normalizeSession(row: AgentSession): AgentSessionSummary {
     title: row.title,
     engine,
     status,
+    archivedAt: toIso(row.archivedAt),
     providerId: row.providerId || null,
     createdAt: toIso(row.createdAt),
     updatedAt: toIso(row.updatedAt),
@@ -114,7 +119,8 @@ export async function createAgentSessionRecord(input?: {
     typeof input?.title === 'string' && input.title.trim()
       ? input.title.trim()
       : '新 Agent 会话';
-  const engine: AgentEngine = input?.engine === 'agent-core' ? 'agent-core' : 'coding-agent';
+  const engine: AgentEngine =
+    input?.engine === 'agent-core' ? 'agent-core' : 'coding-agent';
 
   await db.insert(agentSessions).values({
     id,
@@ -135,7 +141,9 @@ export async function createAgentSessionRecord(input?: {
   return session;
 }
 
-export async function listAgentSessionRecords(): Promise<AgentSessionSummary[]> {
+export async function listAgentSessionRecords(): Promise<
+  AgentSessionSummary[]
+> {
   const db = getDb();
   const rows = await db
     .select()
@@ -170,6 +178,51 @@ export async function setAgentSessionStatus(
       updatedAt: new Date(),
     })
     .where(eq(agentSessions.id, sessionId));
+}
+
+export async function updateAgentSessionRecord(
+  sessionId: string,
+  input: {
+    title?: string;
+    archived?: boolean;
+  },
+): Promise<AgentSessionSummary | null> {
+  const db = getDb();
+  const updates: {
+    title?: string;
+    archivedAt?: Date | null;
+    updatedAt: Date;
+  } = {
+    updatedAt: new Date(),
+  };
+
+  if (typeof input.title === 'string') {
+    updates.title = input.title.trim();
+  }
+
+  if (typeof input.archived === 'boolean') {
+    updates.archivedAt = input.archived ? new Date() : null;
+  }
+
+  await db
+    .update(agentSessions)
+    .set(updates)
+    .where(eq(agentSessions.id, sessionId));
+
+  return getAgentSessionRecord(sessionId);
+}
+
+export async function deleteAgentSessionRecord(
+  sessionId: string,
+): Promise<void> {
+  const db = getDb();
+
+  db.transaction((tx) => {
+    tx.delete(agentEvents).where(eq(agentEvents.sessionId, sessionId)).run();
+    tx.delete(agentEntries).where(eq(agentEntries.sessionId, sessionId)).run();
+    tx.delete(agentOutputs).where(eq(agentOutputs.sessionId, sessionId)).run();
+    tx.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+  });
 }
 
 export async function touchAgentSessionTurn(sessionId: string): Promise<void> {
@@ -273,7 +326,10 @@ export async function listAgentOutputs(input: {
   const db = getDb();
 
   const where = input.kind
-    ? and(eq(agentOutputs.sessionId, input.sessionId), eq(agentOutputs.kind, input.kind))
+    ? and(
+        eq(agentOutputs.sessionId, input.sessionId),
+        eq(agentOutputs.kind, input.kind),
+      )
     : eq(agentOutputs.sessionId, input.sessionId);
 
   const rows = await db

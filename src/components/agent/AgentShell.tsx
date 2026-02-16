@@ -1,5 +1,13 @@
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
 import { AgentComposer } from '@/components/agent/AgentComposer';
 import { AgentMessageList } from '@/components/agent/AgentMessageList';
 import { AgentOutputRail } from '@/components/agent/AgentOutputRail';
@@ -7,13 +15,22 @@ import { AgentToolTimeline } from '@/components/agent/AgentToolTimeline';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
   useAbortAgentSession,
   useAgentOutputs,
   useAgentSession,
   useAgentSessions,
   useCreateAgentSession,
+  useDeleteAgentSession,
   useFollowUpAgentSession,
   useSteerAgentSession,
+  useUpdateAgentSession,
 } from '@/hooks/useAgentSessions';
 import { useAgentTurnStream } from '@/hooks/useAgentTurnStream';
 import type { AgentTurnEvent, AgentTurnStreamChunk } from '@/types/agent';
@@ -32,28 +49,77 @@ interface QueuedFollowUpItem {
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
   const createSessionMutation = useCreateAgentSession();
+  const updateSessionMutation = useUpdateAgentSession();
+  const deleteSessionMutation = useDeleteAgentSession();
   const steerMutation = useSteerAgentSession();
   const followUpMutation = useFollowUpAgentSession();
   const abortMutation = useAbortAgentSession();
   const turnStream = useAgentTurnStream();
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [events, setEvents] = useState<AgentTurnEvent[]>([]);
   const [streamingAssistantText, setStreamingAssistantText] = useState('');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<
     Array<{ id: string; text: string; createdAt: string }>
   >([]);
-  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUpItem[]>([]);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUpItem[]>(
+    [],
+  );
   const queueCounterRef = useRef(0);
 
   const sessions = sessionsQuery.data?.data || [];
+  const activeSessions = useMemo(
+    () => sessions.filter((session) => !session.archivedAt),
+    [sessions],
+  );
+  const archivedSessions = useMemo(
+    () => sessions.filter((session) => Boolean(session.archivedAt)),
+    [sessions],
+  );
+  const activeSession = useMemo(
+    () => sessions.find((item) => item.id === activeSessionId) || null,
+    [activeSessionId, sessions],
+  );
 
   useEffect(() => {
-    if (activeSessionId) return;
-    if (sessions.length === 0) return;
-    setActiveSessionId(sessions[0].id);
-  }, [activeSessionId, sessions]);
+    if (sessions.length === 0) {
+      if (activeSessionId) setActiveSessionId(null);
+      return;
+    }
+
+    if (activeSessionId) {
+      const current = sessions.find((item) => item.id === activeSessionId);
+      if (!current) {
+        const nextId =
+          activeSessions[0]?.id ||
+          (showArchived ? archivedSessions[0]?.id : null) ||
+          null;
+        setActiveSessionId(nextId);
+        return;
+      }
+
+      if (current.archivedAt && !showArchived) {
+        setActiveSessionId(activeSessions[0]?.id || null);
+      }
+      return;
+    }
+
+    const nextId =
+      activeSessions[0]?.id ||
+      (showArchived ? archivedSessions[0]?.id : null) ||
+      null;
+    if (nextId) {
+      setActiveSessionId(nextId);
+    }
+  }, [
+    activeSessionId,
+    activeSessions,
+    archivedSessions,
+    sessions,
+    showArchived,
+  ]);
 
   const sessionDetailQuery = useAgentSession(activeSessionId, {
     enabled: Boolean(activeSessionId),
@@ -78,6 +144,7 @@ export function AgentShell() {
   const composerDisabled =
     !activeSessionId ||
     createSessionMutation.isPending ||
+    Boolean(activeSession?.archivedAt) ||
     abortMutation.isPending;
 
   const handleCreateSession = async () => {
@@ -87,6 +154,52 @@ export function AgentShell() {
       setErrorText(null);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : '创建会话失败');
+    }
+  };
+
+  const handleArchiveSession = async (sessionId: string, archived: boolean) => {
+    const wasActive = activeSessionId === sessionId;
+
+    if (archived && wasActive) {
+      setActiveSessionId(null);
+    }
+
+    try {
+      await updateSessionMutation.mutateAsync({
+        sessionId,
+        input: { archived },
+      });
+
+      if (!archived && !activeSessionId) {
+        setActiveSessionId(sessionId);
+      }
+
+      setErrorText(null);
+    } catch (error) {
+      if (archived && wasActive) {
+        setActiveSessionId(sessionId);
+      }
+      setErrorText(error instanceof Error ? error.message : '更新会话失败');
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const confirmed = window.confirm('确定删除该会话吗？删除后不可恢复。');
+    if (!confirmed) return;
+
+    const wasActive = activeSessionId === sessionId;
+    if (wasActive) {
+      setActiveSessionId(null);
+    }
+
+    try {
+      await deleteSessionMutation.mutateAsync(sessionId);
+      setErrorText(null);
+    } catch (error) {
+      if (wasActive) {
+        setActiveSessionId(sessionId);
+      }
+      setErrorText(error instanceof Error ? error.message : '删除会话失败');
     }
   };
 
@@ -267,9 +380,67 @@ export function AgentShell() {
 
   const activeStatus = useMemo(() => {
     if (turnStream.isStreaming) return 'running';
-    const session = sessions.find((item) => item.id === activeSessionId);
-    return session?.status || 'idle';
-  }, [activeSessionId, sessions, turnStream.isStreaming]);
+    if (activeSession?.archivedAt) return 'archived';
+    return activeSession?.status || 'idle';
+  }, [activeSession, turnStream.isStreaming]);
+
+  const renderSessionItem = (session: (typeof sessions)[number]) => {
+    const isActive = session.id === activeSessionId;
+    const isArchived = Boolean(session.archivedAt);
+
+    return (
+      <ContextMenu key={session.id}>
+        <ContextMenuTrigger
+          className={`w-full rounded-lg border px-2 py-2 text-left ${
+            isActive
+              ? 'border-primary bg-primary/5'
+              : isArchived
+                ? 'border-border/60 bg-muted/20 hover:bg-muted/35'
+                : 'hover:bg-muted/40'
+          }`}
+          onClick={() => setActiveSessionId(session.id)}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {session.title}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {session.engine} · {session.status}
+              </div>
+            </div>
+
+            {isArchived ? (
+              <span className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                已归档
+              </span>
+            ) : null}
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuPopup>
+          <ContextMenuItem
+            onClick={() => void handleArchiveSession(session.id, !isArchived)}
+          >
+            {isArchived ? (
+              <ArchiveRestore className="h-4 w-4" />
+            ) : (
+              <Archive className="h-4 w-4" />
+            )}
+            {isArchived ? '取消归档' : '归档'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => void handleDeleteSession(session.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+            删除
+          </ContextMenuItem>
+        </ContextMenuPopup>
+      </ContextMenu>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -296,25 +467,39 @@ export function AgentShell() {
             </div>
           ) : null}
 
-          {sessions.map((session) => (
-            <button
-              key={session.id}
-              type="button"
-              className={`w-full rounded-lg border px-2 py-2 text-left ${
-                session.id === activeSessionId
-                  ? 'border-primary bg-primary/5'
-                  : 'hover:bg-muted/40'
-              }`}
-              onClick={() => setActiveSessionId(session.id)}
-            >
-              <div className="truncate text-sm font-medium">
-                {session.title}
-              </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                {session.engine} · {session.status}
-              </div>
-            </button>
-          ))}
+          {activeSessions.length === 0 && archivedSessions.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+              暂无会话，点击上方“新建”开始。
+            </div>
+          ) : null}
+
+          {activeSessions.map(renderSessionItem)}
+
+          {archivedSessions.length > 0 ? (
+            <div className="pt-1">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+                onClick={() => setShowArchived((prev) => !prev)}
+              >
+                <span className="inline-flex items-center gap-1">
+                  {showArchived ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                  已归档
+                </span>
+                <span>{archivedSessions.length}</span>
+              </button>
+
+              {showArchived ? (
+                <div className="mt-1 space-y-1">
+                  {archivedSessions.map(renderSessionItem)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </aside>
 
