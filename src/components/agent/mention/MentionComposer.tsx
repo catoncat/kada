@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -20,6 +21,7 @@ import { listAgentResourceImages, searchAgentResources } from '@/lib/agent-api';
 import { cn } from '@/lib/utils';
 import type { AgentMention, AgentMentionImageRef } from '@/types/agent';
 import { MentionPickDialog } from './MentionPickDialog';
+import { computeMentionSuggestionMaxHeight } from './mention-suggestion-layout';
 import {
   AGENT_MENTION_KIND_LABEL,
   MENTION_MARKUP,
@@ -42,6 +44,89 @@ interface MentionComposerProps {
   onKeyDown?: (
     event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => void;
+}
+
+const SUGGESTIONS_HEIGHT_CAP = 320;
+const SUGGESTIONS_EDGE_PADDING = 12;
+const SUGGESTIONS_FALLBACK_HEIGHT = 240;
+
+function MentionSuggestionsContainer({
+  children,
+  inputElementRef,
+}: {
+  children: React.ReactNode;
+  inputElementRef: React.RefObject<
+    HTMLTextAreaElement | HTMLInputElement | null
+  >;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [maxHeight, setMaxHeight] = useState(SUGGESTIONS_FALLBACK_HEIGHT);
+
+  const updateMaxHeight = useCallback(() => {
+    const container = containerRef.current;
+    const input = inputElementRef.current;
+    if (!container || !input) return;
+
+    const viewportHeight = Math.max(
+      document.documentElement.clientHeight,
+      window.innerHeight || 0,
+    );
+    const next = computeMentionSuggestionMaxHeight({
+      overlayRect: container.getBoundingClientRect(),
+      inputRect: input.getBoundingClientRect(),
+      viewportHeight,
+      edgePadding: SUGGESTIONS_EDGE_PADDING,
+      maxHeightCap: SUGGESTIONS_HEIGHT_CAP,
+    });
+
+    setMaxHeight((prev) => (prev === next ? prev : next));
+  }, [inputElementRef]);
+
+  useLayoutEffect(() => {
+    updateMaxHeight();
+  }, [updateMaxHeight]);
+
+  useEffect(() => {
+    const handleViewportChange = () => {
+      updateMaxHeight();
+    };
+
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [updateMaxHeight]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      updateMaxHeight();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [updateMaxHeight]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={
+        {
+          '--mention-suggestions-max-height': `${maxHeight}px`,
+        } as React.CSSProperties
+      }
+    >
+      {children}
+    </div>
+  );
 }
 
 const mentionInputStyle: MentionsInputStyle = {
@@ -74,13 +159,16 @@ const mentionInputStyle: MentionsInputStyle = {
     boxSizing: 'border-box',
   },
   suggestions: {
+    zIndex: 60,
     list: {
       backgroundColor: 'hsl(var(--popover))',
       border: '1px solid hsl(var(--border))',
       borderRadius: 10,
       boxShadow: '0 10px 28px rgba(0, 0, 0, 0.16)',
-      overflow: 'hidden',
-      zIndex: 40,
+      maxHeight: 'var(--mention-suggestions-max-height, 240px)',
+      overflowX: 'hidden',
+      overflowY: 'auto',
+      overscrollBehavior: 'contain',
     },
     item: {
       padding: '8px 10px',
@@ -94,8 +182,15 @@ const mentionInputStyle: MentionsInputStyle = {
 
 export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerProps>(
   ({ value, disabled, placeholder, onChange, onKeyDown }, ref) => {
+    const inputElementRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(
+      null,
+    );
     const searchSeqRef = useRef(0);
     const searchTimerRef = useRef<number | null>(null);
+    const suggestionsPortalHost = useMemo(
+      () => (typeof document === 'undefined' ? undefined : document.body),
+      [],
+    );
 
     const [pickOpen, setPickOpen] = useState(false);
     const [pickReloadKey, setPickReloadKey] = useState(0);
@@ -136,6 +231,7 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       }
     }, [pickTargetId, value.mentions]);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: pickReloadKey 仅用于主动触发重新拉取
     useEffect(() => {
       if (!pickOpen || !pickTarget) return;
 
@@ -309,17 +405,43 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
       [],
     );
 
+    const renderSuggestionsContainer = useCallback(
+      (children: React.ReactNode) => (
+        <MentionSuggestionsContainer inputElementRef={inputElementRef}>
+          {children}
+        </MentionSuggestionsContainer>
+      ),
+      [],
+    );
+
+    const handleInputRef = useCallback(
+      (node: HTMLTextAreaElement | HTMLInputElement | null) => {
+        inputElementRef.current = node;
+        const textareaNode =
+          node instanceof HTMLTextAreaElement ? node : null;
+        if (!ref) return;
+        if (typeof ref === 'function') {
+          ref(textareaNode);
+          return;
+        }
+        ref.current = textareaNode;
+      },
+      [ref],
+    );
+
     return (
       <div className="relative">
         <MentionsInput
           value={value.markup}
           onChange={handleChange}
           onKeyDown={onKeyDown}
-          inputRef={ref}
+          inputRef={handleInputRef}
           placeholder={placeholder}
           disabled={disabled}
           style={mentionInputStyle}
           allowSuggestionsAboveCursor
+          suggestionsPortalHost={suggestionsPortalHost}
+          customSuggestionsContainer={renderSuggestionsContainer}
           a11ySuggestionsListLabel="Agent 资源候选"
         >
           <Mention
