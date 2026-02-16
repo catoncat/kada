@@ -55,6 +55,8 @@ export function AgentComposer({
     'send' | 'steer' | 'follow-up' | 'abort' | null
   >(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const imeComposingRef = useRef(false);
+  const lastCompositionEndAtRef = useRef(0);
 
   const text = draft.text.trim();
   // sending 阶段只在“尚未进入 streaming”时阻塞，进入 streaming 后应允许继续排队/steer
@@ -215,12 +217,34 @@ export function AgentComposer({
           onChange={setDraft}
           placeholder="输入消息"
           disabled={inputDisabled}
+          onCompositionStart={() => {
+            imeComposingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            imeComposingRef.current = false;
+            lastCompositionEndAtRef.current = Date.now();
+          }}
           onKeyDown={(event) => {
             if (event.defaultPrevented) {
               return;
             }
 
-            if (event.nativeEvent.isComposing) {
+            // 双保险：
+            // 1) composition 事件维护的本地状态
+            // 2) 原生事件 isComposing / keyCode 229 兜底
+            const nativeEvent = event.nativeEvent as KeyboardEvent & {
+              isComposing?: boolean;
+              keyCode?: number;
+            };
+            const justEndedComposition =
+              Date.now() - lastCompositionEndAtRef.current < 50;
+            if (
+              imeComposingRef.current ||
+              justEndedComposition ||
+              nativeEvent.isComposing ||
+              nativeEvent.keyCode === 229 ||
+              event.keyCode === 229
+            ) {
               return;
             }
 

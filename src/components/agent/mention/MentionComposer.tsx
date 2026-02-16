@@ -45,6 +45,12 @@ interface MentionComposerProps {
   onKeyDown?: (
     event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => void;
+  onCompositionStart?: (
+    event: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => void;
+  onCompositionEnd?: (
+    event: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => void;
 }
 
 const SUGGESTIONS_HEIGHT_CAP = 320;
@@ -183,7 +189,18 @@ const mentionInputStyle: MentionsInputStyle = {
 };
 
 export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerProps>(
-  ({ value, disabled, placeholder, onChange, onKeyDown }, ref) => {
+  (
+    {
+      value,
+      disabled,
+      placeholder,
+      onChange,
+      onKeyDown,
+      onCompositionStart,
+      onCompositionEnd,
+    },
+    ref,
+  ) => {
     const latestValueRef = useRef(value);
     const inputElementRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(
       null,
@@ -525,6 +542,8 @@ export const MentionComposer = forwardRef<HTMLTextAreaElement, MentionComposerPr
           value={value.markup}
           onChange={handleChange}
           onKeyDown={onKeyDown}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={onCompositionEnd}
           inputRef={handleInputRef}
           placeholder={placeholder}
           disabled={disabled}
