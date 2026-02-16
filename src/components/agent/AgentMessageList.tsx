@@ -98,10 +98,11 @@ function buildStreamingToolRows(
     }
 
     if (event.type === 'tool.result') {
+      const summary = toInlineText(payload.summary);
       const tool = toInlineText(payload.toolName) || 'tool';
       rows.push({
         id,
-        text: `${tool}${payload.isError ? ' ×' : ' ✓'}`,
+        text: summary || tool,
         status: payload.isError ? 'error' : 'completed',
       });
       continue;
@@ -200,11 +201,11 @@ function renderMessageRow(row: Extract<AgentMessageListRow, { kind: 'message' }>
       {row.role === 'user' ? (
         <article
           className={cn(
-            'max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm',
+            'max-w-[76%] rounded-xl border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-foreground',
             row.optimistic ? 'opacity-80' : '',
           )}
         >
-          <div className="mb-1 text-right text-[11px] text-primary-foreground/70">
+          <div className="mb-0.5 text-right text-[10px] leading-none text-muted-foreground/80">
             {formatTime(row.createdAt)}
           </div>
           <MarkdownRenderer content={row.text} variant="user" />
@@ -391,29 +392,25 @@ export function AgentMessageList({
           row.kind === 'summary' ? renderSummaryRow(row) : renderMessageRow(row),
         )}
 
-        {streaming ? (
-          <article className="rounded-md border border-border/60 bg-muted/15 p-1.5">
-            <div className="h-24 overflow-y-auto">
-              {streamingToolRows.length === 0 ? (
-                <div className="h-full animate-pulse rounded-sm bg-muted/25" />
-              ) : (
-                <div className="space-y-1">
-                  {streamingToolRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex items-center gap-2 text-[11px] text-muted-foreground"
-                    >
-                      <span
-                        className={cn(
-                          'h-1.5 w-1.5 shrink-0 rounded-full',
-                          statusDotClass(row.status),
-                        )}
-                      />
-                      <span className="truncate">{row.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+        {streaming && streamingToolRows.length > 0 ? (
+          <article className="rounded-md border border-border/40 bg-background/40 p-1.5">
+            <div className="max-h-24 overflow-y-auto">
+              <div className="space-y-1">
+                {streamingToolRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                  >
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 shrink-0 rounded-full',
+                        statusDotClass(row.status),
+                      )}
+                    />
+                    <span className="truncate">{row.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </article>
         ) : null}
@@ -433,9 +430,9 @@ export function AgentMessageList({
                 </div>
               ) : (
                 <div key={block.id} className="flex justify-end">
-                  <article className="max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                  <article className="max-w-[76%] rounded-xl border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-foreground">
                     {block.createdAt ? (
-                      <div className="mb-1 text-right text-[11px] text-primary-foreground/70">
+                      <div className="mb-0.5 text-right text-[10px] leading-none text-muted-foreground/80">
                         {formatTime(block.createdAt)}
                       </div>
                     ) : null}
