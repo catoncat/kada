@@ -78,12 +78,28 @@ function toInlineText(value: unknown): string {
   return '';
 }
 
-function buildStreamingToolRows(
-  events: AgentTurnEvent[],
-  streaming: boolean,
-): StreamingToolRow[] {
-  if (!streaming) return [];
+function normalizeStreamLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
 
+function clipStreamLine(value: string, maxChars = 120): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function pushStreamRow(rows: StreamingToolRow[], row: StreamingToolRow) {
+  const text = clipStreamLine(normalizeStreamLine(row.text));
+  if (!text) return;
+  const next = { ...row, text };
+  const last = rows[rows.length - 1];
+  if (last && last.text === next.text && last.status === next.status) {
+    return;
+  }
+  rows.push(next);
+}
+
+function buildStreamingToolRows(events: AgentTurnEvent[]): StreamingToolRow[] {
+  
   let startIndex = -1;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     if (events[i].type === 'turn.started') {
@@ -107,7 +123,7 @@ function buildStreamingToolRows(
 
     if (event.type === 'tool.call') {
       const tool = toInlineText(payload.toolName) || 'tool';
-      rows.push({ id, text: tool, status: 'running' });
+      pushStreamRow(rows, { id, text: tool, status: 'running' });
       continue;
     }
 
@@ -116,16 +132,17 @@ function buildStreamingToolRows(
         toInlineText(payload.message) ||
         toInlineText(payload.status) ||
         toInlineText(payload.toolName);
-      if (text) rows.push({ id, text, status: 'info' });
+      if (text) pushStreamRow(rows, { id, text, status: 'info' });
       continue;
     }
 
     if (event.type === 'tool.result') {
       const summary = toInlineText(payload.summary);
+      const enhancedSummary = toInlineText(payload.enhancedSummary);
       const tool = toInlineText(payload.toolName) || 'tool';
-      rows.push({
+      pushStreamRow(rows, {
         id,
-        text: summary || tool,
+        text: enhancedSummary || summary || tool,
         status: payload.isError ? 'error' : 'completed',
       });
       continue;
@@ -135,17 +152,26 @@ function buildStreamingToolRows(
       const status = toInlineText(payload.status);
       const taskId = toInlineText(payload.taskId);
       const line = [status, taskId ? shortId(taskId) : ''].filter(Boolean).join(' ');
-      if (line) rows.push({ id, text: line, status: 'info' });
+      if (line) pushStreamRow(rows, { id, text: line, status: 'info' });
       continue;
     }
 
     if (event.type === 'photo.ready') {
-      rows.push({ id, text: 'photo ✓', status: 'completed' });
+      pushStreamRow(rows, { id, text: 'photo ✓', status: 'completed' });
       continue;
     }
 
     if (event.type === 'copy.ready') {
-      rows.push({ id, text: 'copy ✓', status: 'completed' });
+      pushStreamRow(rows, { id, text: 'copy ✓', status: 'completed' });
+      continue;
+    }
+
+    if (
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'session.aborted'
+    ) {
+      break;
     }
   }
 
@@ -157,6 +183,58 @@ function statusDotClass(status: StreamingToolRow['status']): string {
   if (status === 'error') return 'bg-destructive/75';
   if (status === 'running') return 'bg-amber-500/75';
   return 'bg-muted-foreground/65';
+}
+
+function renderReadableSummaryDetail(
+  detail: string,
+  compact: boolean,
+) {
+  const lines = detail
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return null;
+
+  const kvPairs = lines
+    .map((line) => {
+      const match = line.match(/^([A-Za-z0-9_.\-\[\]]{1,40})\s*:\s*(.+)$/);
+      if (!match) return null;
+      return {
+        key: match[1],
+        value: match[2].trim(),
+      };
+    })
+    .filter((item): item is { key: string; value: string } => Boolean(item));
+
+  const useKv = kvPairs.length >= 2 && kvPairs.length >= Math.ceil(lines.length * 0.6);
+  const baseClass = cn(
+    'rounded-md border border-border/40 bg-background/65',
+    compact ? 'mt-1 px-1.5 py-1 text-[10px]' : 'mt-2 px-2 py-1.5 text-[11px]',
+  );
+
+  if (useKv) {
+    return (
+      <div className={baseClass}>
+        {kvPairs.slice(0, 16).map((pair) => (
+          <div key={`${pair.key}:${pair.value}`} className="grid grid-cols-[auto,1fr] gap-x-2">
+            <span className="text-muted-foreground">{pair.key}</span>
+            <span className="break-words text-foreground/90">{pair.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className={baseClass}>
+      {lines.slice(0, 16).map((line) => (
+        <p key={line} className="break-words text-muted-foreground">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function renderSummaryRow(row: Extract<AgentMessageListRow, { kind: 'summary' }>) {
@@ -200,16 +278,7 @@ function renderSummaryRow(row: Extract<AgentMessageListRow, { kind: 'summary' }>
             </span>
           ) : null}
         </summary>
-        <pre
-          className={cn(
-            'whitespace-pre-wrap break-words rounded-md border bg-background/65 text-muted-foreground',
-            compact
-              ? 'mt-1 border-border/40 p-1.5 text-[10px]'
-              : 'mt-2 p-2 text-[11px]',
-          )}
-        >
-          {row.detail}
-        </pre>
+        {renderReadableSummaryDetail(row.detail, compact)}
       </details>
     </article>
   );
@@ -290,6 +359,10 @@ export function AgentMessageList({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [thinkingFrame, setThinkingFrame] = useState(0);
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
+  const [settlingToolRows, setSettlingToolRows] = useState<StreamingToolRow[]>([]);
+  const [showSettlingToolRows, setShowSettlingToolRows] = useState(false);
+  const settleTimerRef = useRef<number | null>(null);
+  const wasStreamingRef = useRef(false);
 
   const rows = useMemo(() => {
     return buildAgentMessageRows({
@@ -369,10 +442,15 @@ export function AgentMessageList({
     streamBlocks.every((block) => block.type !== 'assistant');
   const thinkingText = `Thinking${'.'.repeat((thinkingFrame % 3) + 1)}`;
 
-  const streamingToolRows = useMemo(
-    () => buildStreamingToolRows(events || [], Boolean(streaming)),
-    [events, streaming],
+  const latestToolRows = useMemo(
+    () => buildStreamingToolRows(events || []),
+    [events],
   );
+  const visibleStreamingToolRows = streaming
+    ? latestToolRows
+    : showSettlingToolRows
+      ? settlingToolRows
+      : [];
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -410,10 +488,46 @@ export function AgentMessageList({
   }, [shouldShowThinking]);
 
   useEffect(() => {
+    if (settleTimerRef.current) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+
+    if (streaming) {
+      wasStreamingRef.current = true;
+      setShowSettlingToolRows(false);
+      setSettlingToolRows(latestToolRows);
+      return;
+    }
+
+    if (!wasStreamingRef.current || latestToolRows.length === 0) {
+      return;
+    }
+    wasStreamingRef.current = false;
+
+    setSettlingToolRows(latestToolRows);
+    setShowSettlingToolRows(true);
+    settleTimerRef.current = window.setTimeout(() => {
+      setShowSettlingToolRows(false);
+      setSettlingToolRows([]);
+      settleTimerRef.current = null;
+    }, 380);
+  }, [latestToolRows, streaming]);
+
+  useEffect(() => {
+    return () => {
+      if (settleTimerRef.current) {
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
 
-    const contentVersion = `${rows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${streamingToolRows.length}:${streaming ? 1 : 0}`;
+    const contentVersion = `${rows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${visibleStreamingToolRows.length}:${streaming ? 1 : 0}`;
     if (contentVersion === contentVersionRef.current) return;
     contentVersionRef.current = contentVersion;
 
@@ -429,7 +543,7 @@ export function AgentMessageList({
     rows.length,
     streamBlocks.length,
     streamingAssistantText.length,
-    streamingToolRows.length,
+    visibleStreamingToolRows.length,
     streaming,
   ]);
 
@@ -471,11 +585,17 @@ export function AgentMessageList({
               }),
         )}
 
-        {streaming && streamingToolRows.length > 0 ? (
-          <article className="rounded-md border border-border/40 bg-background/40 p-1.5">
-            <div className="max-h-24 overflow-y-auto">
+        {visibleStreamingToolRows.length > 0 ? (
+          <article
+            data-testid="agent-stream-tools"
+            className="rounded-md border border-border/40 bg-background/40 p-1.5"
+          >
+            <div
+              data-testid="agent-stream-tools-scroll"
+              className="max-h-[clamp(84px,22vh,168px)] overflow-y-auto"
+            >
               <div className="space-y-1">
-                {streamingToolRows.map((row) => (
+                {visibleStreamingToolRows.map((row) => (
                   <div
                     key={row.id}
                     className="flex items-center gap-2 text-[11px] text-muted-foreground"

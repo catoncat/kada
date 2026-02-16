@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { AgentMessageList } from '@/components/agent/AgentMessageList';
-import type { AgentEntry } from '@/types/agent';
+import type { AgentEntry, AgentTurnEvent } from '@/types/agent';
 
 function makeEntry(input: {
   id: string;
@@ -116,5 +116,57 @@ describe('AgentMessageList scroll behavior', () => {
     });
 
     expect(screen.queryByRole('button', { name: '回到底部' })).toBeNull();
+  });
+
+  it('uses max-height tool stream container and keeps it briefly after stream stops', () => {
+    vi.useFakeTimers();
+    const events: AgentTurnEvent[] = [
+      {
+        type: 'turn.started',
+        sessionId: 'session-1',
+        turnId: 'turn-stream-1',
+        timestamp: '2026-02-16T10:00:00.000Z',
+        payload: {},
+      },
+      {
+        type: 'tool.progress',
+        sessionId: 'session-1',
+        turnId: 'turn-stream-1',
+        timestamp: '2026-02-16T10:00:01.000Z',
+        payload: { message: '处理中...' },
+      },
+    ];
+
+    const { rerender } = render(
+      <AgentMessageList
+        entries={[]}
+        streamingAssistantText=""
+        events={events}
+        streaming
+      />,
+    );
+
+    const toolArticle = screen.getByTestId('agent-stream-tools');
+    const toolScroll = screen.getByTestId('agent-stream-tools-scroll');
+    expect(toolArticle).toBeTruthy();
+    expect(toolScroll.className).toContain('max-h-[clamp(84px,22vh,168px)]');
+
+    rerender(
+      <AgentMessageList
+        entries={[]}
+        streamingAssistantText=""
+        events={events}
+        streaming={false}
+      />,
+    );
+
+    // 结束后先短暂保留，再自动收敛
+    expect(screen.queryByTestId('agent-stream-tools')).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(420);
+    });
+    expect(screen.queryByTestId('agent-stream-tools')).toBeNull();
+
+    vi.useRealTimers();
   });
 });

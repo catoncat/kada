@@ -183,6 +183,71 @@ describe('agent message view model', () => {
     });
   });
 
+  it('prefers enhanced summary/detail over readable fields', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'tool-result-enhanced',
+          entryType: 'toolResult',
+          payload: {
+            toolName: 'resource_get_project_context',
+            isError: false,
+            summary: '旧摘要',
+            readableDetail: '旧详情',
+            enhancedSummary: '增强后摘要',
+            enhancedDetail: '状态正常\n耗时 120ms',
+            result: {
+              content: [{ type: 'text', text: '{"status":"ok"}' }],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'summary',
+      category: 'tool',
+      level: 'info',
+      title: '增强后摘要',
+      detail: '状态正常\n耗时 120ms',
+    });
+  });
+
+  it('formats object fallback detail into readable lines instead of raw json', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'tool-result-fallback-lines',
+          entryType: 'toolResult',
+          payload: {
+            toolName: 'unknown_tool',
+            isError: false,
+            result: {
+              foo: {
+                bar: 1,
+              },
+              items: ['a'],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row).toMatchObject({
+      kind: 'summary',
+      category: 'tool',
+      level: 'info',
+    });
+    if (row.kind !== 'summary') {
+      throw new Error('unexpected row kind');
+    }
+    expect(row.detail).toContain('foo.bar: 1');
+    expect(row.detail).not.toContain('{"foo"');
+  });
+
   it('maps errored toolResult entries into error summary rows', () => {
     const rows = buildAgentMessageRows({
       entries: [

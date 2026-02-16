@@ -209,7 +209,7 @@ function computeRuleScore(input: {
   return Math.max(0.2, Math.min(1, Number(score.toFixed(2))));
 }
 
-function buildToolResultReadablePayload(input: {
+export function buildToolResultReadablePayload(input: {
   toolName: string;
   result: unknown;
   isError: boolean;

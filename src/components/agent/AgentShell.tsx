@@ -179,6 +179,7 @@ export function AgentShell() {
   );
   const lastAckSeqRef = useRef(0);
   const pollingRef = useRef<AbortController | null>(null);
+  const enhancedRefreshTimerRef = useRef<number | null>(null);
   const insertionSeqRef = useRef(0);
   const streamingAssistantTextRef = useRef('');
   const activeTurnTraceIdRef = useRef<string | null>(null);
@@ -288,6 +289,10 @@ export function AgentShell() {
   useEffect(() => {
     pollingRef.current?.abort();
     pollingRef.current = null;
+    if (enhancedRefreshTimerRef.current) {
+      window.clearTimeout(enhancedRefreshTimerRef.current);
+      enhancedRefreshTimerRef.current = null;
+    }
     setEvents([]);
     setStreamingAssistantText('');
     streamingAssistantTextRef.current = '';
@@ -501,6 +506,17 @@ export function AgentShell() {
       return;
     }
 
+    if (event.type === 'tool.result.enhanced') {
+      if (enhancedRefreshTimerRef.current) {
+        window.clearTimeout(enhancedRefreshTimerRef.current);
+      }
+      enhancedRefreshTimerRef.current = window.setTimeout(() => {
+        enhancedRefreshTimerRef.current = null;
+        void sessionDetailQuery.refetch();
+      }, 280);
+      return;
+    }
+
     if (event.type === 'queue.updated') {
       const payload = (event.payload || {}) as Record<string, unknown>;
       const mode = typeof payload.mode === 'string' ? payload.mode : '';
@@ -605,6 +621,15 @@ export function AgentShell() {
     sessionsQuery.refetch,
     setStreamingText,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (enhancedRefreshTimerRef.current) {
+        window.clearTimeout(enhancedRefreshTimerRef.current);
+        enhancedRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleChunk = useCallback((chunk: AgentTurnStreamChunk) => {
     const event = eventFromChunk(chunk);

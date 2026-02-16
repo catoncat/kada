@@ -222,8 +222,70 @@ function firstReadableLines(input: string, maxLines = 10): string[] {
     .slice(0, maxLines);
 }
 
+function collectScalarLinesFromValue(
+  value: unknown,
+  options?: {
+    prefix?: string;
+    depth?: number;
+    maxLines?: number;
+  },
+): string[] {
+  const prefix = options?.prefix || '';
+  const depth = options?.depth ?? 0;
+  const maxLines = options?.maxLines ?? 14;
+  if (depth > 3) return [];
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    return [prefix ? `${prefix}: ${text}` : text];
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    const text = String(value);
+    return [prefix ? `${prefix}: ${text}` : text];
+  }
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  const lines: string[] = [];
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (lines.length >= maxLines) break;
+      const subLines = collectScalarLinesFromValue(value[index], {
+        prefix: prefix ? `${prefix}[${index}]` : `[${index}]`,
+        depth: depth + 1,
+        maxLines: maxLines - lines.length,
+      });
+      lines.push(...subLines);
+    }
+    return lines.slice(0, maxLines);
+  }
+
+  const keys = Object.keys(value as Record<string, unknown>);
+  for (const key of keys) {
+    if (lines.length >= maxLines) break;
+    const subLines = collectScalarLinesFromValue(
+      (value as Record<string, unknown>)[key],
+      {
+        prefix: prefix ? `${prefix}.${key}` : key,
+        depth: depth + 1,
+        maxLines: maxLines - lines.length,
+      },
+    );
+    lines.push(...subLines);
+  }
+
+  return lines.slice(0, maxLines);
+}
+
 function toolResultDetail(payload: unknown): string {
   const row = toRecord(payload);
+  const enhancedDetail = scalarToText(row.enhancedDetail);
+  if (enhancedDetail) {
+    return sanitizeTextForDisplay(enhancedDetail, 1800);
+  }
+
   const readableDetail = scalarToText(row.readableDetail);
   if (readableDetail) {
     return sanitizeTextForDisplay(readableDetail, 1800);
@@ -272,9 +334,19 @@ function toolResultDetail(payload: unknown): string {
       if (parsedLines.length > 0) {
         return sanitizeTextForDisplay(parsedLines.join('\n'), 1200);
       }
+
+      const extractedLines = collectScalarLinesFromValue(parsed, {
+        maxLines: 14,
+      });
+      if (extractedLines.length > 0) {
+        return sanitizeTextForDisplay(extractedLines.join('\n'), 1500);
+      }
     }
 
-    return sanitizeTextForDisplay(rawText, 1500);
+    const readableLines = firstReadableLines(rawText, 14);
+    if (readableLines.length > 0) {
+      return sanitizeTextForDisplay(readableLines.join('\n'), 1500);
+    }
   }
 
   const detailLines = pickScalarLines(details, [
@@ -289,11 +361,27 @@ function toolResultDetail(payload: unknown): string {
     return sanitizeTextForDisplay(detailLines.join('\n'), 1200);
   }
 
-  return formatPayloadForDisplay(result);
+  const extractedLines = collectScalarLinesFromValue(result, {
+    maxLines: 14,
+  });
+  if (extractedLines.length > 0) {
+    return sanitizeTextForDisplay(extractedLines.join('\n'), 1500);
+  }
+
+  if (import.meta.env.DEV) {
+    return formatPayloadForDisplay(result);
+  }
+
+  return '';
 }
 
 function toolResultTitle(payload: unknown): string {
   const row = toRecord(payload);
+  const enhancedSummary = scalarToText(row.enhancedSummary);
+  if (enhancedSummary) {
+    return sanitizeTextForDisplay(enhancedSummary, 120);
+  }
+
   const summary = scalarToText(row.summary);
   if (summary) {
     return sanitizeTextForDisplay(summary, 120);
