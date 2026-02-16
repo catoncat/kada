@@ -8,9 +8,15 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { sanitizeTextForDisplay } from '@/lib/agent-display';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { AgentEntry } from '@/types/agent';
+import type { AgentEntry, AgentTurnEvent } from '@/types/agent';
 
 const AUTO_SCROLL_THRESHOLD = 72;
+
+interface StreamingToolRow {
+  id: string;
+  text: string;
+  status: 'running' | 'completed' | 'error' | 'info';
+}
 
 function formatTime(value: string | null): string {
   if (!value) return '';
@@ -32,25 +38,152 @@ function scrollToBottom(element: HTMLDivElement) {
   element.scrollTop = element.scrollHeight;
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {};
+  return value as Record<string, unknown>;
+}
+
+function shortId(value: string): string {
+  if (value.length <= 10) return value;
+  return value.slice(0, 8);
+}
+
+function toInlineText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
+  return '';
+}
+
+function buildStreamingToolRows(
+  events: AgentTurnEvent[],
+  streaming: boolean,
+): StreamingToolRow[] {
+  if (!streaming) return [];
+
+  let startIndex = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].type === 'turn.started') {
+      startIndex = i;
+      break;
+    }
+  }
+  if (startIndex < 0) return [];
+
+  const activeTurnId = events[startIndex].turnId;
+  const rows: StreamingToolRow[] = [];
+
+  for (let i = startIndex + 1; i < events.length; i += 1) {
+    const event = events[i];
+    if (activeTurnId && event.turnId && event.turnId !== activeTurnId) {
+      continue;
+    }
+
+    const payload = toRecord(event.payload);
+    const id = `${event.timestamp}:${event.type}:${i}`;
+
+    if (event.type === 'tool.call') {
+      const tool = toInlineText(payload.toolName) || 'tool';
+      rows.push({ id, text: tool, status: 'running' });
+      continue;
+    }
+
+    if (event.type === 'tool.progress') {
+      const text =
+        toInlineText(payload.message) ||
+        toInlineText(payload.status) ||
+        toInlineText(payload.toolName);
+      if (text) rows.push({ id, text, status: 'info' });
+      continue;
+    }
+
+    if (event.type === 'tool.result') {
+      const tool = toInlineText(payload.toolName) || 'tool';
+      rows.push({
+        id,
+        text: `${tool}${payload.isError ? ' ×' : ' ✓'}`,
+        status: payload.isError ? 'error' : 'completed',
+      });
+      continue;
+    }
+
+    if (event.type === 'photo.task.created' || event.type === 'photo.task.updated') {
+      const status = toInlineText(payload.status);
+      const taskId = toInlineText(payload.taskId);
+      const line = [status, taskId ? shortId(taskId) : ''].filter(Boolean).join(' ');
+      if (line) rows.push({ id, text: line, status: 'info' });
+      continue;
+    }
+
+    if (event.type === 'photo.ready') {
+      rows.push({ id, text: 'photo ✓', status: 'completed' });
+      continue;
+    }
+
+    if (event.type === 'copy.ready') {
+      rows.push({ id, text: 'copy ✓', status: 'completed' });
+    }
+  }
+
+  return rows.slice(-20);
+}
+
+function statusDotClass(status: StreamingToolRow['status']): string {
+  if (status === 'completed') return 'bg-emerald-500/75';
+  if (status === 'error') return 'bg-destructive/75';
+  if (status === 'running') return 'bg-amber-500/75';
+  return 'bg-muted-foreground/65';
+}
+
 function renderSummaryRow(row: Extract<AgentMessageListRow, { kind: 'summary' }>) {
+  const compact = row.category === 'tool';
+
   return (
     <article
       key={row.id}
       className={cn(
-        'rounded-lg border px-3 py-2 text-xs',
+        compact
+          ? 'rounded-md border px-2 py-1.5 text-[11px]'
+          : 'rounded-lg border px-3 py-2 text-xs',
         row.level === 'error'
-          ? 'border-destructive/50 bg-destructive/5'
-          : 'border-border bg-muted/20',
+          ? 'border-destructive/45 bg-destructive/5'
+          : 'border-border/60 bg-muted/15',
       )}
     >
       <details>
-        <summary className="cursor-pointer list-none text-muted-foreground">
-          <span className="font-medium text-foreground">{row.title}</span>
+        <summary
+          className={cn(
+            'cursor-pointer list-none text-muted-foreground',
+            compact ? 'flex items-center gap-2' : '',
+          )}
+        >
+          {compact ? (
+            <span
+              className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full',
+                row.level === 'error'
+                  ? 'bg-destructive/75'
+                  : 'bg-muted-foreground/65',
+              )}
+            />
+          ) : null}
+          <span className={cn(compact ? 'truncate text-foreground/90' : 'font-medium text-foreground')}>
+            {row.title}
+          </span>
           {row.createdAt ? (
-            <span className="ml-2 text-[11px]">{formatTime(row.createdAt)}</span>
+            <span className={cn(compact ? 'ml-auto text-[10px]' : 'ml-2 text-[11px]')}>
+              {formatTime(row.createdAt)}
+            </span>
           ) : null}
         </summary>
-        <pre className="mt-2 whitespace-pre-wrap break-words rounded-md border bg-background/70 p-2 text-[11px] text-muted-foreground">
+        <pre
+          className={cn(
+            'whitespace-pre-wrap break-words rounded-md border bg-background/65 text-muted-foreground',
+            compact
+              ? 'mt-1 border-border/40 p-1.5 text-[10px]'
+              : 'mt-2 p-2 text-[11px]',
+          )}
+        >
           {row.detail}
         </pre>
       </details>
@@ -93,6 +226,8 @@ export function AgentMessageList({
   streamingAssistantText,
   optimisticUserMessages,
   streamingInsertions,
+  events,
+  streaming,
 }: {
   entries: AgentEntry[];
   streamingAssistantText: string;
@@ -102,6 +237,8 @@ export function AgentMessageList({
     createdAt: string;
   }>;
   streamingInsertions?: StreamingInsertion[];
+  events?: AgentTurnEvent[];
+  streaming?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentVersionRef = useRef('');
@@ -180,6 +317,10 @@ export function AgentMessageList({
     () => streamBlocks.findIndex((block) => block.type === 'assistant'),
     [streamBlocks],
   );
+  const streamingToolRows = useMemo(
+    () => buildStreamingToolRows(events || [], Boolean(streaming)),
+    [events, streaming],
+  );
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -205,7 +346,7 @@ export function AgentMessageList({
     const element = scrollRef.current;
     if (!element) return;
 
-    const contentVersion = `${rows.length}:${streamBlocks.length}:${streamingAssistantText.length}`;
+    const contentVersion = `${rows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${streamingToolRows.length}:${streaming ? 1 : 0}`;
     if (contentVersion === contentVersionRef.current) return;
     contentVersionRef.current = contentVersion;
 
@@ -216,7 +357,14 @@ export function AgentMessageList({
     }
 
     setShowScrollToBottom(true);
-  }, [nearBottom, rows.length, streamBlocks.length, streamingAssistantText.length]);
+  }, [
+    nearBottom,
+    rows.length,
+    streamBlocks.length,
+    streamingAssistantText.length,
+    streamingToolRows.length,
+    streaming,
+  ]);
 
   const handleScrollToBottom = () => {
     if (!scrollRef.current) return;
@@ -242,6 +390,33 @@ export function AgentMessageList({
         {rows.map((row) =>
           row.kind === 'summary' ? renderSummaryRow(row) : renderMessageRow(row),
         )}
+
+        {streaming ? (
+          <article className="rounded-md border border-border/60 bg-muted/15 p-1.5">
+            <div className="h-24 overflow-y-auto">
+              {streamingToolRows.length === 0 ? (
+                <div className="h-full animate-pulse rounded-sm bg-muted/25" />
+              ) : (
+                <div className="space-y-1">
+                  {streamingToolRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                    >
+                      <span
+                        className={cn(
+                          'h-1.5 w-1.5 shrink-0 rounded-full',
+                          statusDotClass(row.status),
+                        )}
+                      />
+                      <span className="truncate">{row.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+        ) : null}
 
         {streamBlocks.length > 0
           ? streamBlocks.map((block, index) =>

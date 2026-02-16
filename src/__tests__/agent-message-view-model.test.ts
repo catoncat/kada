@@ -127,4 +127,56 @@ describe('agent message view model', () => {
 
     expect(rows).toHaveLength(0);
   });
+
+  it('maps toolResult entries into compact summary rows', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'tool-result-copy',
+          entryType: 'toolResult',
+          payload: {
+            toolName: 'copy_generate_variants',
+            isError: false,
+            result: {
+              content: [{ type: 'text', text: '标题：测试标题\n\n正文...' }],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'summary',
+      category: 'tool',
+      level: 'info',
+      title: '标题：测试标题',
+    });
+  });
+
+  it('maps errored toolResult entries into error summary rows', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'tool-result-error',
+          entryType: 'toolResult',
+          payload: {
+            toolName: 'resource_get_project_context',
+            isError: true,
+            result: {
+              content: [{ type: 'text', text: '项目不存在: 222' }],
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'summary',
+      category: 'tool',
+      level: 'error',
+      title: '项目不存在: 222',
+    });
+  });
 });

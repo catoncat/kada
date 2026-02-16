@@ -793,6 +793,8 @@ export function AgentShell() {
           streamingAssistantText={streamingAssistantText}
           optimisticUserMessages={optimisticUserMessages}
           streamingInsertions={streamingInsertions}
+          events={events}
+          streaming={turnStream.isStreaming}
         />
 
         <AgentComposer
