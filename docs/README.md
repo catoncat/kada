@@ -1,27 +1,35 @@
-# 产品与重构文档（索引）
+# 文档总索引（统一入口）
 
-这套文档的目标是：**让团队在重构与持续开发阶段有共同语言、共同边界和共同"真相源"**。内容以"能指导决策与落地"为标准，避免写成大而全的说明书。
+本仓库文档已统一在 `docs/` 下，目标是提供单一真相源，避免历史双轨维护。
 
-## 如何使用
+## 快速导航
 
-1. 想快速理解产品：先读 `docs/product/overview.md`，再读 `docs/product/user-flows.md`。
-2. 想确认品牌语义与命名约束：读 `docs/product/branding.md`。
-3. **想了解 v2 重构计划**：读 `docs/refactor/v2-roadmap.md`（资产驱动 + 图文生图）。
-4. 想改接口/数据：先确认 `docs/engineering/contracts.md` 与 `docs/engineering/api.md`，必要时写 ADR。
+1. 产品与流程：`docs/product/overview.md`、`docs/product/user-flows.md`
+2. 工程契约与 API：`docs/engineering/contracts.md`、`docs/engineering/api.md`
+3. 日常开发与协作：`docs/dev/commands.md`、`docs/dev/contributing.md`
+4. 架构与端侧规范：`docs/dev/architecture.md`、`docs/dev/frontend.md`
+5. 重构路线：`docs/refactor/v2-roadmap.md`
+6. 设计先行流程：`docs/dev/skills.md`
+7. 决策记录：`docs/adr/README.md`
 
-开发命令与仓库协作约定不放在这里，见根目录的 `AGENTS.md` 与 `agent_docs/`。
+## 目录说明
 
-## 文档结构
+- `docs/dev/`：开发与协作指南（历史协作文档已迁移）
+- `docs/product/`：产品定位、流程、品牌
+- `docs/engineering/`：工程契约、运行时、API
+- `docs/refactor/`：当前仍有效的重构路线
+- `docs/specs/`：功能规格、UX 规格、Build Order、评审产物
+- `docs/adr/`：架构决策记录
+- `docs/templates/`：Feature Spec / ADR 模板
 
-- `docs/product/`：产品定位、核心概念、用户流程与交互状态
-- `docs/engineering/`：系统边界、数据契约、API 参考
-- `docs/refactor/`：重构路线图、已知问题清单
-  - **`v2-roadmap.md`**：当前进行中的 v2 重构（资产驱动 + 图文生图）
-- `docs/adr/`：关键决策记录
-- `docs/templates/`：写新功能规格/ADR 的模板
+## 已清理的过时文档
+
+- `docs/refactor/known-issues.md`（问题已全部关闭，内容过期）
+- `docs/refactor/roadmap.md`（已完成版路线图，已被 `v2-roadmap.md` 取代）
+- `docs/engineering/system-map.md`（与当前实现偏差较大，已下线）
 
 ## 维护约定
 
-- **契约优先**：凡是影响数据结构、API、本地存储键、导出格式的改动，必须先更新文档再改代码。
-- **决策留痕**：出现"要不要这样做"的争议点，写一条 ADR。
-- **小步更新**：每次 PR 至少更新 1 处文档（如果本次改动影响用户流程/接口/数据）。
+- 契约优先：影响数据结构、API、导出格式时，先更新文档再改代码。
+- 决策留痕：出现方案取舍时，新增 ADR。
+- 链接可达：新增文档必须在本索引或对应子目录索引可发现。

@@ -67,7 +67,7 @@
 - 目标：在 Sidecar SQLite 引入最小的版本/产物表，避免把大图 base64 直接塞进 JSON 字段。
 - 需要读的文件：
   - `sidecar/src/db/schema.ts`
-  - `agent_docs/sidecar.md`
+  - `docs/dev/sidecar.md`
   - `docs/engineering/contracts.md`
 - 需要改的文件：
   - `sidecar/src/db/schema.ts`

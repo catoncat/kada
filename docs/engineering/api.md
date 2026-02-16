@@ -2,7 +2,7 @@
 
 Sidecar 在开发期监听 `http://localhost:3001`，前端通过 Vite proxy 以相对路径 `/api/*` 访问。
 
-注意：打包到 Tauri 后，相对路径 `/api/*` 是否仍可用需要明确（见 `docs/refactor/known-issues.md`）。
+注意：打包到 Tauri 后，相对路径 `/api/*` 是否仍可用需要在联调时验证，并将结论同步到本文件。
 
 ## 标记约定
 

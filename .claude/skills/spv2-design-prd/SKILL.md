@@ -5,7 +5,7 @@ description: 为 shooting-planner-v2 生成/更新 PRD/功能规格（Feature Sp
 
 # spv2-design-prd
 
-目标：把用户的想法整理成可验收、可实施的 Feature Spec（承担 PRD 角色），并对齐本仓库文档体系（`AGENTS.md`、`agent_docs/`、`docs/`）。
+目标：把用户的想法整理成可验收、可实施的 Feature Spec（承担 PRD 角色），并对齐本仓库文档体系（`AGENTS.md` 与 `docs/`）。
 
 ## 示例触发
 
@@ -56,4 +56,3 @@ description: 为 shooting-planner-v2 生成/更新 PRD/功能规格（Feature Sp
 - 不要写任何实现代码（前端/Sidecar/Rust 都不要）
 - 不要修改生成/产物：`dist/`、`src/routeTree.gen.ts`、`.tanstack/`、`src-tauri/target/`
 - 不要在文档中写入密钥、Provider 凭据或任何敏感信息
-

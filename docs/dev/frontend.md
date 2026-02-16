@@ -2,7 +2,7 @@
 
 ## UI 框架与设计方向
 
-- **组件库**：[coss ui](agent_docs/coss-ui.llm.md) — 基于 Base UI + Tailwind CSS 的组件集，通过 shadcn CLI 以 `@coss` registry 安装到 `src/components/ui/`。
+- **组件库**：[coss ui](coss-ui.llm.md) — 基于 Base UI + Tailwind CSS 的组件集，通过 shadcn CLI 以 `@coss` registry 安装到 `src/components/ui/`。
 - **设计方向**：目标是接近 **macOS 桌面端**的视觉与交互风格（紧凑间距、原生感控件、精致阴影/圆角），而非典型 Web 页面风格。详见 [macOS HIG 设计规范速查](macos-hig-reference.md)。
 - **shadcn 重装注意事项**：
   1. **路径替换**：从 `@coss` registry 添加组件后，检查 import 路径 — `@coss/ui/components/...` 改为 `@/components/ui/...`，`@coss/ui/lib/utils` 改为 `@/lib/utils`，`@coss/ui/hooks/...` 改为 `@/hooks/...`。

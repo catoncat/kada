@@ -23,8 +23,8 @@ description: 为 shooting-planner-v2 生成 Build Order（把 PRD+UX Spec 拆成
 
 - `docs/specs/FEATURE_SLUG/01-feature-spec.md`
 - `docs/specs/FEATURE_SLUG/02-ux-spec.md`
-- `agent_docs/commands.md`（自测命令）
-- 按影响范围选择性阅读：`agent_docs/frontend.md`、`agent_docs/sidecar.md`、`docs/engineering/api.md`、`docs/engineering/contracts.md`
+- `docs/dev/commands.md`（自测命令）
+- 按影响范围选择性阅读：`docs/dev/frontend.md`、`docs/dev/sidecar.md`、`docs/engineering/api.md`、`docs/engineering/contracts.md`
 
 ## 输出
 
@@ -43,6 +43,5 @@ description: 为 shooting-planner-v2 生成 Build Order（把 PRD+UX Spec 拆成
 - 需要读的文件（具体路径）
 - 需要改的文件（具体路径；若不确定，写“如何确定”）
 - Prompt（可直接复制给 Coding Agent 的指令文本；明确先后顺序与验收点）
-- 自测命令（从 `package.json`/`agent_docs/commands.md` 选择：`pnpm validate`、`pnpm test:run`、`pnpm dev:all`；涉及桌面壳用 `pnpm tauri:dev`）
+- 自测命令（从 `package.json`/`docs/dev/commands.md` 选择：`pnpm validate`、`pnpm test:run`、`pnpm dev:all`；涉及桌面壳用 `pnpm tauri:dev`）
 - 完成定义（可观察结果：UI 行为/API 返回/导出文件等）
-

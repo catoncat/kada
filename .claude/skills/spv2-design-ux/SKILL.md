@@ -24,7 +24,7 @@ description: 为 shooting-planner-v2 生成 UX Spec（心智模型/信息架构/
 
 - `docs/specs/FEATURE_SLUG/01-feature-spec.md`
 - `docs/product/user-flows.md`
-- `agent_docs/frontend.md`
+- `docs/dev/frontend.md`
 
 ## 输入（对话中可选；缺省则采用默认）
 
@@ -61,4 +61,3 @@ description: 为 shooting-planner-v2 生成 UX Spec（心智模型/信息架构/
 
 - 不要写实现代码
 - 不要引入与仓库技术栈不匹配的组件体系（本仓库：Base UI + Tailwind）
-

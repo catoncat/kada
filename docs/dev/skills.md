@@ -12,7 +12,7 @@
 4. （可选）**UX 评审（验收场景与问题清单）**
 5. （可选）**ADR 决策留痕（当出现方案分歧/取舍）**
 
-并把所有阶段产出写入 `docs/`，成为长期真相源（对齐 `AGENTS.md`、`agent_docs/` 与 `docs/` 的维护约定）。
+并把所有阶段产出写入 `docs/`，成为长期真相源（对齐 `AGENTS.md` 与 `docs/` 的维护约定）。
 
 ## 目录与文件落点（已决策）
 
@@ -51,7 +51,7 @@ ADR 落到：
    - 这 5 个 skills 的输出全部是文档/清单/prompts，不做任何实现提交。
 4. **对齐仓库约定**
    - 不要手改生成/产物：`dist/`、`src/routeTree.gen.ts`、`.tanstack/` 等（见 `AGENTS.md`）。
-   - 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（见 `agent_docs/contributing.md`）。
+   - 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（见 `docs/dev/contributing.md`）。
 
 ## 5 个 Skills 的角色定位与 I/O 规范
 
@@ -100,7 +100,7 @@ ADR 落到：
   - 需要读的文件（具体路径）
   - 需要改的文件（具体路径；可 TBD 但要写如何确定）
   - **可复制给 Coding Agent 的 Prompt 文本**
-  - 自测命令（优先引用 `package.json`/`agent_docs/commands.md`：`pnpm validate`、`pnpm test:run`、`pnpm dev:all`；涉及桌面壳用 `pnpm tauri:dev`）
+  - 自测命令（优先引用 `package.json`/`docs/dev/commands.md`：`pnpm validate`、`pnpm test:run`、`pnpm dev:all`；涉及桌面壳用 `pnpm tauri:dev`）
   - 完成定义（可观察结果）
 
 ### 4) spv2-ux-review（UX Review，可选但推荐）

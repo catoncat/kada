@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-本文件作为仓库协作与 Agent 的**入口索引**。更具体的规则、架构说明与命令清单放在 `agent_docs/` 中（按需阅读）。
+本文件作为仓库协作与 Agent 的**入口索引**。文档已统一到 `docs/`，其中开发协作文档位于 `docs/dev/`。
 
 ## Quick Start
 
@@ -13,14 +13,14 @@ pnpm tauri:dev   # 需要桌面壳联调时使用
 
 ## 文档索引（详细说明）
 
-- [agent_docs/commands.md](agent_docs/commands.md)：开发/构建/DB 常用命令
-- [agent_docs/architecture.md](agent_docs/architecture.md)：三层架构、端口、通信与打包方式
-- [agent_docs/frontend.md](agent_docs/frontend.md)：前端目录结构、路由、UI/样式约定（含组件使用约定）
-- [agent_docs/macos-hig-reference.md](agent_docs/macos-hig-reference.md)：macOS HIG 设计规范速查（排版、控件尺寸、圆角、间距、表单布局）
-- [agent_docs/sidecar.md](agent_docs/sidecar.md)：Sidecar 结构、API、数据库与迁移
-- [agent_docs/contributing.md](agent_docs/contributing.md)：代码风格、验证/测试、提交与 PR、安全注意事项
-- [docs/README.md](docs/README.md)：产品与重构文档索引（面向功能/流程/重构规划）
-- [agent_docs/skills.md](agent_docs/skills.md)：UX「先设计后编码」skills 与完整流程（输出到 `docs/specs/`，skills 位于 `.claude/skills/`）
+- [docs/README.md](docs/README.md)：统一文档总索引（产品 / 工程 / 开发 / ADR / Specs）
+- [docs/dev/commands.md](docs/dev/commands.md)：开发/构建/DB 常用命令
+- [docs/dev/architecture.md](docs/dev/architecture.md)：三层架构、端口、通信与打包方式
+- [docs/dev/frontend.md](docs/dev/frontend.md)：前端目录结构、路由、UI/样式约定（含组件使用约定）
+- [docs/dev/macos-hig-reference.md](docs/dev/macos-hig-reference.md)：macOS HIG 设计规范速查（排版、控件尺寸、圆角、间距、表单布局）
+- [docs/dev/sidecar.md](docs/dev/sidecar.md)：Sidecar 结构、API、数据库与迁移
+- [docs/dev/contributing.md](docs/dev/contributing.md)：代码风格、验证/测试、提交与 PR、安全注意事项
+- [docs/dev/skills.md](docs/dev/skills.md)：UX「先设计后编码」skills 与完整流程（输出到 `docs/specs/`，skills 位于 `.claude/skills/`）
 
 ## 项目结构速览
 
@@ -33,5 +33,5 @@ pnpm tauri:dev   # 需要桌面壳联调时使用
 
 - 不要手改生成/产物：`dist/`、`sidecar/dist/`、`src/routeTree.gen.ts`、`.tanstack/`、`src-tauri/target/`
 - 默认端口：前端 `1420`（`strictPort`），Sidecar `3001`
-- 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（详见 `agent_docs/contributing.md`）
-- 前端开发默认优先复用 `src/components/ui/` 组件（详见 `agent_docs/frontend.md`）
+- 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（详见 `docs/dev/contributing.md`）
+- 前端开发默认优先复用 `src/components/ui/` 组件（详见 `docs/dev/frontend.md`）

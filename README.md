@@ -35,7 +35,7 @@ shooting-planner-v2/
 
 ## 文档
 
-- 贡献与开发协作：`AGENTS.md`（细节见 `agent_docs/`）
+- 贡献与开发协作：`AGENTS.md`（详见 `docs/README.md` 与 `docs/dev/`）
 - 产品与重构规划：`docs/README.md`
 
 ## 开发
