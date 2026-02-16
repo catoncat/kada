@@ -30,7 +30,10 @@ export function AgentComposer({
   >(null);
 
   const text = input.trim();
-  const submitting = submittingAction !== null;
+  // sending 阶段只在“尚未进入 streaming”时阻塞，进入 streaming 后应允许继续排队/steer
+  const submitting =
+    submittingAction !== null &&
+    !(submittingAction === 'send' && streaming);
   const anyPending =
     submitting ||
     disabled ||
@@ -81,7 +84,14 @@ export function AgentComposer({
   };
 
   const runAbort = async () => {
-    if (anyPending || !streaming) return;
+    if (
+      !streaming ||
+      Boolean(disabled) ||
+      Boolean(abortPending) ||
+      submittingAction === 'abort'
+    ) {
+      return;
+    }
     setSubmittingAction('abort');
     try {
       await onAbort();
@@ -132,9 +142,9 @@ export function AgentComposer({
             void run(target.action, target.handler, target.value);
           }}
         >
-          {submittingAction === 'send' ||
-          submittingAction === 'follow-up' ||
-          submittingAction === 'steer' ? (
+          {(streaming &&
+            (submittingAction === 'follow-up' || submittingAction === 'steer')) ||
+          (!streaming && submittingAction === 'send') ? (
             <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
           ) : (
             <Send className="mr-1 h-3.5 w-3.5" />
@@ -146,7 +156,11 @@ export function AgentComposer({
           <Button
             size="sm"
             variant="destructive-outline"
-            disabled={anyPending}
+            disabled={
+              Boolean(disabled) ||
+              Boolean(abortPending) ||
+              submittingAction === 'abort'
+            }
             onClick={() => void runAbort()}
           >
             {submittingAction === 'abort' ? (
