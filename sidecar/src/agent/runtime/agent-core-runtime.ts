@@ -55,6 +55,22 @@ function extractAssistantText(message: unknown): string {
     .trim();
 }
 
+function extractQueuedMessageText(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const row = message as { content?: unknown };
+  if (typeof row.content === 'string') return row.content;
+  if (!Array.isArray(row.content)) return '';
+  return row.content
+    .map((item) => {
+      if (!item || typeof item !== 'object') return '';
+      const block = item as { type?: string; text?: string };
+      if (block.type === 'text' && typeof block.text === 'string') return block.text;
+      return '';
+    })
+    .join('')
+    .trim();
+}
+
 function buildModel(provider: RuntimeProviderLike): Model<any> {
   const isGemini = provider.format === 'gemini';
   return {
@@ -219,6 +235,57 @@ export class AgentCoreRuntime implements AgentRuntime {
         text,
       },
     });
+  }
+
+  async promoteFollowUpToSteer(
+    text: string,
+    queueIndex?: number,
+  ): Promise<boolean> {
+    const agentAny = this.agent as any;
+    const steeringQueue = Array.isArray(agentAny?.steeringQueue)
+      ? [...(agentAny.steeringQueue as unknown[])]
+      : [];
+    const followUpQueue = Array.isArray(agentAny?.followUpQueue)
+      ? [...(agentAny.followUpQueue as unknown[])]
+      : [];
+
+    if (typeof agentAny?.clearAllQueues === 'function') {
+      agentAny.clearAllQueues();
+    }
+
+    let removed = false;
+    let removeIndex = -1;
+
+    if (
+      typeof queueIndex === 'number' &&
+      Number.isInteger(queueIndex) &&
+      queueIndex >= 0 &&
+      queueIndex < followUpQueue.length &&
+      extractQueuedMessageText(followUpQueue[queueIndex]) === text
+    ) {
+      removeIndex = queueIndex;
+      removed = true;
+    } else {
+      removeIndex = followUpQueue.findIndex(
+        (message) => extractQueuedMessageText(message) === text,
+      );
+      removed = removeIndex >= 0;
+    }
+
+    const remainingFollowUps = followUpQueue.filter(
+      (_message, index) => index !== removeIndex,
+    );
+
+    for (const message of steeringQueue) {
+      this.agent.steer(message as any);
+    }
+
+    for (const message of remainingFollowUps) {
+      this.agent.followUp(message as any);
+    }
+
+    await this.steer(text);
+    return removed;
   }
 
   async abort(): Promise<void> {

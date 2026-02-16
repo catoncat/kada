@@ -232,6 +232,63 @@ export class CodingAgentRuntime implements AgentRuntime {
     });
   }
 
+  async promoteFollowUpToSteer(
+    text: string,
+    queueIndex?: number,
+  ): Promise<boolean> {
+    const sessionAny = this.agentSession as any;
+    const clearQueue = sessionAny?.clearQueue;
+
+    if (typeof clearQueue !== 'function') {
+      await this.steer(text);
+      return false;
+    }
+
+    const snapshot = clearQueue.call(this.agentSession) as
+      | { steering?: unknown; followUp?: unknown }
+      | undefined;
+
+    const steeringMessages = Array.isArray(snapshot?.steering)
+      ? (snapshot?.steering.filter((item) => typeof item === 'string') as string[])
+      : [];
+
+    const followUpMessages = Array.isArray(snapshot?.followUp)
+      ? (snapshot?.followUp.filter((item) => typeof item === 'string') as string[])
+      : [];
+
+    let removed = false;
+    let removeIndex = -1;
+
+    if (
+      typeof queueIndex === 'number' &&
+      Number.isInteger(queueIndex) &&
+      queueIndex >= 0 &&
+      queueIndex < followUpMessages.length &&
+      followUpMessages[queueIndex] === text
+    ) {
+      removeIndex = queueIndex;
+      removed = true;
+    } else {
+      removeIndex = followUpMessages.findIndex((message) => message === text);
+      removed = removeIndex >= 0;
+    }
+
+    const remainingFollowUps = followUpMessages.filter(
+      (_message, index) => index !== removeIndex,
+    );
+
+    for (const message of steeringMessages) {
+      await this.agentSession.steer(message);
+    }
+
+    for (const message of remainingFollowUps) {
+      await this.agentSession.followUp(message);
+    }
+
+    await this.steer(text);
+    return removed;
+  }
+
   async abort(): Promise<void> {
     await this.agentSession.abort();
     await this.emit({

@@ -71,6 +71,19 @@ export class RuntimeRouter {
     await runtime.followUp(text);
   }
 
+  async promoteFollowUpToSteer(
+    sessionId: string,
+    text: string,
+    queueIndex?: number,
+  ): Promise<boolean> {
+    const runtime = await this.ensureRuntime(sessionId);
+    if (typeof runtime.promoteFollowUpToSteer === 'function') {
+      return runtime.promoteFollowUpToSteer(text, queueIndex);
+    }
+    await runtime.steer(text);
+    return false;
+  }
+
   async abort(sessionId: string): Promise<void> {
     const runtime = await this.ensureRuntime(sessionId);
     await runtime.abort();

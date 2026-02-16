@@ -37,6 +37,7 @@ export interface AgentRuntime {
   runTurn(input: AgentRuntimeTurnInput): Promise<void>;
   steer(text: string): Promise<void>;
   followUp(text: string): Promise<void>;
+  promoteFollowUpToSteer?(text: string, queueIndex?: number): Promise<boolean>;
   abort(): Promise<void>;
   isRunning(): boolean;
   dispose(): Promise<void>;
