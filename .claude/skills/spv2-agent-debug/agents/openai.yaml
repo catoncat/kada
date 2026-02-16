@@ -1,4 +1,4 @@
 interface:
-  display_name: "SPV2 Agent Debug"
-  short_description: "Replay full session events and pinpoint agent toolchain failures"
-  default_prompt: "Use $spv2-agent-debug to replay the latest session and identify where the toolchain stopped."
+  display_name: "SPV2 Agent Trace Debug"
+  short_description: "Trace full Agent pipeline and pinpoint no-response breakpoints"
+  default_prompt: "Use $spv2-agent-debug to diagnose a no-response chat by traceId and show the exact break point."

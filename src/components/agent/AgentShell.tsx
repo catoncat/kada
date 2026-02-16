@@ -43,6 +43,7 @@ import {
 } from '@/hooks/useAgentSessions';
 import { useAgentTurnStream } from '@/hooks/useAgentTurnStream';
 import { AgentApiError, listAgentEvents } from '@/lib/agent-api';
+import { agentTraceClient } from '@/lib/agent-trace-client';
 import type { AgentTurnEvent, AgentTurnStreamChunk } from '@/types/agent';
 
 function eventFromChunk(chunk: AgentTurnStreamChunk): AgentTurnEvent {
@@ -125,6 +126,29 @@ function createClientMessageId(): string {
   return `cm_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function createTraceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `trace_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function toErrorText(message: string, traceId?: string | null): string {
+  const normalized = message.trim() || '请求失败';
+  if (!traceId) return normalized;
+  return `${normalized}（traceId: ${traceId}）`;
+}
+
+function extractTraceIdFromError(error: unknown): string | null {
+  if (!(error instanceof AgentApiError)) return null;
+  const details = error.details;
+  if (!details || typeof details !== 'object') return null;
+  const value = (details as Record<string, unknown>).traceId;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
+
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
   const capabilitiesQuery = useAgentCapabilities();
@@ -157,6 +181,7 @@ export function AgentShell() {
   const pollingRef = useRef<AbortController | null>(null);
   const insertionSeqRef = useRef(0);
   const streamingAssistantTextRef = useRef('');
+  const activeTurnTraceIdRef = useRef<string | null>(null);
   const sessionListRef = useRef<HTMLDivElement | null>(null);
 
   const sessions = sessionsQuery.data?.data || [];
@@ -272,6 +297,7 @@ export function AgentShell() {
     setQueuedFollowUps([]);
     lastAckSeqRef.current = 0;
     insertionSeqRef.current = 0;
+    activeTurnTraceIdRef.current = null;
   }, [activeSessionId]);
 
   const entries = sessionDetailQuery.data?.entries || [];
@@ -436,6 +462,41 @@ export function AgentShell() {
     if (event.type === 'assistant.completed') {
       const payload = (event.payload || {}) as Record<string, unknown>;
       const text = typeof payload.text === 'string' ? payload.text : '';
+      const stopReason =
+        typeof payload.stopReason === 'string' ? payload.stopReason : null;
+      const traceId = activeTurnTraceIdRef.current;
+      if (traceId) {
+        if (text.trim()) {
+          agentTraceClient.log({
+            traceId,
+            sessionId: event.sessionId,
+            turnId: event.turnId || null,
+            channel: 'render',
+            event: 'render.assistant_message_commit',
+            data: {
+              textLen: text.length,
+              stopReason,
+            },
+          });
+        } else if (stopReason === 'stop') {
+          agentTraceClient.log({
+            traceId,
+            sessionId: event.sessionId,
+            turnId: event.turnId || null,
+            channel: 'render',
+            event: 'render.empty_stop_hidden',
+            level: 'warn',
+            data: {
+              textLen: text.length,
+              stopReason,
+              usage:
+                payload.usage && typeof payload.usage === 'object'
+                  ? payload.usage
+                  : null,
+            },
+          });
+        }
+      }
       setStreamingText(text);
       return;
     }
@@ -500,6 +561,7 @@ export function AgentShell() {
     }
 
     if (event.type === 'turn.completed' || event.type === 'turn.failed') {
+      activeTurnTraceIdRef.current = null;
       void Promise.all([
         sessionDetailQuery.refetch(),
         outputsQuery.refetch(),
@@ -529,6 +591,7 @@ export function AgentShell() {
     }
 
     if (event.type === 'session.aborted') {
+      activeTurnTraceIdRef.current = null;
       setQueuedFollowUps([]);
       setStreamingInsertions([]);
       insertionSeqRef.current = 0;
@@ -620,11 +683,36 @@ export function AgentShell() {
   ]);
 
   const handleSend = async ({ text, mentions }: AgentComposerSubmitPayload) => {
+    const traceId = createTraceId();
     if (!activeSessionId) {
-      setErrorText('请先创建会话');
+      agentTraceClient.log({
+        traceId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'turn',
+          reason: 'NO_ACTIVE_SESSION',
+        },
+      });
+      setErrorText(toErrorText('请先创建会话', traceId));
       return;
     }
     const clientMessageId = createClientMessageId();
+    activeTurnTraceIdRef.current = traceId;
+
+    agentTraceClient.log({
+      traceId,
+      sessionId: activeSessionId,
+      clientMessageId,
+      channel: 'ui',
+      event: 'ui.submit_click',
+      data: {
+        action: 'turn',
+        textLen: text.length,
+        mentionsCount: mentions?.length ?? 0,
+      },
+    });
 
     const optimisticId = appendOptimisticUserMessage(text);
 
@@ -639,6 +727,7 @@ export function AgentShell() {
         sessionId: activeSessionId,
         text,
         clientMessageId,
+        traceId,
         mentions,
         onEvent: handleChunk,
       });
@@ -654,28 +743,52 @@ export function AgentShell() {
         error.code === 'SESSION_RUNNING' &&
         capabilitiesQuery.data?.autoFollowUpOnSessionRunning !== false
       ) {
+        agentTraceClient.log({
+          traceId,
+          sessionId: activeSessionId,
+          clientMessageId,
+          channel: 'ui',
+          event: 'ui.submit_blocked',
+          level: 'info',
+          data: {
+            action: 'turn',
+            reason: 'SESSION_RUNNING_AUTO_FOLLOW_UP',
+          },
+        });
+
         try {
           await followUpMutation.mutateAsync({
             sessionId: activeSessionId,
             text,
             clientMessageId,
             mentions,
+            traceId,
           });
           removeOptimisticUserMessage(optimisticId);
           setErrorText(null);
           return;
         } catch (fallbackError) {
           removeOptimisticUserMessage(optimisticId);
+          const fallbackTraceId = extractTraceIdFromError(fallbackError) || traceId;
           setErrorText(
-            fallbackError instanceof Error
-              ? fallbackError.message
-              : '发送失败',
+            toErrorText(
+              fallbackError instanceof Error
+                ? fallbackError.message
+                : '发送失败',
+              fallbackTraceId,
+            ),
           );
           return;
         }
       }
       removeOptimisticUserMessage(optimisticId);
-      setErrorText(error instanceof Error ? error.message : '发送失败');
+      const resolvedTraceId = extractTraceIdFromError(error) || traceId;
+      setErrorText(
+        toErrorText(
+          error instanceof Error ? error.message : '发送失败',
+          resolvedTraceId,
+        ),
+      );
     }
   };
 
@@ -683,8 +796,34 @@ export function AgentShell() {
     text,
     mentions,
   }: AgentComposerSubmitPayload) => {
-    if (!activeSessionId) return;
+    const traceId = createTraceId();
+    if (!activeSessionId) {
+      agentTraceClient.log({
+        traceId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'steer',
+          reason: 'NO_ACTIVE_SESSION',
+        },
+      });
+      return;
+    }
     const clientMessageId = createClientMessageId();
+    agentTraceClient.log({
+      traceId,
+      sessionId: activeSessionId,
+      clientMessageId,
+      channel: 'ui',
+      event: 'ui.submit_click',
+      data: {
+        action: 'steer',
+        textLen: text.length,
+        mentionsCount: mentions?.length ?? 0,
+      },
+    });
+
     const insertionId = turnStream.isStreaming
       ? appendStreamingInsertion(clientMessageId, text)
       : null;
@@ -696,12 +835,19 @@ export function AgentShell() {
         text,
         clientMessageId,
         mentions,
+        traceId,
       });
       setErrorText(null);
     } catch (error) {
       if (insertionId) removeStreamingInsertion(insertionId);
       if (optimisticId) removeOptimisticUserMessage(optimisticId);
-      setErrorText(error instanceof Error ? error.message : 'Steer 失败');
+      const resolvedTraceId = extractTraceIdFromError(error) || traceId;
+      setErrorText(
+        toErrorText(
+          error instanceof Error ? error.message : 'Steer 失败',
+          resolvedTraceId,
+        ),
+      );
     }
   };
 
@@ -709,8 +855,34 @@ export function AgentShell() {
     text,
     mentions,
   }: AgentComposerSubmitPayload) => {
-    if (!activeSessionId) return;
+    const traceId = createTraceId();
+    if (!activeSessionId) {
+      agentTraceClient.log({
+        traceId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'follow-up',
+          reason: 'NO_ACTIVE_SESSION',
+        },
+      });
+      return;
+    }
     const clientMessageId = createClientMessageId();
+    agentTraceClient.log({
+      traceId,
+      sessionId: activeSessionId,
+      clientMessageId,
+      channel: 'ui',
+      event: 'ui.submit_click',
+      data: {
+        action: 'follow-up',
+        textLen: text.length,
+        mentionsCount: mentions?.length ?? 0,
+      },
+    });
+
     const queuedAt = new Date().toISOString();
     setQueuedFollowUps((prev) => [
       ...prev,
@@ -728,21 +900,51 @@ export function AgentShell() {
         text,
         clientMessageId,
         mentions,
+        traceId,
       });
       setErrorText(null);
     } catch (error) {
       setQueuedFollowUps((prev) =>
         prev.filter((item) => item.clientMessageId !== clientMessageId),
       );
-      setErrorText(error instanceof Error ? error.message : 'Follow-up 失败');
+      const resolvedTraceId = extractTraceIdFromError(error) || traceId;
+      setErrorText(
+        toErrorText(
+          error instanceof Error ? error.message : 'Follow-up 失败',
+          resolvedTraceId,
+        ),
+      );
     }
   };
 
   const handleAbort = async () => {
-    if (!activeSessionId) return;
+    const traceId = createTraceId();
+    if (!activeSessionId) {
+      agentTraceClient.log({
+        traceId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'abort',
+          reason: 'NO_ACTIVE_SESSION',
+        },
+      });
+      return;
+    }
+
+    agentTraceClient.log({
+      traceId,
+      sessionId: activeSessionId,
+      channel: 'ui',
+      event: 'ui.submit_click',
+      data: {
+        action: 'abort',
+      },
+    });
 
     try {
-      await abortMutation.mutateAsync(activeSessionId);
+      await abortMutation.mutateAsync({ sessionId: activeSessionId, traceId });
       turnStream.abort();
       await Promise.all([
         sessionDetailQuery.refetch(),
@@ -756,7 +958,13 @@ export function AgentShell() {
       setErrorText(null);
       setStreamingText('');
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : '中断失败');
+      const resolvedTraceId = extractTraceIdFromError(error) || traceId;
+      setErrorText(
+        toErrorText(
+          error instanceof Error ? error.message : '中断失败',
+          resolvedTraceId,
+        ),
+      );
     }
   };
 
@@ -764,11 +972,48 @@ export function AgentShell() {
     clientMessageId: string,
     text: string,
   ) => {
-    if (!activeSessionId) return;
-    if (!turnStream.isStreaming) {
-      setErrorText('当前未在执行中，不能发送 steer。');
+    const traceId = createTraceId();
+    if (!activeSessionId) {
+      agentTraceClient.log({
+        traceId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'follow-up.promote',
+          reason: 'NO_ACTIVE_SESSION',
+        },
+      });
       return;
     }
+    if (!turnStream.isStreaming) {
+      agentTraceClient.log({
+        traceId,
+        sessionId: activeSessionId,
+        clientMessageId,
+        channel: 'ui',
+        event: 'ui.submit_blocked',
+        level: 'warn',
+        data: {
+          action: 'follow-up.promote',
+          reason: 'SESSION_NOT_RUNNING',
+        },
+      });
+      setErrorText(toErrorText('当前未在执行中，不能发送 steer。', traceId));
+      return;
+    }
+
+    agentTraceClient.log({
+      traceId,
+      sessionId: activeSessionId,
+      clientMessageId,
+      channel: 'ui',
+      event: 'ui.submit_click',
+      data: {
+        action: 'follow-up.promote',
+        textLen: text.length,
+      },
+    });
 
     const currentQueue = queuedFollowUps;
     const removedIndex = currentQueue.findIndex(
@@ -787,6 +1032,7 @@ export function AgentShell() {
         sessionId: activeSessionId,
         clientMessageId,
         text,
+        traceId,
       });
       setErrorText(null);
     } catch (error) {
@@ -797,7 +1043,13 @@ export function AgentShell() {
         next.splice(insertAt, 0, removedItem);
         return next;
       });
-      setErrorText(error instanceof Error ? error.message : 'Steer 失败');
+      const resolvedTraceId = extractTraceIdFromError(error) || traceId;
+      setErrorText(
+        toErrorText(
+          error instanceof Error ? error.message : 'Steer 失败',
+          resolvedTraceId,
+        ),
+      );
     }
   };
 

@@ -1,5 +1,6 @@
 import {
   blob,
+  index,
   integer,
   real,
   sqliteTable,
@@ -197,6 +198,43 @@ export const agentEntries = sqliteTable('agent_entries', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
+// Agent ToolResult Readability 表（规则层 + AI 增强可读层）
+export const agentToolResultReadability = sqliteTable(
+  'agent_toolresult_readability',
+  {
+    id: text('id').primaryKey(),
+    entryId: text('entry_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    turnId: text('turn_id'),
+    toolCallId: text('tool_call_id'),
+    sourceHash: text('source_hash').notNull(),
+    sourceSize: integer('source_size').notNull().default(0),
+    ruleSummary: text('rule_summary').notNull(),
+    ruleDetail: text('rule_detail').notNull(),
+    enhancedSummary: text('enhanced_summary'),
+    enhancedDetail: text('enhanced_detail'),
+    enhancedConfidence: real('enhanced_confidence'),
+    enhancedModel: text('enhanced_model'),
+    enhancedReason: text('enhanced_reason'),
+    status: text('status').notNull().default('pending'), // 'pending' | 'completed' | 'failed' | 'skipped'
+    latencyMs: integer('latency_ms'),
+    error: text('error'),
+    createdAt: integer('created_at', { mode: 'timestamp' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    entryUnique: uniqueIndex('agent_toolresult_readability_entry_unique').on(
+      table.entryId,
+    ),
+    idxSessionCreated: index(
+      'idx_agent_toolresult_readability_session_created_at',
+    ).on(table.sessionId, table.createdAt),
+    idxSessionSource: index(
+      'idx_agent_toolresult_readability_session_source_hash',
+    ).on(table.sessionId, table.sourceHash),
+  }),
+);
+
 // Agent Events 表（流式事件）
 export const agentEvents = sqliteTable('agent_events', {
   id: text('id').primaryKey(),
@@ -218,6 +256,39 @@ export const agentOutputs = sqliteTable('agent_outputs', {
   contentJson: text('content_json').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
+
+// Agent Trace Logs 表（端到端追踪事件）
+export const agentTraceLogs = sqliteTable(
+  'agent_trace_logs',
+  {
+    seq: integer('seq').primaryKey({ autoIncrement: true }),
+    id: text('id').notNull().unique(),
+    traceId: text('trace_id').notNull(),
+    requestId: text('request_id'),
+    sessionId: text('session_id'),
+    turnId: text('turn_id'),
+    clientMessageId: text('client_message_id'),
+    channel: text('channel').notNull(),
+    event: text('event').notNull(),
+    level: text('level').notNull().default('info'),
+    ok: integer('ok').notNull().default(1),
+    dataJson: text('data_json').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => ({
+    idxTraceSeq: index('idx_agent_trace_logs_trace_seq').on(
+      table.traceId,
+      table.seq,
+    ),
+    idxSessionTurnSeq: index('idx_agent_trace_logs_session_turn_seq').on(
+      table.sessionId,
+      table.turnId,
+      table.seq,
+    ),
+    idxCreatedAt: index('idx_agent_trace_logs_created_at').on(table.createdAt),
+    idxRequestId: index('idx_agent_trace_logs_request_id').on(table.requestId),
+  }),
+);
 
 // 类型导出
 export type Provider = typeof providers.$inferSelect;
@@ -259,8 +330,16 @@ export type InsertAgentSession = typeof agentSessions.$inferInsert;
 export type AgentEntry = typeof agentEntries.$inferSelect;
 export type InsertAgentEntry = typeof agentEntries.$inferInsert;
 
+export type AgentToolResultReadability =
+  typeof agentToolResultReadability.$inferSelect;
+export type InsertAgentToolResultReadability =
+  typeof agentToolResultReadability.$inferInsert;
+
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type InsertAgentEvent = typeof agentEvents.$inferInsert;
 
 export type AgentOutput = typeof agentOutputs.$inferSelect;
 export type InsertAgentOutput = typeof agentOutputs.$inferInsert;
+
+export type AgentTraceLog = typeof agentTraceLogs.$inferSelect;
+export type InsertAgentTraceLog = typeof agentTraceLogs.$inferInsert;

@@ -50,6 +50,20 @@
       "when": 1771238400000,
       "tag": "0006_drop_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1771272000000,
+      "tag": "0007_agent_trace_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771275600000,
+      "tag": "0008_toolresult_readability",
+      "breakpoints": true
     }
   ]
 }

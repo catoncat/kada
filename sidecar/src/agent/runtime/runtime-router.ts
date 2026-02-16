@@ -14,6 +14,7 @@ import type {
   AgentRuntimeQueueMessageInput,
 } from './agent-runtime';
 import { createCodingAgentRuntime } from './coding-agent-runtime';
+import { appendTraceLog } from '../../services/agent-trace-store';
 
 interface RuntimeHolder {
   runtime: AgentRuntime;
@@ -81,6 +82,16 @@ export class RuntimeRouter {
       throw new Error(`turn gate not acquired for session: ${sessionId}`);
     }
 
+    await appendTraceLog({
+      sessionId,
+      turnId: input.turnId,
+      channel: 'runtime',
+      event: 'runtime.turn.start',
+      data: {
+        textLen: input.text.length,
+      },
+    });
+
     try {
       const runtime = await this.ensureRuntime(sessionId);
       if (runtime.isRunning()) {
@@ -100,8 +111,29 @@ export class RuntimeRouter {
           text: input.text,
           onEvent: input.onEvent,
         });
+
+        await appendTraceLog({
+          sessionId,
+          turnId: input.turnId,
+          channel: 'runtime',
+          event: 'runtime.turn.end',
+          data: {
+            status: 'completed',
+          },
+        });
         await this.setStatusIfNotAborted(sessionId, 'idle');
       } catch (error) {
+        await appendTraceLog({
+          sessionId,
+          turnId: input.turnId,
+          channel: 'runtime',
+          event: 'runtime.turn.failed',
+          level: 'error',
+          ok: false,
+          data: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
         await this.setStatusIfNotAborted(sessionId, 'failed');
         throw error;
       }
@@ -114,6 +146,16 @@ export class RuntimeRouter {
     sessionId: string,
     input: AgentRuntimeQueueMessageInput,
   ): Promise<void> {
+    await appendTraceLog({
+      sessionId,
+      clientMessageId: input.clientMessageId,
+      channel: 'runtime',
+      event: 'runtime.queue.steer',
+      data: {
+        textLen: input.text.length,
+      },
+    });
+
     const runtime = await this.ensureRuntime(sessionId);
     await runtime.steer(input);
   }
@@ -122,6 +164,16 @@ export class RuntimeRouter {
     sessionId: string,
     input: AgentRuntimeQueueMessageInput,
   ): Promise<void> {
+    await appendTraceLog({
+      sessionId,
+      clientMessageId: input.clientMessageId,
+      channel: 'runtime',
+      event: 'runtime.queue.follow_up',
+      data: {
+        textLen: input.text.length,
+      },
+    });
+
     const runtime = await this.ensureRuntime(sessionId);
     await runtime.followUp(input);
   }

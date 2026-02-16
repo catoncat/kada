@@ -1,4 +1,5 @@
 import { apiUrl } from '@/lib/api-config';
+import { agentTraceClient } from '@/lib/agent-trace-client';
 import type {
   AgentMention,
   AgentCapabilities,
@@ -59,6 +60,48 @@ function toApiError(response: Response, body: unknown, fallback: string) {
     code: typeof payload?.code === 'string' ? payload.code : null,
     details: body,
   });
+}
+
+function createJsonHeaders(input?: {
+  traceId?: string;
+  clientMessageId?: string;
+}): HeadersInit {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (input?.traceId) {
+    headers['x-agent-trace-id'] = input.traceId;
+  }
+  if (input?.clientMessageId) {
+    headers['x-agent-client-message-id'] = input.clientMessageId;
+  }
+
+  return headers;
+}
+
+function enrichErrorWithTraceMeta(
+  error: AgentApiError,
+  response: Response | null,
+  traceId?: string,
+): AgentApiError {
+  const details = isRecord(error.details)
+    ? { ...error.details }
+    : {};
+
+  if (response) {
+    const responseTraceId = response.headers.get('x-agent-trace-id');
+    const requestId = response.headers.get('x-agent-request-id');
+    if (responseTraceId) details.traceId = responseTraceId;
+    if (requestId) details.requestId = requestId;
+  }
+
+  if (!details.traceId && traceId) {
+    details.traceId = traceId;
+  }
+
+  error.details = details;
+  return error;
 }
 
 export async function listAgentSessions(): Promise<{
@@ -135,15 +178,20 @@ export async function steerAgentSession(
   text: string,
   clientMessageId: string,
   mentions?: AgentMention[],
+  traceId?: string,
 ): Promise<void> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/steer`), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: createJsonHeaders({ traceId, clientMessageId }),
     body: JSON.stringify({ text, clientMessageId, mentions }),
   });
   const data = await readJson(res);
   if (!res.ok) {
-    throw toApiError(res, data, 'Steer 失败');
+    throw enrichErrorWithTraceMeta(
+      toApiError(res, data, 'Steer 失败'),
+      res,
+      traceId,
+    );
   }
 }
 
@@ -152,18 +200,23 @@ export async function followUpAgentSession(
   text: string,
   clientMessageId: string,
   mentions?: AgentMention[],
+  traceId?: string,
 ): Promise<void> {
   const res = await fetch(
     apiUrl(`/api/agent/sessions/${sessionId}/follow-up`),
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: createJsonHeaders({ traceId, clientMessageId }),
       body: JSON.stringify({ text, clientMessageId, mentions }),
     },
   );
   const data = await readJson(res);
   if (!res.ok) {
-    throw toApiError(res, data, 'Follow-up 失败');
+    throw enrichErrorWithTraceMeta(
+      toApiError(res, data, 'Follow-up 失败'),
+      res,
+      traceId,
+    );
   }
 }
 
@@ -172,13 +225,17 @@ export async function promoteFollowUpToSteerAgentSession(
   input: {
     clientMessageId: string;
     text?: string;
+    traceId?: string;
   },
 ): Promise<void> {
   const res = await fetch(
     apiUrl(`/api/agent/sessions/${sessionId}/follow-up/promote`),
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: createJsonHeaders({
+        traceId: input.traceId,
+        clientMessageId: input.clientMessageId,
+      }),
       body: JSON.stringify({
         clientMessageId: input.clientMessageId,
         text: input.text,
@@ -187,17 +244,33 @@ export async function promoteFollowUpToSteerAgentSession(
   );
   const data = await readJson(res);
   if (!res.ok) {
-    throw toApiError(res, data, 'Follow-up 插入失败');
+    throw enrichErrorWithTraceMeta(
+      toApiError(res, data, 'Follow-up 插入失败'),
+      res,
+      input.traceId,
+    );
   }
 }
 
-export async function abortAgentSession(sessionId: string): Promise<void> {
+export async function abortAgentSession(
+  sessionId: string,
+  traceId?: string,
+): Promise<void> {
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}/abort`), {
     method: 'POST',
+    headers: traceId
+      ? {
+          'x-agent-trace-id': traceId,
+        }
+      : undefined,
   });
   const data = await readJson(res);
   if (!res.ok) {
-    throw toApiError(res, data, '中断会话失败');
+    throw enrichErrorWithTraceMeta(
+      toApiError(res, data, '中断会话失败'),
+      res,
+      traceId,
+    );
   }
 }
 
@@ -304,61 +377,240 @@ export async function streamAgentTurn(input: {
   sessionId: string;
   text: string;
   clientMessageId: string;
+  traceId?: string;
   mentions?: AgentMention[];
   signal?: AbortSignal;
   onEvent: (chunk: AgentTurnStreamChunk) => void;
 }): Promise<void> {
-  const res = await fetch(
-    apiUrl(`/api/agent/sessions/${input.sessionId}/turn`),
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: input.text,
+  const startedAt = Date.now();
+
+  if (input.traceId) {
+    agentTraceClient.log({
+      traceId: input.traceId,
+      sessionId: input.sessionId,
+      clientMessageId: input.clientMessageId,
+      channel: 'network',
+      event: 'network.turn_fetch_start',
+      data: {
+        textLen: input.text.length,
+        mentionsCount: input.mentions?.length ?? 0,
+      },
+    });
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(
+      apiUrl(`/api/agent/sessions/${input.sessionId}/turn`),
+      {
+        method: 'POST',
+        headers: createJsonHeaders({
+          traceId: input.traceId,
+          clientMessageId: input.clientMessageId,
+        }),
+        body: JSON.stringify({
+          text: input.text,
+          clientMessageId: input.clientMessageId,
+          mentions: input.mentions,
+        }),
+        signal: input.signal,
+      },
+    );
+  } catch (error) {
+    if (input.traceId) {
+      agentTraceClient.log({
+        traceId: input.traceId,
+        sessionId: input.sessionId,
         clientMessageId: input.clientMessageId,
-        mentions: input.mentions,
-      }),
-      signal: input.signal,
-    },
-  );
+        channel: 'network',
+        event: 'network.turn_fetch_error',
+        level: 'error',
+        data: {
+          durationMs: Date.now() - startedAt,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+    throw error;
+  }
+
+  const responseTraceId = res.headers.get('x-agent-trace-id') || input.traceId;
+  const requestId = res.headers.get('x-agent-request-id');
 
   if (!res.ok) {
     const body = await readJson(res);
-    throw toApiError(res, body, '启动 Agent turn 失败');
+    if (responseTraceId) {
+      agentTraceClient.log({
+        traceId: responseTraceId,
+        sessionId: input.sessionId,
+        clientMessageId: input.clientMessageId,
+        channel: 'network',
+        event: 'network.turn_http_error',
+        level: 'error',
+        data: {
+          status: res.status,
+          requestId,
+          durationMs: Date.now() - startedAt,
+          body,
+        },
+      });
+    }
+
+    throw enrichErrorWithTraceMeta(
+      toApiError(res, body, '启动 Agent turn 失败'),
+      res,
+      input.traceId,
+    );
   }
 
   if (!res.body) {
+    if (responseTraceId) {
+      agentTraceClient.log({
+        traceId: responseTraceId,
+        sessionId: input.sessionId,
+        clientMessageId: input.clientMessageId,
+        channel: 'network',
+        event: 'network.turn_fetch_error',
+        level: 'error',
+        data: {
+          requestId,
+          durationMs: Date.now() - startedAt,
+          message: 'Agent turn 流式响应为空',
+        },
+      });
+    }
     throw new Error('Agent turn 流式响应为空');
+  }
+
+  if (responseTraceId) {
+    agentTraceClient.log({
+      traceId: responseTraceId,
+      sessionId: input.sessionId,
+      clientMessageId: input.clientMessageId,
+      channel: 'sse',
+      event: 'sse.open',
+      data: {
+        requestId,
+        status: res.status,
+      },
+    });
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
 
   let buffer = '';
+  let sawFirstEvent = false;
+  let eventCount = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    const events = parseSseChunk(buffer);
-    const lastSeparator = buffer.lastIndexOf('\n\n');
-    if (lastSeparator >= 0) {
-      buffer = buffer.slice(lastSeparator + 2);
+      const events = parseSseChunk(buffer);
+      const lastSeparator = buffer.lastIndexOf('\n\n');
+      if (lastSeparator >= 0) {
+        buffer = buffer.slice(lastSeparator + 2);
+      }
+
+      for (const chunk of events) {
+        eventCount += 1;
+        if (responseTraceId && !sawFirstEvent) {
+          sawFirstEvent = true;
+          agentTraceClient.log({
+            traceId: responseTraceId,
+            sessionId: input.sessionId,
+            clientMessageId: input.clientMessageId,
+            channel: 'sse',
+            event: 'sse.first_event',
+            data: {
+              requestId,
+              firstEventType: chunk.event.type,
+              durationMs: Date.now() - startedAt,
+            },
+          });
+        }
+
+        if (responseTraceId) {
+          agentTraceClient.log({
+            traceId: responseTraceId,
+            sessionId: input.sessionId,
+            turnId: chunk.event.turnId ?? null,
+            clientMessageId: input.clientMessageId,
+            channel: 'sse',
+            event: 'sse.event',
+            data: {
+              requestId,
+              cursor: chunk.cursor,
+              eventType: chunk.event.type,
+            },
+          });
+        }
+
+        input.onEvent(chunk);
+      }
     }
 
-    for (const chunk of events) {
-      input.onEvent(chunk);
+    const rest = decoder.decode();
+    if (rest) {
+      const events = parseSseChunk(buffer + rest);
+      for (const chunk of events) {
+        eventCount += 1;
+        if (responseTraceId) {
+          agentTraceClient.log({
+            traceId: responseTraceId,
+            sessionId: input.sessionId,
+            turnId: chunk.event.turnId ?? null,
+            clientMessageId: input.clientMessageId,
+            channel: 'sse',
+            event: 'sse.event',
+            data: {
+              requestId,
+              cursor: chunk.cursor,
+              eventType: chunk.event.type,
+            },
+          });
+        }
+        input.onEvent(chunk);
+      }
     }
-  }
 
-  const rest = decoder.decode();
-  if (rest) {
-    const events = parseSseChunk(buffer + rest);
-    for (const chunk of events) {
-      input.onEvent(chunk);
+    if (responseTraceId) {
+      agentTraceClient.log({
+        traceId: responseTraceId,
+        sessionId: input.sessionId,
+        clientMessageId: input.clientMessageId,
+        channel: 'sse',
+        event: 'sse.close',
+        data: {
+          requestId,
+          durationMs: Date.now() - startedAt,
+          eventCount,
+        },
+      });
     }
+  } catch (error) {
+    if (responseTraceId) {
+      agentTraceClient.log({
+        traceId: responseTraceId,
+        sessionId: input.sessionId,
+        clientMessageId: input.clientMessageId,
+        channel: 'network',
+        event: 'network.turn_fetch_error',
+        level: 'error',
+        data: {
+          requestId,
+          durationMs: Date.now() - startedAt,
+          eventCount,
+          phase: 'sse_read',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+    throw error;
   }
 }
 

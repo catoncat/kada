@@ -224,6 +224,37 @@ function ensureTables() {
       created_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS agent_toolresult_readability (
+      id TEXT PRIMARY KEY,
+      entry_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      turn_id TEXT,
+      tool_call_id TEXT,
+      source_hash TEXT NOT NULL,
+      source_size INTEGER NOT NULL DEFAULT 0,
+      rule_summary TEXT NOT NULL,
+      rule_detail TEXT NOT NULL,
+      enhanced_summary TEXT,
+      enhanced_detail TEXT,
+      enhanced_confidence REAL,
+      enhanced_model TEXT,
+      enhanced_reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      latency_ms INTEGER,
+      error TEXT,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS agent_toolresult_readability_entry_unique
+    ON agent_toolresult_readability(entry_id);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_toolresult_readability_session_created_at
+    ON agent_toolresult_readability(session_id, created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_toolresult_readability_session_source_hash
+    ON agent_toolresult_readability(session_id, source_hash);
+
     CREATE TABLE IF NOT EXISTS agent_events (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -243,6 +274,34 @@ function ensureTables() {
       content_json TEXT NOT NULL,
       created_at INTEGER DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS agent_trace_logs (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      trace_id TEXT NOT NULL,
+      request_id TEXT,
+      session_id TEXT,
+      turn_id TEXT,
+      client_message_id TEXT,
+      channel TEXT NOT NULL,
+      event TEXT NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info',
+      ok INTEGER NOT NULL DEFAULT 1,
+      data_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_trace_logs_trace_seq
+    ON agent_trace_logs(trace_id, seq);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_trace_logs_session_turn_seq
+    ON agent_trace_logs(session_id, turn_id, seq);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_trace_logs_created_at
+    ON agent_trace_logs(created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_trace_logs_request_id
+    ON agent_trace_logs(request_id);
   `);
 }
 
@@ -341,6 +400,66 @@ function ensureColumns() {
     'payload_json',
     "TEXT NOT NULL DEFAULT '{}'",
   );
+
+  // agent_toolresult_readability: 迭代期补列
+  addColumnIfMissing('agent_toolresult_readability', 'entry_id', 'TEXT');
+  addColumnIfMissing('agent_toolresult_readability', 'session_id', 'TEXT');
+  addColumnIfMissing('agent_toolresult_readability', 'turn_id', 'TEXT');
+  addColumnIfMissing('agent_toolresult_readability', 'tool_call_id', 'TEXT');
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'source_hash',
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'source_size',
+    'INTEGER NOT NULL DEFAULT 0',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'rule_summary',
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'rule_detail',
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'enhanced_summary',
+    'TEXT',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'enhanced_detail',
+    'TEXT',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'enhanced_confidence',
+    'REAL',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'enhanced_model',
+    'TEXT',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'enhanced_reason',
+    'TEXT',
+  );
+  addColumnIfMissing(
+    'agent_toolresult_readability',
+    'status',
+    "TEXT NOT NULL DEFAULT 'pending'",
+  );
+  addColumnIfMissing('agent_toolresult_readability', 'latency_ms', 'INTEGER');
+  addColumnIfMissing('agent_toolresult_readability', 'error', 'TEXT');
+  addColumnIfMissing('agent_toolresult_readability', 'created_at', 'INTEGER');
+  addColumnIfMissing('agent_toolresult_readability', 'updated_at', 'INTEGER');
 
   // agent_events: 迭代期补列
   addColumnIfMissing('agent_events', 'turn_id', 'TEXT');

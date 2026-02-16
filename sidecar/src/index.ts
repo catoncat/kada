@@ -3,6 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { execSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { aiRoutes } from './routes/ai';
 import { providerRoutes } from './routes/providers';
 import { taskRoutes } from './routes/tasks';
@@ -18,12 +19,21 @@ import { embeddingsRoutes } from './routes/embeddings';
 import { initDatabase } from './db';
 import { startWorker } from './worker';
 import { initializeVectorEngine } from './services/embedding/vector-engine';
+import { runWithAgentTraceContext } from './services/agent-trace-context';
+import { appendTraceLog } from './services/agent-trace-store';
+import { installTraceFetchWrapper } from './services/trace-fetch';
 
 const app = new Hono();
 
 const ROOT_TRACE_ENABLED = process.env.SIDECAR_TRACE_ROOT === '1';
 const ROOT_TRACE_INTERVAL_MS = Number(process.env.SIDECAR_TRACE_ROOT_INTERVAL_MS || '30000') || 30_000;
 let lastRootTraceAt = 0;
+
+function normalizeHeaderId(value: string | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
 
 function createRequestLogger(options?: { skipPaths?: ReadonlySet<string> }): MiddlewareHandler {
   const skipPaths = options?.skipPaths ?? new Set<string>();
@@ -70,6 +80,80 @@ function createRequestLogger(options?: { skipPaths?: ReadonlySet<string> }): Mid
 }
 
 // 中间件
+app.use('*', async (c, next) => {
+  const requestId = randomUUID();
+  const traceId = normalizeHeaderId(c.req.header('x-agent-trace-id')) || randomUUID();
+  const clientMessageId = normalizeHeaderId(c.req.header('x-agent-client-message-id'));
+  const method = c.req.method;
+  const path = c.req.path;
+  const startedAt = Date.now();
+  const isAgentApi = path.startsWith('/api/agent/');
+
+  await runWithAgentTraceContext(
+    {
+      traceId,
+      requestId,
+      clientMessageId,
+      sessionId: null,
+      turnId: null,
+    },
+    async () => {
+      c.header('x-agent-trace-id', traceId);
+      c.header('x-agent-request-id', requestId);
+
+      if (isAgentApi) {
+        await appendTraceLog({
+          traceId,
+          requestId,
+          clientMessageId,
+          channel: 'api',
+          event: 'api.request.start',
+          data: {
+            method,
+            path,
+            query: c.req.query(),
+          },
+        });
+      }
+
+      let caughtError: unknown = null;
+      try {
+        await next();
+      } catch (error) {
+        caughtError = error;
+        throw error;
+      } finally {
+        c.header('x-agent-trace-id', traceId);
+        c.header('x-agent-request-id', requestId);
+
+        if (isAgentApi) {
+          await appendTraceLog({
+            traceId,
+            requestId,
+            clientMessageId,
+            channel: 'api',
+            event: 'api.request.end',
+            level: c.res.status >= 500 ? 'error' : 'info',
+            ok: caughtError == null && c.res.status < 400,
+            data: {
+              method,
+              path,
+              status: c.res.status,
+              durationMs: Date.now() - startedAt,
+              error:
+                caughtError instanceof Error
+                  ? caughtError.message
+                  : caughtError
+                    ? String(caughtError)
+                    : null,
+            },
+          });
+        }
+      }
+    },
+  );
+});
+
 app.use(
   '*',
   createRequestLogger({
@@ -111,6 +195,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 async function main() {
   await initDatabase();
+  installTraceFetchWrapper();
   initializeVectorEngine();
 
   // 启动任务 Worker（包含 stale 任务清理）

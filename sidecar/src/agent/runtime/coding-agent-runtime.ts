@@ -16,6 +16,7 @@ import {
 import type { Model } from '@mariozechner/pi-ai';
 import { createPhotoCopyExtension, type RuntimeProviderLike } from '../extensions/photo-copy-extension';
 import { createResourceExtension } from '../extensions/resource-extension';
+import { appendTraceLog } from '../../services/agent-trace-store';
 import type {
   AgentRuntime,
   AgentRuntimeEvent,
@@ -67,6 +68,29 @@ function extractAssistantText(message: unknown): string {
     })
     .join('')
     .trim();
+}
+
+function extractUsageTotalTokens(usage: unknown): number | null {
+  if (!usage || typeof usage !== 'object') return null;
+  const row = usage as Record<string, unknown>;
+
+  const direct = row.totalTokens ?? row.total_tokens;
+  if (typeof direct === 'number' && Number.isFinite(direct)) {
+    return direct;
+  }
+
+  const output = row.outputTokens ?? row.output_tokens;
+  const input = row.inputTokens ?? row.input_tokens;
+  if (
+    typeof output === 'number' &&
+    Number.isFinite(output) &&
+    typeof input === 'number' &&
+    Number.isFinite(input)
+  ) {
+    return output + input;
+  }
+
+  return null;
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -561,15 +585,54 @@ export class CodingAgentRuntime implements AgentRuntime {
         const message = event.message as
           | { stopReason?: string; errorMessage?: string; usage?: unknown }
           | undefined;
+        const stopReason = message?.stopReason || null;
+        const errorMessage = message?.errorMessage || null;
+        const usage = message?.usage || null;
+        const totalTokens = extractUsageTotalTokens(usage);
+        const textLen = text.length;
+
         await this.emit({
           type: 'assistant.completed',
           payload: {
             text,
-            stopReason: message?.stopReason || null,
-            errorMessage: message?.errorMessage || null,
-            usage: message?.usage || null,
+            stopReason,
+            errorMessage,
+            usage,
           },
         });
+
+        await appendTraceLog({
+          sessionId: this.sessionIdValue,
+          turnId: this.currentTurnId,
+          channel: 'runtime',
+          event: 'runtime.assistant.completed',
+          data: {
+            stopReason,
+            errorMessage,
+            textLen,
+            usage,
+            totalTokens,
+          },
+        });
+
+        if (
+          stopReason === 'stop' &&
+          textLen === 0 &&
+          (totalTokens ?? 0) === 0
+        ) {
+          await appendTraceLog({
+            sessionId: this.sessionIdValue,
+            turnId: this.currentTurnId,
+            channel: 'runtime',
+            event: 'runtime.assistant.empty_stop_detected',
+            level: 'warn',
+            data: {
+              stopReason,
+              textLen,
+              totalTokens: totalTokens ?? 0,
+            },
+          });
+        }
         return;
       }
 

@@ -18,6 +18,7 @@ export function useAgentTurnStream() {
       sessionId: string;
       text: string;
       clientMessageId: string;
+      traceId?: string;
       mentions?: AgentMention[];
       onEvent: (chunk: AgentTurnStreamChunk) => void;
     }) => {
@@ -34,6 +35,7 @@ export function useAgentTurnStream() {
           sessionId: input.sessionId,
           text: input.text,
           clientMessageId: input.clientMessageId,
+          traceId: input.traceId,
           mentions: input.mentions,
           signal: controller.signal,
           onEvent: input.onEvent,

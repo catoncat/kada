@@ -148,12 +148,21 @@ export function useSteerAgentSession() {
       text,
       clientMessageId,
       mentions,
+      traceId,
     }: {
       sessionId: string;
       text: string;
       clientMessageId: string;
       mentions?: AgentMention[];
-    }) => steerAgentSession(sessionId, text, clientMessageId, mentions),
+      traceId?: string;
+    }) =>
+      steerAgentSession(
+        sessionId,
+        text,
+        clientMessageId,
+        mentions,
+        traceId,
+      ),
   });
 }
 
@@ -164,12 +173,21 @@ export function useFollowUpAgentSession() {
       text,
       clientMessageId,
       mentions,
+      traceId,
     }: {
       sessionId: string;
       text: string;
       clientMessageId: string;
       mentions?: AgentMention[];
-    }) => followUpAgentSession(sessionId, text, clientMessageId, mentions),
+      traceId?: string;
+    }) =>
+      followUpAgentSession(
+        sessionId,
+        text,
+        clientMessageId,
+        mentions,
+        traceId,
+      ),
   });
 }
 
@@ -179,20 +197,24 @@ export function usePromoteFollowUpToSteerAgentSession() {
       sessionId,
       clientMessageId,
       text,
+      traceId,
     }: {
       sessionId: string;
       clientMessageId: string;
       text?: string;
+      traceId?: string;
     }) =>
       promoteFollowUpToSteerAgentSession(sessionId, {
         clientMessageId,
         text,
+        traceId,
       }),
   });
 }
 
 export function useAbortAgentSession() {
   return useMutation({
-    mutationFn: (sessionId: string) => abortAgentSession(sessionId),
+    mutationFn: ({ sessionId, traceId }: { sessionId: string; traceId?: string }) =>
+      abortAgentSession(sessionId, traceId),
   });
 }
