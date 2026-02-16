@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
-import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useRef } from 'react';
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import {
   formatPayloadForDisplay,
   sanitizeTextForDisplay,
 } from '@/lib/agent-display';
+import { cn } from '@/lib/utils';
 import type { AgentEntry } from '@/types/agent';
 
 interface MessageRow {
@@ -56,6 +57,8 @@ export function AgentMessageList({
     createdAt: string;
   }>;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
   const rows = useMemo<MessageRow[]>(() => {
     const persisted = entries
       .filter(
@@ -87,8 +90,16 @@ export function AgentMessageList({
     return [...persisted, ...optimisticRows];
   }, [entries, optimisticUserMessages]);
 
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  });
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+    <div
+      ref={scrollRef}
+      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4"
+    >
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
           先输入你的目标，例如“找 3
@@ -97,28 +108,45 @@ export function AgentMessageList({
       ) : null}
 
       {rows.map((row) => (
-        <article
+        <div
           key={row.id}
           className={cn(
-            'rounded-xl border p-3',
-            row.role === 'user' ? 'border-primary/30 bg-primary/5' : 'bg-card',
-            row.optimistic ? 'opacity-80' : '',
+            'flex',
+            row.role === 'user' ? 'justify-end' : 'justify-start',
           )}
         >
-          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-            <span>{row.role === 'user' ? '你' : '助手'}</span>
-            <span>{formatTime(row.createdAt)}</span>
-          </div>
-          <p className="whitespace-pre-wrap break-words text-sm">{row.text}</p>
-        </article>
+          {row.role === 'user' ? (
+            <article
+              className={cn(
+                'max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm',
+                row.optimistic ? 'opacity-80' : '',
+              )}
+            >
+              <div className="mb-1 text-right text-[11px] text-primary-foreground/70">
+                {formatTime(row.createdAt)}
+              </div>
+              <MarkdownRenderer content={row.text} variant="user" />
+            </article>
+          ) : (
+            <article className="w-full max-w-full">
+              <div className="mb-1 text-[11px] text-muted-foreground">
+                {formatTime(row.createdAt)}
+              </div>
+              <MarkdownRenderer content={row.text} variant="assistant" />
+            </article>
+          )}
+        </div>
       ))}
 
       {streamingAssistantText ? (
-        <article className="rounded-xl border bg-card p-3">
-          <div className="mb-1 text-xs text-muted-foreground">助手（流式）</div>
-          <p className="whitespace-pre-wrap break-words text-sm">
-            {sanitizeTextForDisplay(streamingAssistantText)}
-          </p>
+        <article className="w-full max-w-full">
+          <div className="mb-1 text-[11px] text-muted-foreground">
+            助手正在输入...
+          </div>
+          <MarkdownRenderer
+            content={sanitizeTextForDisplay(streamingAssistantText)}
+            variant="assistant"
+          />
         </article>
       ) : null}
     </div>

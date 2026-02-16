@@ -1,9 +1,10 @@
-import { Send, Loader2, MessageSquareQuote } from 'lucide-react';
+import { Loader2, MessageSquareQuote, Send } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActionCards } from '@/components/workspace/ActionCards';
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ActionCards } from '@/components/workspace/ActionCards';
 import { cn } from '@/lib/utils';
 import type { WorkspaceActionCard, WorkspaceMessage } from '@/types/workspace';
 
@@ -47,11 +48,11 @@ export function ChatPanel({
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages.length, sending]);
+  });
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, [messages.length]);
+  }, []);
 
   const handleSubmit = async () => {
     const text = input.trim();
@@ -76,37 +77,47 @@ export function ChatPanel({
         </p>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
+      >
         {messages.length === 0 ? (
           <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
             先说你的目标，例如“把 @海边场景 和 @模特A 组成清晨情绪板”。
           </div>
         ) : (
           messages.map((message) => (
-            <article
+            <div
               key={message.id}
               className={cn(
-                'rounded-xl border p-3',
-                message.role === 'user'
-                  ? 'border-primary/20 bg-primary/5'
-                  : 'bg-card',
+                'flex',
+                message.role === 'user' ? 'justify-end' : 'justify-start',
               )}
             >
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {message.role === 'user' ? '你' : '助手'}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {formatTime(message.createdAt)}
-                </span>
-              </div>
-              <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
-            </article>
+              {message.role === 'user' ? (
+                <article className="max-w-[82%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                  <div className="mb-1 text-right text-[11px] text-primary-foreground/70">
+                    {formatTime(message.createdAt)}
+                  </div>
+                  <MarkdownRenderer content={message.content} variant="user" />
+                </article>
+              ) : (
+                <article className="w-full max-w-full">
+                  <div className="mb-1 text-[11px] text-muted-foreground">
+                    {formatTime(message.createdAt)}
+                  </div>
+                  <MarkdownRenderer
+                    content={message.content}
+                    variant="assistant"
+                  />
+                </article>
+              )}
+            </div>
           ))
         )}
 
         {sending ? (
-          <div className="inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+          <div className="inline-flex items-center gap-2 rounded-lg px-1 py-1 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             正在生成建议...
           </div>
@@ -135,8 +146,14 @@ export function ChatPanel({
         />
 
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-muted-foreground">提示：可用 @场景名 / @模特名</p>
-          <Button size="sm" onClick={() => void handleSubmit()} disabled={sending || !input.trim()}>
+          <p className="text-[11px] text-muted-foreground">
+            提示：可用 @场景名 / @模特名
+          </p>
+          <Button
+            size="sm"
+            onClick={() => void handleSubmit()}
+            disabled={sending || !input.trim()}
+          >
             {sending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
