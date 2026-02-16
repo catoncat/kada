@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import type { AgentEntry, AgentTurnEvent } from '@/types/agent';
 
 const AUTO_SCROLL_THRESHOLD = 72;
+const MAX_VISIBLE_TOOL_SUMMARY_ROWS = 6;
 
 interface StreamingToolRow {
   id: string;
@@ -78,6 +79,67 @@ function toInlineText(value: unknown): string {
   return '';
 }
 
+function toolDisplayName(toolName: string): string {
+  const map: Record<string, string> = {
+    photo_compose_prompt: '组装提示词',
+    photo_enqueue_generation: '创建生图任务',
+    photo_get_generation_status: '查询生图状态',
+    copy_generate_variants: '生成文案',
+    copy_rewrite_by_tone: '改写文案',
+    resource_search_scenes: '检索场景资源',
+    resource_search_models: '检索模特资源',
+    resource_get_project_context: '读取项目上下文',
+  };
+  return map[toolName] || toolName || '工具调用';
+}
+
+function summarizeToolResult(payload: Record<string, unknown>): string {
+  const toolName = toInlineText(payload.toolName);
+  const displayName = toolDisplayName(toolName);
+  const result = toRecord(payload.result);
+  const details = toRecord(result.details);
+
+  const rawSummary = toInlineText(payload.enhancedSummary) || toInlineText(payload.summary);
+  const looksLikeGitList = /^[0-9a-f]{7,}\s+.+/.test(rawSummary);
+  if (rawSummary && !looksLikeGitList) {
+    return rawSummary;
+  }
+
+  const status = toInlineText(details.status);
+  const taskId = toInlineText(details.taskId);
+  if (status || taskId) {
+    const shortTask = taskId ? shortId(taskId) : '';
+    return [displayName, status, shortTask].filter(Boolean).join(' · ');
+  }
+
+  if (Boolean(payload.isError)) {
+    return `${displayName} 失败`;
+  }
+  return `${displayName} 完成`;
+}
+
+function summarizeToolProgress(payload: Record<string, unknown>): string {
+  const toolName = toInlineText(payload.toolName);
+  const displayName = toolDisplayName(toolName);
+  const message = toInlineText(payload.message) || toInlineText(payload.status);
+  if (message) return `${displayName} · ${message}`;
+
+  const partial = payload.partialResult;
+  if (typeof partial === 'string' && partial.trim()) {
+    return `${displayName} · ${partial.trim()}`;
+  }
+
+  if (partial && typeof partial === 'object') {
+    const partialRow = partial as Record<string, unknown>;
+    const status = toInlineText(partialRow.status);
+    const taskId = toInlineText(partialRow.taskId);
+    const line = [status, taskId ? shortId(taskId) : ''].filter(Boolean).join(' ');
+    if (line) return `${displayName} · ${line}`;
+  }
+
+  return `${displayName} 处理中`;
+}
+
 function normalizeStreamLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -99,7 +161,6 @@ function pushStreamRow(rows: StreamingToolRow[], row: StreamingToolRow) {
 }
 
 function buildStreamingToolRows(events: AgentTurnEvent[]): StreamingToolRow[] {
-  
   let startIndex = -1;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     if (events[i].type === 'turn.started') {
@@ -122,27 +183,22 @@ function buildStreamingToolRows(events: AgentTurnEvent[]): StreamingToolRow[] {
     const id = `${event.timestamp}:${event.type}:${i}`;
 
     if (event.type === 'tool.call') {
-      const tool = toInlineText(payload.toolName) || 'tool';
-      pushStreamRow(rows, { id, text: tool, status: 'running' });
+      const tool = toolDisplayName(toInlineText(payload.toolName));
+      pushStreamRow(rows, { id, text: `${tool} · 开始`, status: 'running' });
       continue;
     }
 
     if (event.type === 'tool.progress') {
-      const text =
-        toInlineText(payload.message) ||
-        toInlineText(payload.status) ||
-        toInlineText(payload.toolName);
+      const text = summarizeToolProgress(payload);
       if (text) pushStreamRow(rows, { id, text, status: 'info' });
       continue;
     }
 
     if (event.type === 'tool.result') {
-      const summary = toInlineText(payload.summary);
-      const enhancedSummary = toInlineText(payload.enhancedSummary);
-      const tool = toInlineText(payload.toolName) || 'tool';
+      const text = summarizeToolResult(payload);
       pushStreamRow(rows, {
         id,
-        text: enhancedSummary || summary || tool,
+        text,
         status: payload.isError ? 'error' : 'completed',
       });
       continue;
@@ -361,8 +417,10 @@ export function AgentMessageList({
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
   const [settlingToolRows, setSettlingToolRows] = useState<StreamingToolRow[]>([]);
   const [showSettlingToolRows, setShowSettlingToolRows] = useState(false);
+  const [toolNearBottom, setToolNearBottom] = useState(true);
   const settleTimerRef = useRef<number | null>(null);
   const wasStreamingRef = useRef(false);
+  const toolScrollRef = useRef<HTMLDivElement | null>(null);
 
   const rows = useMemo(() => {
     return buildAgentMessageRows({
@@ -370,6 +428,54 @@ export function AgentMessageList({
       optimisticUserMessages,
     });
   }, [entries, optimisticUserMessages]);
+
+  const displayRows = useMemo(() => {
+    const toolSummaryIndices = rows
+      .map((row, index) =>
+        row.kind === 'summary' && row.category === 'tool' ? index : -1,
+      )
+      .filter((index) => index >= 0);
+
+    if (toolSummaryIndices.length <= MAX_VISIBLE_TOOL_SUMMARY_ROWS) {
+      return rows;
+    }
+
+    const keepSet = new Set(
+      toolSummaryIndices.slice(-MAX_VISIBLE_TOOL_SUMMARY_ROWS),
+    );
+    const hiddenCount = toolSummaryIndices.length - keepSet.size;
+    const output: AgentMessageListRow[] = [];
+    let insertedCollapsedHint = false;
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const isToolSummary = row.kind === 'summary' && row.category === 'tool';
+      if (!isToolSummary) {
+        output.push(row);
+        continue;
+      }
+
+      if (keepSet.has(index)) {
+        output.push(row);
+        continue;
+      }
+
+      if (!insertedCollapsedHint) {
+        output.push({
+          kind: 'summary',
+          id: `collapsed-tool-summary:${hiddenCount}`,
+          title: `已折叠 ${hiddenCount} 条工具结果`,
+          detail: '为保持阅读流畅，仅展示最近工具结果。',
+          createdAt: row.createdAt,
+          level: 'info',
+          category: 'tool',
+        });
+        insertedCollapsedHint = true;
+      }
+    }
+
+    return output;
+  }, [rows]);
 
   const streamBlocks = useMemo(() => {
     const text = streamingAssistantText || '';
@@ -451,6 +557,11 @@ export function AgentMessageList({
     : showSettlingToolRows
       ? settlingToolRows
       : [];
+  const streamingToolVersion = useMemo(() => {
+    const last = visibleStreamingToolRows[visibleStreamingToolRows.length - 1];
+    if (!last) return '0';
+    return `${visibleStreamingToolRows.length}:${last.id}:${last.text}:${last.status}`;
+  }, [visibleStreamingToolRows]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -471,6 +582,22 @@ export function AgentMessageList({
       element.removeEventListener('scroll', onScroll);
     };
   }, []);
+
+  useEffect(() => {
+    const element = toolScrollRef.current;
+    if (!element) return;
+
+    const onToolScroll = () => {
+      setToolNearBottom(isNearBottom(element));
+    };
+
+    element.addEventListener('scroll', onToolScroll, { passive: true });
+    onToolScroll();
+
+    return () => {
+      element.removeEventListener('scroll', onToolScroll);
+    };
+  }, [visibleStreamingToolRows.length]);
 
   useEffect(() => {
     if (!shouldShowThinking) {
@@ -527,7 +654,7 @@ export function AgentMessageList({
     const element = scrollRef.current;
     if (!element) return;
 
-    const contentVersion = `${rows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${visibleStreamingToolRows.length}:${streaming ? 1 : 0}`;
+    const contentVersion = `${displayRows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${visibleStreamingToolRows.length}:${streaming ? 1 : 0}`;
     if (contentVersion === contentVersionRef.current) return;
     contentVersionRef.current = contentVersion;
 
@@ -546,6 +673,15 @@ export function AgentMessageList({
     visibleStreamingToolRows.length,
     streaming,
   ]);
+
+  useEffect(() => {
+    const element = toolScrollRef.current;
+    if (!element) return;
+
+    if (toolNearBottom || streaming) {
+      scrollToBottom(element);
+    }
+  }, [toolNearBottom, streaming, streamingToolVersion]);
 
   const handleScrollToBottom = () => {
     if (!scrollRef.current) return;
@@ -591,6 +727,7 @@ export function AgentMessageList({
             className="rounded-md border border-border/40 bg-background/40 p-1.5"
           >
             <div
+              ref={toolScrollRef}
               data-testid="agent-stream-tools-scroll"
               className="max-h-[clamp(84px,22vh,168px)] overflow-y-auto"
             >

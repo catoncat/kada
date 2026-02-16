@@ -132,9 +132,17 @@ flowchart LR
 新增 `ProfileAssembler`，会话启动时完成：
 
 1. 读取 `profileId`（会话指定或默认 profile）。
-2. 装配 `skills`、`workflows`、`capabilities`。
+2. 按 `agent_profiles + agent_profile_skills + agent_profile_workflows` 装配 `skills`、`workflows`、`capabilities`。
 3. 生成并写入 `agent_session_profile_snapshot`。
 4. runtime 仅读快照，不直接依赖可变 profile 数据。
+5. 快照版本取自 `agent_profiles.version`，用于会话行为可追溯。
+
+装配确定性强约束：
+
+1. 仅装配 `status='active'` 的 workflow。
+2. workflow 装配顺序固定为 `sort_order ASC, workflow_id ASC`。
+3. `agent_profile_workflows` 必须有唯一约束 `(profile_id, workflow_id)`，避免重复挂载。
+4. 当排序字段缺失或并列时，统一按 `workflow_id` 字典序稳定排序。
 
 ### 4.4 Provider 路由保持策略
 
@@ -154,8 +162,8 @@ flowchart LR
 | `GET /api/agent/sessions/:id` | 扩展 | 返回 `profileSnapshot` 摘要 |
 | `GET /api/agent/profiles` | 新增 | profile 列表 |
 | `POST /api/agent/profiles` | 新增 | 创建 profile |
-| `GET /api/agent/profiles/:id` | 新增 | profile 详情 |
-| `PUT /api/agent/profiles/:id` | 新增 | 更新 profile |
+| `GET /api/agent/profiles/:id` | 新增 | profile 详情（含 `skillIds/workflowIds/version`） |
+| `PUT /api/agent/profiles/:id` | 新增 | 更新 profile（含 `skillIds/workflowIds`） |
 | `GET /api/agent/workflows` | 新增 | workflow 列表 |
 | `POST /api/agent/workflows` | 新增 | 创建 workflow |
 
@@ -212,6 +220,27 @@ flowchart LR
 }
 ```
 
+### `GET /api/agent/profiles/:id`
+
+响应示例：
+
+```json
+{
+  "id": "profile_photo_copy_basic",
+  "name": "图文基础版",
+  "status": "active",
+  "version": 3,
+  "skillIds": ["resource-search", "photo-copy"],
+  "workflowIds": ["photo-default"],
+  "capabilities": {
+    "read": false,
+    "edit": false,
+    "write": false,
+    "bash": false
+  }
+}
+```
+
 ## 5.3 事件协议 v2（兼容 SSE）
 
 新增字段：
@@ -242,9 +271,10 @@ flowchart LR
 
 ## 5.4 前端解析兼容规则
 
-1. 若存在 `eventVersion>=2`：优先使用 `actorId/workflowStepId`。
-2. 若缺失：按旧事件解析，默认 `actorId='main'`、`workflowStepId=null`。
-3. UI 第一阶段不展示多 Agent 面板，仅保留调试可观测字段。
+1. API/SSE 输出统一包含 `eventVersion`（历史记录由服务端补齐为 `1`）。
+2. 若 `eventVersion>=2`：优先使用 `actorId/workflowStepId`。
+3. 若 `eventVersion=1`：按旧事件解析，默认 `actorId='main'`、`workflowStepId=null`。
+4. UI 第一阶段不展示多 Agent 面板，仅保留调试可观测字段。
 
 ---
 
@@ -260,6 +290,7 @@ flowchart LR
 | `name` | text | 展示名称 |
 | `description` | text | 描述 |
 | `status` | text | `active/inactive` |
+| `version` | integer | profile 版本号（每次配置变更 +1） |
 | `capabilities_json` | text | 能力开关 JSON |
 | `created_at` | timestamp | 创建时间 |
 | `updated_at` | timestamp | 更新时间 |
@@ -273,6 +304,20 @@ flowchart LR
 | `skill_key` | text | skill 标识 |
 | `skill_path` | text | 实际路径 |
 | `sort_order` | integer | 顺序 |
+
+### `agent_profile_workflows`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | text PK | 记录 ID |
+| `profile_id` | text | 关联 profile |
+| `workflow_id` | text | 关联 workflow |
+| `sort_order` | integer | 顺序 |
+
+约束与索引建议：
+
+- 唯一约束：`unique(profile_id, workflow_id)`
+- 顺序索引：`idx_profile_workflows_order(profile_id, sort_order, workflow_id)`
 
 ### `agent_workflows`
 
@@ -302,6 +347,8 @@ flowchart LR
 |---|---|---|
 | `key` | text PK | 清理任务键 |
 | `last_created_at` | integer | 上次清理到的 created_at |
+| `last_session_id` | text | 同 created_at 下的游标 session_id |
+| `last_entity_id` | text | 同 created_at/session_id 下的游标主键 |
 | `updated_at` | integer | 更新时间 |
 
 ### `agent_external_event_dedup`
@@ -336,18 +383,32 @@ flowchart LR
 
 索引建议：
 
-- `agent_events_session_created_idx(session_id, created_at)`（TTL 扫描）
+- `agent_events_created_session_id_idx(created_at, session_id, id)`（TTL 扫描）
 - 保留现有 `agent_events_session_seq_idx(session_id, seq)`
+
+### `agent_outputs`
+
+新增索引建议：
+
+- `agent_outputs_created_session_id_idx(created_at, session_id, id)`（TTL 扫描）
 
 ## 6.3 迁移与回填顺序
 
 1. 增量 migration 建表与加列（不破坏旧数据）。
 2. 为历史会话生成默认 snapshot：
    - `profile_id = 'profile_default_v1'`
-   - `actor_id='main'`、`event_version=1` 或读取时兜底映射为 2。
-3. 对历史 `agent_events` 回填 `actor_id='main'`。
-4. 启用新 API/新字段返回。
-5. 最后启用 TTL 清理任务。
+   - `profile_version=1`（对应默认 profile 版本）
+3. 对历史 `agent_events` 回填：
+   - `actor_id='main'`
+   - `event_version=1`
+4. 数据校验：
+   - 校验历史事件 `event_version` 回填完成率为 100%
+   - 校验 `agent_profile_workflows` 无重复 `(profile_id, workflow_id)`
+5. 发布顺序硬约束：
+   - 回填未完成前，`AGENT_EVENT_V2_ENABLED` 必须保持关闭
+   - 回填完成后再启用新事件写入与 v2 解析逻辑
+6. 启用新 API/新字段返回。
+7. 最后启用 TTL 清理任务。
 
 ## 6.4 TTL 策略
 
@@ -364,6 +425,18 @@ flowchart LR
 - `agent.retention.enabled`
 - `agent.retention.batch_size`
 
+扫描顺序（强约束）：
+
+1. 所有清理任务统一按 `(created_at, session_id, id)` 升序扫描。
+2. 每批次结束后写回 `agent_retention_cursor(last_created_at, last_session_id, last_entity_id)`。
+3. 下次任务从 `>` 该三元组继续，避免同秒时间戳下漏删/重复扫。
+
+cursor key 命名规范（强约束）：
+
+1. `agent_events_ttl`：仅用于 `agent_events` 清理游标。
+2. `agent_outputs_ttl`：仅用于 `agent_outputs` 清理游标。
+3. 禁止复用同一 key 到多个清理任务，避免游标覆盖。
+
 ---
 
 ## 7. 可观测性与恢复机制
@@ -374,6 +447,7 @@ flowchart LR
 2. 每会话 `seq` 单调递增，作为断线恢复 cursor。
 3. 同一 `turnId` 下事件顺序保持发生顺序。
 4. `turn.failed` 保证至少一次写入。
+5. `event_version` 写入规则固定：历史回填为 `1`，Phase 1 新写入为 `2`。
 
 ## 7.2 外部事件桥幂等
 
@@ -388,7 +462,7 @@ flowchart LR
 | 故障场景 | 检测点 | 自动恢复 | 人工排查 |
 |---|---|---|---|
 | SSE 中断 | 前端连接断开 | 轮询 `events?cursor=` 增量补齐 | 检查网络与 sidecar 日志 |
-| turn 并发冲突 | `SESSION_RUNNING` | 自动降级 `follow-up`（开关控制） | 检查 queue 与 UI 操作时序 |
+| turn 并发冲突 | `SESSION_RUNNING` | 默认返回 `SESSION_RUNNING`；仅在 `AGENT_AUTO_FOLLOWUP_ON_SESSION_RUNNING` 打开时自动降级 `follow-up` | 检查 queue 与 UI 操作时序 |
 | provider 失败 | `turn.failed` / `tool.result.isError` | 路由回退（图片主次路由） | 检查 provider capabilities |
 | worker 重复回写 | dedup 命中 | 跳过重复写入 | 检查 task 与 dedup 表 |
 | 本地 DB 膨胀 | 清理任务指标 | TTL 批次清理 | 检查 retention 配置 |
@@ -464,12 +538,13 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+  participant UI as AgentShell
+  participant API as Agent API
   participant RT as Runtime tool
   participant TQ as tasks
   participant WK as Worker
   participant BR as ExternalEventBridge
   participant DB as agent_events/outputs
-  participant UI as AgentShell
 
   RT->>TQ: insert task(status=pending, sessionId, turnId)
   WK->>TQ: process task -> completed(artifactId)
@@ -477,10 +552,14 @@ sequenceDiagram
   BR->>DB: dedup check + append photo.ready + append output
 
   Note over UI: SSE 曾中断
-  UI->>DB: GET /events?cursor=lastAck
-  DB-->>UI: 返回 photo.ready (seq > lastAck)
-  UI->>DB: GET /outputs
-  DB-->>UI: 输出栏恢复最新图片产物
+  UI->>API: GET /events?cursor=lastAck
+  API->>DB: query seq > lastAck
+  DB-->>API: rows
+  API-->>UI: 返回 photo.ready (seq > lastAck)
+  UI->>API: GET /outputs
+  API->>DB: query latest outputs
+  DB-->>API: rows
+  API-->>UI: 输出栏恢复最新图片产物
 ```
 
 ## 7.5 诊断闭环
@@ -535,8 +614,8 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 目标：完成接口/事件/schema 基础升级。
 
 1. 定义事件 v2 与 profile/workflow API 契约。
-2. 增加 DB migration（新表 + 扩列 + 索引 + dedup）。
-3. store 层新增 profile/snapshot 读写能力。
+2. 增加 DB migration（新表 + 扩列 + 索引 + dedup + retention cursor 三元组）。
+3. store 层新增 profile/skills/workflows/snapshot 读写能力。
 
 交付标准：
 
@@ -608,8 +687,9 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 | 功能 | `photo.ready/copy.ready` | 产物栏正确更新且可回放 |
 | 恢复 | SSE 中断后 cursor 补偿 | 无重复、无漏事件 |
 | 恢复 | 会话并发 turn | 返回 `SESSION_RUNNING` 且不污染状态 |
+| 恢复（可选） | 打开自动降级开关后并发 turn | 自动转 follow-up 且 queue 状态一致 |
 | 幂等 | worker 重复回写 | dedup 生效，不重复写 output |
-| 兼容 | 历史事件无 `actorId/eventVersion` | 前端正常渲染，默认值兜底 |
+| 兼容 | 历史事件 payload 无 `actorId/eventVersion` | 服务端补齐 `eventVersion=1`，前端默认值兜底 |
 | 兼容 | 旧会话无 `profileId` | 自动绑定默认 profile snapshot |
 | 非功能 | SSE + polling 并发 | UI 无明显抖动，CPU/内存可控 |
 | 非功能 | TTL 清理后查询 | 会话摘要可用，明细按策略清理 |
@@ -630,6 +710,7 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
    - `AGENT_EVENT_V2_ENABLED`
    - `AGENT_EXTERNAL_EVENT_DEDUP_ENABLED`
    - `AGENT_RETENTION_ENABLED`
+   - `AGENT_AUTO_FOLLOWUP_ON_SESSION_RUNNING`（默认关闭）
 2. 回滚原则：
    - 先关新路由与新字段写入，保留读取兼容。
    - 保留迁移表结构，不做破坏性回退。
@@ -647,6 +728,7 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
    - `agent_outputs` 90 天
    - `agent_sessions` 长期保留摘要
 5. 保持 `coding-agent -> agent-core` fallback，仅在 runtime 初始化阶段触发。
+6. 并发 turn 默认返回 `SESSION_RUNNING`，不自动降级；仅在开关开启时降级为 follow-up。
 
 ---
 
@@ -677,7 +759,7 @@ export interface AgentTurnEvent {
   payload: unknown;
   actorId?: string; // default: 'main'
   workflowStepId?: string | null; // default: null
-  eventVersion?: number; // default: 1 (legacy), 2 (new)
+  eventVersion: 1 | 2; // 服务端统一下发
 }
 ```
 
@@ -686,4 +768,3 @@ export interface AgentTurnEvent {
 1. 先做“读兼容”再做“写升级”。
 2. 先落 DB 与 store，再接 runtime，再接 API，再接前端。
 3. retention 与 dedup 在主链路稳定后再开启。
-

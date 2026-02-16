@@ -343,9 +343,11 @@ function toolResultDetail(payload: unknown): string {
       }
     }
 
-    const readableLines = firstReadableLines(rawText, 14);
+    // 对长文本默认不整段展示，避免回合结束后列表突变为大段原始输出
+    // （如 git log / 原始 JSON）。
+    const readableLines = firstReadableLines(rawText, 6);
     if (readableLines.length > 0) {
-      return sanitizeTextForDisplay(readableLines.join('\n'), 1500);
+      return sanitizeTextForDisplay(readableLines.join('\n'), 480);
     }
   }
 
@@ -422,7 +424,13 @@ function toolResultTitle(payload: unknown): string {
     return sanitizeTextForDisplay(firstLine, 120);
   }
 
-  return toolName;
+  const status = scalarToText(merged.status);
+  if (status) {
+    return `${toolName} · ${sanitizeTextForDisplay(status, 60)}`;
+  }
+
+  const isError = Boolean(row.isError);
+  return isError ? `${toolName} · 失败` : toolName;
 }
 
 export function buildAgentMessageRows(input: {

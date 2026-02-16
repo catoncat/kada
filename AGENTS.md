@@ -21,6 +21,7 @@ pnpm tauri:dev   # 需要桌面壳联调时使用
 - [docs/dev/sidecar.md](docs/dev/sidecar.md)：Sidecar 结构、API、数据库与迁移
 - [docs/dev/contributing.md](docs/dev/contributing.md)：代码风格、验证/测试、提交与 PR、安全注意事项
 - [docs/dev/skills.md](docs/dev/skills.md)：UX「先设计后编码」skills 与完整流程（输出到 `docs/specs/`，skills 位于 `.claude/skills/`）
+- [docs/engineering/agent-mentions.md](docs/engineering/agent-mentions.md)：Agent `@` 资源引用实现说明（前端交互、快捷键、后端降级与上下文注入）
 
 ## 项目结构速览
 
