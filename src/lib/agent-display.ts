@@ -1,6 +1,8 @@
 const DATA_URI_RE =
   /data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]{64,})/gi;
 const LONG_BASE64_RE = /\b[A-Za-z0-9+/]{512,}={0,2}\b/g;
+const ANSI_ESCAPE_RE = /\u001b\[[0-9;?]*[ -\/]*[@-~]/g;
+const MOJIBAKE_RE = /(?:Ã.|Â.|â..|ð..)/;
 
 const MAX_TEXT_LENGTH = 3000;
 const MAX_JSON_LENGTH = 6000;
@@ -34,11 +36,35 @@ function sanitizeInlineBase64(value: string): string {
   return result;
 }
 
+function stripAnsiEscape(value: string): string {
+  return value.replace(ANSI_ESCAPE_RE, '');
+}
+
+function tryRepairMojibake(value: string): string {
+  if (!MOJIBAKE_RE.test(value)) return value;
+  if (typeof TextDecoder === 'undefined') return value;
+
+  try {
+    const bytes = new Uint8Array(value.length);
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+      if (code > 255) return value;
+      bytes[i] = code;
+    }
+    const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    return decoded || value;
+  } catch {
+    return value;
+  }
+}
+
 function sanitizeStringValue(
   value: string,
   maxLength = MAX_TEXT_LENGTH,
 ): string {
-  const sanitized = sanitizeInlineBase64(value);
+  const noAnsi = stripAnsiEscape(value);
+  const repaired = tryRepairMojibake(noAnsi);
+  const sanitized = sanitizeInlineBase64(repaired);
   return trimOutput(sanitized, maxLength);
 }
 

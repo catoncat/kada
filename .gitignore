@@ -26,3 +26,4 @@ src/routeTree.gen.ts
 # Local agent/codex workspace artifacts
 .codex_tmp/
 .agents/
+.upstream/

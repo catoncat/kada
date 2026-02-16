@@ -1,4 +1,4 @@
-import { Check, Copy } from 'lucide-react';
+import { AlertCircle, Check, Copy } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildAgentMessageRows,
@@ -340,6 +340,67 @@ function renderSummaryRow(row: Extract<AgentMessageListRow, { kind: 'summary' }>
   );
 }
 
+function renderToolGroupRow(
+  id: string,
+  rows: Array<Extract<AgentMessageListRow, { kind: 'summary' }>>,
+) {
+  const errorCount = rows.filter((row) => row.level === 'error').length;
+  const latest = rows[rows.length - 1];
+
+  return (
+    <article
+      key={id}
+      className={cn(
+        'rounded-md border px-2 py-1.5 text-[11px]',
+        errorCount > 0
+          ? 'border-destructive/40 bg-destructive/5'
+          : 'border-border/60 bg-muted/15',
+      )}
+    >
+      <details>
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-muted-foreground">
+          <span
+            className={cn(
+              'h-1.5 w-1.5 shrink-0 rounded-full',
+              errorCount > 0 ? 'bg-destructive/75' : 'bg-muted-foreground/65',
+            )}
+          />
+          <span className="truncate text-foreground/90">
+            工具执行（{rows.length} 步{errorCount > 0 ? `，${errorCount} 失败` : ''}）
+          </span>
+          {latest?.createdAt ? (
+            <span className="ml-auto text-[10px]">{formatTime(latest.createdAt)}</span>
+          ) : null}
+        </summary>
+
+        <div className="mt-1 space-y-1.5">
+          {rows.map((row) => (
+            <div key={row.id} className="rounded border border-border/40 bg-background/60 px-1.5 py-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                    row.level === 'error'
+                      ? 'bg-destructive/75'
+                      : 'bg-muted-foreground/65',
+                  )}
+                />
+                <span className="truncate text-foreground/90">{row.title}</span>
+                {row.createdAt ? (
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {formatTime(row.createdAt)}
+                  </span>
+                ) : null}
+              </div>
+              {row.detail ? renderReadableSummaryDetail(row.detail, true) : null}
+            </div>
+          ))}
+        </div>
+      </details>
+    </article>
+  );
+}
+
 function renderMessageRow(
   row: Extract<AgentMessageListRow, { kind: 'message' }>,
   options?: {
@@ -476,6 +537,47 @@ export function AgentMessageList({
 
     return output;
   }, [rows]);
+
+  const displayBlocks = useMemo(() => {
+    const blocks: Array<
+      | { kind: 'row'; row: AgentMessageListRow }
+      | {
+          kind: 'tool-group';
+          id: string;
+          rows: Array<Extract<AgentMessageListRow, { kind: 'summary' }>>;
+        }
+    > = [];
+
+    let pendingGroup: Array<Extract<AgentMessageListRow, { kind: 'summary' }>> = [];
+
+    const flushGroup = () => {
+      if (pendingGroup.length === 0) return;
+      if (pendingGroup.length < 2) {
+        blocks.push({ kind: 'row', row: pendingGroup[0] });
+      } else {
+        blocks.push({
+          kind: 'tool-group',
+          id: `tool-group:${pendingGroup[0].id}:${pendingGroup.length}`,
+          rows: pendingGroup,
+        });
+      }
+      pendingGroup = [];
+    };
+
+    for (const row of displayRows) {
+      const isToolSummary = row.kind === 'summary' && row.category === 'tool';
+      if (isToolSummary) {
+        pendingGroup.push(row as Extract<AgentMessageListRow, { kind: 'summary' }>);
+        continue;
+      }
+
+      flushGroup();
+      blocks.push({ kind: 'row', row });
+    }
+
+    flushGroup();
+    return blocks;
+  }, [displayRows]);
 
   const streamBlocks = useMemo(() => {
     const text = streamingAssistantText || '';
@@ -654,7 +756,7 @@ export function AgentMessageList({
     const element = scrollRef.current;
     if (!element) return;
 
-    const contentVersion = `${displayRows.length}:${streamBlocks.length}:${streamingAssistantText.length}:${visibleStreamingToolRows.length}:${streaming ? 1 : 0}`;
+    const contentVersion = `${displayBlocks.length}:${streamBlocks.length}:${streamingAssistantText.length}:${visibleStreamingToolRows.length}:${streaming ? 1 : 0}`;
     if (contentVersion === contentVersionRef.current) return;
     contentVersionRef.current = contentVersion;
 
@@ -667,7 +769,7 @@ export function AgentMessageList({
     setShowScrollToBottom(true);
   }, [
     nearBottom,
-    rows.length,
+    displayBlocks.length,
     streamBlocks.length,
     streamingAssistantText.length,
     visibleStreamingToolRows.length,
@@ -712,14 +814,19 @@ export function AgentMessageList({
         className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3 py-4"
       >
 
-        {rows.map((row) =>
-          row.kind === 'summary'
+        {displayBlocks.map((block) => {
+          if (block.kind === 'tool-group') {
+            return renderToolGroupRow(block.id, block.rows);
+          }
+
+          const row = block.row;
+          return row.kind === 'summary'
             ? renderSummaryRow(row)
             : renderMessageRow(row, {
                 copiedRowId,
                 onCopyAssistantMessage: handleCopyAssistantMessage,
-              }),
-        )}
+              });
+        })}
 
         {visibleStreamingToolRows.length > 0 ? (
           <article
