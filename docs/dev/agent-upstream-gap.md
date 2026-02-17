@@ -7,7 +7,7 @@
 
 - 本清单对应的 **P0 + P1 已完成落地**（数据契约 + 回放过滤 + 前端适配 + Runtime 事件规范化 + 路由错误码标准化 + 自动化测试）。
 - 进度与验收记录见：`docs/dev/agent-upstream-gap-progress.md`。
-- 说明：本次按“开发阶段可清空数据库”的约束执行，未做历史数据回填/兼容迁移策略。
+- 说明：本次按“开发阶段可清空数据库”的约束执行，明确不做历史数据回填与读兼容迁移。
 
 ## 目的
 
@@ -44,7 +44,7 @@
 |---|---|---|---|---|
 | `agent_sessions` | `id` | 会话主键 | 已满足 | 保持 |
 | `agent_events` | `session_id` + `turn_id` + `seq` | 每个事件必须挂会话；turn 级事件必须带 turnId | 已满足 | 保持 |
-| `agent_entries` | `session_id` + `turn_id`（新增列） | user/assistant/toolResult 统一可按 turn 检索 | 未满足（仅 payload 内含 turnId） | 新增 `turn_id` 实列 + 索引 + 回填 |
+| `agent_entries` | `session_id` + `turn_id`（新增列） | user/assistant/toolResult 统一可按 turn 检索 | 未满足（仅 payload 内含 turnId） | 新增 `turn_id` 实列 + 索引（不做历史回填） |
 | `agent_outputs` | `session_id` + `turn_id` | 产物可按 turn 聚合 | 已满足 | 保持 |
 | `agent_toolresult_readability` | `session_id` + `turn_id` + `entry_id` | 可读化记录与 toolResult entry 一一对应 | 已满足 | 保持 |
 | `agent_trace_logs` | `trace_id` + `session_id` + `turn_id` | 诊断链路可按 turn 过滤 | 已满足 | 保持 |
@@ -52,8 +52,8 @@
 ### `agent_entries.turn_id` 落地规则
 
 1. 新建迁移：为 `agent_entries` 增加 `turn_id` 列（nullable）与索引 `idx_agent_entries_session_turn_created_at(session_id, turn_id, created_at)`。
-2. 回填策略：从 `payload_json.turnId` 回填 `turn_id`；无法解析则留空。
-3. 读兼容策略：读取时优先 `row.turn_id`，缺失时回退 `payload.turnId`（兼容旧数据）。
+2. 不做回填策略：不从 `payload_json.turnId` 回填历史 `turn_id`，旧数据不兼容。
+3. 不做读兼容：读取与过滤仅使用 `row.turn_id`，不回退 `payload.turnId`。
 4. 写入策略：`turn` / `steer` / `follow-up` / `assistant.completed` / `tool.result` 生成的 entries，必须显式写 `turn_id`。
 
 ## Runtime 事件对齐矩阵（主备统一边界）
@@ -80,7 +80,7 @@
 
 | 动作 | 文件 | 可交付物 | 完成定义（DoD） |
 |---|---|---|---|
-| `agent_entries.turn_id` 落地 | `sidecar/src/db/schema.ts`<br/>`sidecar/src/services/agent-session-store.ts`<br/>`sidecar/src/routes/agent.ts`<br/>`src/types/agent.ts` | schema + 迁移 + 读写兼容 | 新老会话均可按 `sessionId + turnId` 查询 entries |
+| `agent_entries.turn_id` 落地 | `sidecar/src/db/schema.ts`<br/>`sidecar/src/services/agent-session-store.ts`<br/>`sidecar/src/routes/agent.ts`<br/>`src/types/agent.ts` | schema + 迁移 + 严格读写契约 | 新数据可按 `sessionId + turnId` 查询 entries |
 | 会话语义收敛 | `sidecar/src/services/agent-session-store.ts`<br/>`sidecar/src/services/agent-event-store.ts` | turn 级回放接口（按 `turnId` 过滤） | 回放接口支持“会话全量”与“单 turn”两种模式 |
 | 消息渲染核心抽离 | `src/components/agent/AgentMessageList.tsx`<br/>`src/components/agent/agent-message-view-model.ts` | 独立 adapter（事件归一化 + tool 配对） | `AgentShell` 不再包含 runtime 分支判断逻辑 |
 

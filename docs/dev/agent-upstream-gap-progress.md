@@ -7,13 +7,14 @@
 
 - 阶段：`P1`
 - 结论：`已完成`
-- 说明：`P0 + P1` 已完成，已落地 runtime 事件规范化入口与路由错误码/校验标准化。
+- 说明：`P0 + P1` 已完成，已落地 runtime 事件规范化入口与路由错误码/校验标准化；按“可清库”约束执行，不提供历史数据兼容。
 
 ## P0 完成项
 
 | 事项 | 状态 | 结果 |
 |---|---|---|
-| `agent_entries.turn_id` 落地 | ✅ 完成 | `schema`、建表 SQL、补列逻辑、索引均已落地 |
+| `agent_entries.turn_id` 落地 | ✅ 完成 | `schema`、建表 SQL、补列逻辑、索引均已落地（仅新数据契约） |
+| 移除 `agent_*` 历史兼容补列 | ✅ 完成 | `ensureColumns` 不再对 `agent_sessions/entries/events/outputs/toolresult_readability` 执行补列 |
 | 会话回放按 `turnId` 过滤 | ✅ 完成 | `entries/events/outputs` 均支持 `turnId` 查询 |
 | 会话详情支持单 turn 视图 | ✅ 完成 | `GET /sessions/:id?turnId=...` 返回过滤后的 entries/outputs |
 | 新增 entries 回放接口 | ✅ 完成 | `GET /sessions/:id/entries` 已提供 `turnId` 和 `limit` |

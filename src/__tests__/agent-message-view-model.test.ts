@@ -27,11 +27,13 @@ describe('agent message view model', () => {
         entry({
           id: 'assistant-tooluse',
           entryType: 'assistant',
+          turnId: 'turn-1',
           payload: { turnId: 'turn-1', text: '', stopReason: 'toolUse' },
         }),
         entry({
           id: 'assistant-final',
           entryType: 'assistant',
+          turnId: 'turn-1',
           payload: { turnId: 'turn-1', text: '最终回复', stopReason: 'stop' },
         }),
       ],
@@ -51,6 +53,7 @@ describe('agent message view model', () => {
         entry({
           id: 'assistant-tooluse',
           entryType: 'assistant',
+          turnId: 'turn-2',
           payload: { turnId: 'turn-2', text: '', stopReason: 'toolUse' },
         }),
       ],
@@ -70,6 +73,7 @@ describe('agent message view model', () => {
         entry({
           id: 'assistant-error',
           entryType: 'assistant',
+          turnId: 'turn-3',
           payload: {
             turnId: 'turn-3',
             text: '',
@@ -94,6 +98,7 @@ describe('agent message view model', () => {
         entry({
           id: 'assistant-aborted',
           entryType: 'assistant',
+          turnId: 'turn-4',
           payload: {
             turnId: 'turn-4',
             text: '',
@@ -159,6 +164,7 @@ describe('agent message view model', () => {
         entry({
           id: 'assistant-empty-stop',
           entryType: 'assistant',
+          turnId: 'turn-5',
           payload: {
             turnId: 'turn-5',
             text: '',
@@ -317,7 +323,7 @@ describe('agent message view model', () => {
     });
   });
 
-  it('prefers entry.turnId over payload.turnId when grouping assistant turns', () => {
+  it('groups assistant turns by entry.turnId only', () => {
     const rows = buildAgentMessageRows({
       entries: [
         entry({

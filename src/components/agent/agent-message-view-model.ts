@@ -97,7 +97,7 @@ function parseAssistantPayload(
   const row = toPayloadRecord(payload);
   const text = extractAssistantText(payload);
 
-  const turnId = normalizeTurnId(entryTurnId) || normalizeTurnId(row.turnId);
+  const turnId = normalizeTurnId(entryTurnId);
 
   const stopReason =
     typeof row.stopReason === 'string' && row.stopReason.trim()
