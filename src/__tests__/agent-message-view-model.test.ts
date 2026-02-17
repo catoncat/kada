@@ -6,11 +6,13 @@ function entry(input: {
   id: string;
   entryType: AgentEntry['entryType'];
   payload: unknown;
+  turnId?: string | null;
   createdAt?: string | null;
 }): AgentEntry {
   return {
     id: input.id,
     sessionId: 's1',
+    turnId: input.turnId ?? null,
     entryType: input.entryType,
     parentEntryId: null,
     payload: input.payload,
@@ -271,6 +273,32 @@ describe('agent message view model', () => {
       category: 'tool',
       level: 'error',
       title: '项目不存在: 222',
+    });
+  });
+
+  it('prefers entry.turnId over payload.turnId when grouping assistant turns', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'assistant-tooluse',
+          entryType: 'assistant',
+          turnId: 'turn-from-column',
+          payload: { turnId: 'turn-from-payload', text: '', stopReason: 'toolUse' },
+        }),
+        entry({
+          id: 'assistant-final',
+          entryType: 'assistant',
+          turnId: 'turn-from-column',
+          payload: { turnId: 'turn-from-payload', text: '最终回复', stopReason: 'stop' },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: 'message',
+      role: 'assistant',
+      text: '最终回复',
     });
   });
 });

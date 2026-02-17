@@ -91,6 +91,7 @@ export async function appendAgentEvent(input: {
 
 export async function listAgentEvents(input: {
   sessionId: string;
+  turnId?: string | null;
   cursor?: number;
   limit?: number;
 }): Promise<AgentEventRecord[]> {
@@ -100,10 +101,13 @@ export async function listAgentEvents(input: {
       ? Math.max(1, Math.min(500, Math.floor(input.limit)))
       : 200;
 
-  const where =
+  const where = and(
+    eq(agentEvents.sessionId, input.sessionId),
+    input.turnId ? eq(agentEvents.turnId, input.turnId) : undefined,
     typeof input.cursor === 'number' && Number.isFinite(input.cursor)
-      ? and(eq(agentEvents.sessionId, input.sessionId), gt(agentEvents.seq, Math.floor(input.cursor)))
-      : eq(agentEvents.sessionId, input.sessionId);
+      ? gt(agentEvents.seq, Math.floor(input.cursor))
+      : undefined,
+  );
 
   const rows = await db
     .select()

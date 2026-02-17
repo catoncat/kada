@@ -218,6 +218,7 @@ function ensureTables() {
     CREATE TABLE IF NOT EXISTS agent_entries (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
+      turn_id TEXT,
       entry_type TEXT NOT NULL,
       parent_entry_id TEXT,
       payload_json TEXT NOT NULL,
@@ -394,12 +395,17 @@ function ensureColumns() {
   addColumnIfMissing('agent_sessions', 'last_turn_at', 'INTEGER');
 
   // agent_entries: 迭代期补列
+  addColumnIfMissing('agent_entries', 'turn_id', 'TEXT');
   addColumnIfMissing('agent_entries', 'parent_entry_id', 'TEXT');
   addColumnIfMissing(
     'agent_entries',
     'payload_json',
     "TEXT NOT NULL DEFAULT '{}'",
   );
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_entries_session_turn_created_at
+    ON agent_entries(session_id, turn_id, created_at);
+  `);
 
   // agent_toolresult_readability: 迭代期补列
   addColumnIfMissing('agent_toolresult_readability', 'entry_id', 'TEXT');

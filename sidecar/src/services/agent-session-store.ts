@@ -34,6 +34,7 @@ export interface AgentSessionSummary {
 export interface AgentEntryRecord {
   id: string;
   sessionId: string;
+  turnId: string | null;
   entryType: string;
   parentEntryId: string | null;
   payload: unknown;
@@ -90,6 +91,7 @@ function normalizeEntry(row: AgentEntry): AgentEntryRecord {
   return {
     id: row.id,
     sessionId: row.sessionId,
+    turnId: row.turnId || null,
     entryType: row.entryType,
     parentEntryId: row.parentEntryId,
     payload: safeParseJson(row.payloadJson),
@@ -292,6 +294,7 @@ export async function touchAgentSessionTurn(sessionId: string): Promise<void> {
 
 export async function appendAgentEntry(input: {
   sessionId: string;
+  turnId?: string | null;
   entryType: string;
   payload: unknown;
   parentEntryId?: string | null;
@@ -303,6 +306,7 @@ export async function appendAgentEntry(input: {
   await db.insert(agentEntries).values({
     id,
     sessionId: input.sessionId,
+    turnId: input.turnId || null,
     entryType: input.entryType,
     parentEntryId: input.parentEntryId || null,
     payloadJson: JSON.stringify(input.payload ?? null),
@@ -322,16 +326,28 @@ export async function appendAgentEntry(input: {
   return normalizeEntry(row);
 }
 
-export async function listAgentEntries(
-  sessionId: string,
-  limit = 200,
-): Promise<AgentEntryRecord[]> {
+export async function listAgentEntries(input: {
+  sessionId: string;
+  turnId?: string | null;
+  limit?: number;
+}): Promise<AgentEntryRecord[]> {
   const db = getDb();
+  const limit =
+    typeof input.limit === 'number' && Number.isFinite(input.limit)
+      ? Math.max(1, Math.min(500, Math.floor(input.limit)))
+      : 200;
+
+  const where = input.turnId
+    ? and(
+        eq(agentEntries.sessionId, input.sessionId),
+        eq(agentEntries.turnId, input.turnId),
+      )
+    : eq(agentEntries.sessionId, input.sessionId);
 
   const rows = await db
     .select()
     .from(agentEntries)
-    .where(eq(agentEntries.sessionId, sessionId))
+    .where(where)
     .orderBy(desc(agentEntries.createdAt), desc(agentEntries.id))
     .limit(limit);
 
@@ -401,15 +417,15 @@ export async function appendAgentOutput(input: {
 export async function listAgentOutputs(input: {
   sessionId: string;
   kind?: AgentOutputKind;
+  turnId?: string | null;
 }): Promise<AgentOutputRecord[]> {
   const db = getDb();
 
-  const where = input.kind
-    ? and(
-        eq(agentOutputs.sessionId, input.sessionId),
-        eq(agentOutputs.kind, input.kind),
-      )
-    : eq(agentOutputs.sessionId, input.sessionId);
+  const where = and(
+    eq(agentOutputs.sessionId, input.sessionId),
+    input.kind ? eq(agentOutputs.kind, input.kind) : undefined,
+    input.turnId ? eq(agentOutputs.turnId, input.turnId) : undefined,
+  );
 
   const rows = await db
     .select()

@@ -365,6 +365,9 @@ agentRoutes.post('/sessions', async (c) => {
 
 agentRoutes.get('/sessions/:id', async (c) => {
   const sessionId = c.req.param('id');
+  const turnIdRaw = c.req.query('turnId');
+  const turnId =
+    typeof turnIdRaw === 'string' && turnIdRaw.trim() ? turnIdRaw.trim() : undefined;
   const session = await getAgentSessionRecord(sessionId);
 
   if (!session) {
@@ -372,8 +375,8 @@ agentRoutes.get('/sessions/:id', async (c) => {
   }
 
   const [entries, outputs, cursor] = await Promise.all([
-    listAgentEntries(sessionId, 300),
-    listAgentOutputs({ sessionId }),
+    listAgentEntries({ sessionId, turnId, limit: 300 }),
+    listAgentOutputs({ sessionId, turnId }),
     getLatestAgentEventCursor(sessionId),
   ]);
 
@@ -696,6 +699,7 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
               : {};
             await appendAgentEntry({
               sessionId,
+              turnId,
               entryType: 'user',
               payload: {
                 text: typeof payload.text === 'string' ? payload.text : '',
@@ -734,6 +738,7 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
           if (event.type === 'assistant.completed') {
             await appendAgentEntry({
               sessionId,
+              turnId,
               entryType: 'assistant',
               payload: {
                 turnId,
@@ -767,6 +772,7 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
             } as Record<string, unknown> & { turnId: string };
             const entry = await appendAgentEntry({
               sessionId,
+              turnId,
               entryType: 'toolResult',
               payload: toolPayload,
             });
@@ -896,6 +902,7 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
             beforeRun: async () => {
               await appendAgentEntry({
                 sessionId,
+                turnId,
                 entryType: 'user',
                 payload: {
                   text,
@@ -1125,6 +1132,7 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
   if (!agentFlags.queueAppliedEvent) {
     await appendAgentEntry({
       sessionId,
+      turnId: null,
       entryType: 'user',
       payload: {
         text,
@@ -1279,6 +1287,7 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   if (!agentFlags.queueAppliedEvent) {
     await appendAgentEntry({
       sessionId,
+      turnId: null,
       entryType: 'user',
       payload: {
         text,
@@ -1407,6 +1416,7 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
   if (!agentFlags.queueAppliedEvent && removed && text) {
     await appendAgentEntry({
       sessionId,
+      turnId: null,
       entryType: 'user',
       payload: {
         text,
@@ -1501,8 +1511,11 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
 
 agentRoutes.get('/sessions/:id/events', async (c) => {
   const sessionId = c.req.param('id');
+  const turnIdRaw = c.req.query('turnId');
   const cursorRaw = c.req.query('cursor');
   const limitRaw = c.req.query('limit');
+  const turnId =
+    typeof turnIdRaw === 'string' && turnIdRaw.trim() ? turnIdRaw.trim() : undefined;
 
   const cursor =
     typeof cursorRaw === 'string' && cursorRaw.trim()
@@ -1516,6 +1529,7 @@ agentRoutes.get('/sessions/:id/events', async (c) => {
 
   const data = await listAgentEvents({
     sessionId,
+    turnId,
     cursor: Number.isFinite(cursor) ? cursor : undefined,
     limit: Number.isFinite(limit) ? limit : undefined,
   });
@@ -1530,11 +1544,31 @@ agentRoutes.get('/sessions/:id/events', async (c) => {
   });
 });
 
+agentRoutes.get('/sessions/:id/entries', async (c) => {
+  const sessionId = c.req.param('id');
+  const turnIdRaw = c.req.query('turnId');
+  const limitRaw = c.req.query('limit');
+  const turnId =
+    typeof turnIdRaw === 'string' && turnIdRaw.trim() ? turnIdRaw.trim() : undefined;
+  const limit = parsePositiveInt(limitRaw, 300);
+
+  const data = await listAgentEntries({
+    sessionId,
+    turnId,
+    limit,
+  });
+
+  return c.json({ data, total: data.length });
+});
+
 agentRoutes.get('/sessions/:id/outputs', async (c) => {
   const sessionId = c.req.param('id');
+  const turnIdRaw = c.req.query('turnId');
   const kindRaw = c.req.query('kind');
   const kind = kindRaw === 'photo' || kindRaw === 'copy' ? kindRaw : undefined;
+  const turnId =
+    typeof turnIdRaw === 'string' && turnIdRaw.trim() ? turnIdRaw.trim() : undefined;
 
-  const data = await listAgentOutputs({ sessionId, kind });
+  const data = await listAgentOutputs({ sessionId, kind, turnId });
   return c.json({ data, total: data.length });
 });

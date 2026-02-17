@@ -84,14 +84,20 @@ function extractAssistantText(payload: unknown): string {
   return '';
 }
 
-function parseAssistantPayload(payload: unknown): ParsedAssistantPayload {
+function normalizeTurnId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
+
+function parseAssistantPayload(
+  payload: unknown,
+  entryTurnId?: string | null,
+): ParsedAssistantPayload {
   const row = toPayloadRecord(payload);
   const text = extractAssistantText(payload);
 
-  const turnId =
-    typeof row.turnId === 'string' && row.turnId.trim()
-      ? row.turnId.trim()
-      : null;
+  const turnId = normalizeTurnId(entryTurnId) || normalizeTurnId(row.turnId);
 
   const stopReason =
     typeof row.stopReason === 'string' && row.stopReason.trim()
@@ -444,7 +450,7 @@ export function buildAgentMessageRows(input: {
 
   for (const entry of entries) {
     if (entry.entryType !== 'assistant') continue;
-    const parsed = parseAssistantPayload(entry.payload);
+    const parsed = parseAssistantPayload(entry.payload, entry.turnId);
     if (parsed.turnId && parsed.text) {
       assistantTurnWithFinalText.add(parsed.turnId);
     }
@@ -486,7 +492,7 @@ export function buildAgentMessageRows(input: {
       continue;
     }
 
-    const parsed = parseAssistantPayload(entry.payload);
+    const parsed = parseAssistantPayload(entry.payload, entry.turnId);
     if (parsed.text) {
       rows.push({
         kind: 'message',

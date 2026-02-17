@@ -1,4 +1,4 @@
-import { AlertCircle, Check, Copy } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildAgentMessageRows,

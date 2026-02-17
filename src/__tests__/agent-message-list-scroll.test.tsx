@@ -12,6 +12,7 @@ function makeEntry(input: {
   return {
     id: input.id,
     sessionId: 'session-1',
+    turnId: `turn-${input.id}`,
     entryType: input.role,
     parentEntryId: null,
     payload: {

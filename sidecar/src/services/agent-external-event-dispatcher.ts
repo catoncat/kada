@@ -137,13 +137,14 @@ export async function dispatchAgentTaskEvent(
     sqlite
       .prepare(
         `
-        INSERT INTO agent_entries (id, session_id, entry_type, parent_entry_id, payload_json, created_at)
-        VALUES (?, ?, ?, NULL, ?, ?)
+        INSERT INTO agent_entries (id, session_id, turn_id, entry_type, parent_entry_id, payload_json, created_at)
+        VALUES (?, ?, ?, ?, NULL, ?, ?)
         `,
       )
       .run(
         randomUUID(),
         input.sessionId,
+        input.turnId || null,
         'custom',
         JSON.stringify(entryPayload),
         createdAtUnix,

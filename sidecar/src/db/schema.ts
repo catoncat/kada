@@ -189,14 +189,23 @@ export const agentSessions = sqliteTable('agent_sessions', {
 });
 
 // Agent Entries 表（消息与可回放记录）
-export const agentEntries = sqliteTable('agent_entries', {
-  id: text('id').primaryKey(),
-  sessionId: text('session_id').notNull(),
-  entryType: text('entry_type').notNull(), // 'user' | 'assistant' | 'toolResult' | 'custom'
-  parentEntryId: text('parent_entry_id'),
-  payloadJson: text('payload_json').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-});
+export const agentEntries = sqliteTable(
+  'agent_entries',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    turnId: text('turn_id'),
+    entryType: text('entry_type').notNull(), // 'user' | 'assistant' | 'toolResult' | 'custom'
+    parentEntryId: text('parent_entry_id'),
+    payloadJson: text('payload_json').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    idxSessionTurnCreated: index(
+      'idx_agent_entries_session_turn_created_at',
+    ).on(table.sessionId, table.turnId, table.createdAt),
+  }),
+);
 
 // Agent ToolResult Readability 表（规则层 + AI 增强可读层）
 export const agentToolResultReadability = sqliteTable(

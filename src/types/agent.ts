@@ -41,6 +41,7 @@ export interface AgentSessionSummary {
 export interface AgentEntry {
   id: string;
   sessionId: string;
+  turnId: string | null;
   entryType: string;
   parentEntryId: string | null;
   payload: unknown;

@@ -1,6 +1,7 @@
 import { apiUrl } from '@/lib/api-config';
 import { agentTraceClient } from '@/lib/agent-trace-client';
 import type {
+  AgentEntry,
   AgentMention,
   AgentCapabilities,
   AgentMentionImageRef,
@@ -276,6 +277,7 @@ export async function abortAgentSession(
 
 export async function listAgentEvents(input: {
   sessionId: string;
+  turnId?: string | null;
   cursor?: number;
   limit?: number;
 }): Promise<{
@@ -297,6 +299,9 @@ export async function listAgentEvents(input: {
   }
   if (typeof input.limit === 'number' && Number.isFinite(input.limit)) {
     params.set('limit', String(Math.max(1, Math.floor(input.limit))));
+  }
+  if (typeof input.turnId === 'string' && input.turnId.trim()) {
+    params.set('turnId', input.turnId.trim());
   }
 
   const url = apiUrl(
@@ -323,12 +328,42 @@ export async function listAgentEvents(input: {
   };
 }
 
+export async function listAgentEntries(input: {
+  sessionId: string;
+  turnId?: string | null;
+  limit?: number;
+}): Promise<{ data: AgentEntry[]; total: number }> {
+  const params = new URLSearchParams();
+  if (typeof input.limit === 'number' && Number.isFinite(input.limit)) {
+    params.set('limit', String(Math.max(1, Math.floor(input.limit))));
+  }
+  if (typeof input.turnId === 'string' && input.turnId.trim()) {
+    params.set('turnId', input.turnId.trim());
+  }
+
+  const res = await fetch(
+    apiUrl(
+      `/api/agent/sessions/${input.sessionId}/entries?${params.toString()}`,
+    ),
+  );
+  const data = await readJson(res);
+  if (!res.ok) {
+    throw toApiError(res, data, '获取 Agent 消息失败');
+  }
+
+  return data as { data: AgentEntry[]; total: number };
+}
+
 export async function listAgentOutputs(input: {
   sessionId: string;
   kind?: 'photo' | 'copy';
+  turnId?: string | null;
 }): Promise<{ data: AgentOutput[]; total: number }> {
   const params = new URLSearchParams();
   if (input.kind) params.set('kind', input.kind);
+  if (typeof input.turnId === 'string' && input.turnId.trim()) {
+    params.set('turnId', input.turnId.trim());
+  }
 
   const res = await fetch(
     apiUrl(
