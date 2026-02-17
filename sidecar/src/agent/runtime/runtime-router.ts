@@ -34,6 +34,207 @@ interface ProviderRuntimeShape {
   imageModel: string;
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object') return {};
+  return value as Record<string, unknown>;
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text || null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+}
+
+function toIsoTimestamp(value: unknown, fallback: string): string {
+  const raw = toNonEmptyString(value);
+  if (!raw) return fallback;
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return fallback;
+  return new Date(time).toISOString();
+}
+
+export function normalizeRuntimeEvent(input: {
+  event: AgentRuntimeEvent;
+  engine: AgentEngine;
+  sessionId: string;
+  fallbackTurnId: string;
+  fallbackTimestamp?: string;
+}): AgentRuntimeEvent {
+  const fallbackTimestamp = input.fallbackTimestamp || new Date().toISOString();
+  const payload = toRecord(input.event.payload);
+  const turnId =
+    toNonEmptyString(input.event.turnId) || input.fallbackTurnId;
+  const timestamp = toIsoTimestamp(input.event.timestamp, fallbackTimestamp);
+
+  const base = {
+    type: input.event.type,
+    sessionId: input.sessionId,
+    turnId,
+    timestamp,
+  } as const;
+
+  switch (input.event.type) {
+    case 'turn.started': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          engine: toNonEmptyString(payload.engine) || input.engine,
+          providerId: toNonEmptyString(payload.providerId),
+          model: toNonEmptyString(payload.model),
+          activeTools: toStringArray(payload.activeTools),
+        },
+      };
+    }
+    case 'assistant.delta': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          delta: toNonEmptyString(payload.delta) || '',
+        },
+      };
+    }
+    case 'assistant.completed': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          text: toNonEmptyString(payload.text) || '',
+          stopReason: toNonEmptyString(payload.stopReason),
+          errorMessage:
+            toNonEmptyString(payload.errorMessage) ||
+            toNonEmptyString(payload.message),
+          usage: payload.usage ?? null,
+        },
+      };
+    }
+    case 'tool.call': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          toolCallId: toNonEmptyString(payload.toolCallId),
+          toolName: toNonEmptyString(payload.toolName),
+        },
+      };
+    }
+    case 'tool.progress': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          toolCallId: toNonEmptyString(payload.toolCallId),
+          toolName: toNonEmptyString(payload.toolName),
+        },
+      };
+    }
+    case 'tool.result': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          toolCallId: toNonEmptyString(payload.toolCallId),
+          toolName: toNonEmptyString(payload.toolName),
+          isError: Boolean(payload.isError),
+        },
+      };
+    }
+    case 'queue.updated': {
+      const mode = toNonEmptyString(payload.mode) === 'steer' ? 'steer' : 'follow-up';
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          queueAction: toNonEmptyString(payload.queueAction) || 'queued',
+          clientMessageId: toNonEmptyString(payload.clientMessageId),
+          mode,
+          text: toNonEmptyString(payload.text) || '',
+          mentions: Array.isArray(payload.mentions) ? payload.mentions : [],
+          mentionDrops: Array.isArray(payload.mentionDrops)
+            ? payload.mentionDrops
+            : [],
+          queuedAt: toNonEmptyString(payload.queuedAt),
+          appliedAt: toNonEmptyString(payload.appliedAt),
+          promotedFromFollowUp: Boolean(payload.promotedFromFollowUp),
+        },
+      };
+    }
+    case 'steer.applied':
+    case 'followup.applied': {
+      const mode =
+        toNonEmptyString(payload.mode) ||
+        (input.event.type === 'steer.applied' ? 'steer' : 'follow-up');
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          clientMessageId: toNonEmptyString(payload.clientMessageId),
+          mode,
+          text: toNonEmptyString(payload.text) || '',
+          mentions: Array.isArray(payload.mentions) ? payload.mentions : [],
+          mentionDrops: Array.isArray(payload.mentionDrops)
+            ? payload.mentionDrops
+            : [],
+          queuedAt: toNonEmptyString(payload.queuedAt),
+          appliedAt: toNonEmptyString(payload.appliedAt) || timestamp,
+          promotedFromFollowUp: Boolean(payload.promotedFromFollowUp),
+        },
+      };
+    }
+    case 'turn.completed': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          engine: toNonEmptyString(payload.engine) || input.engine,
+        },
+      };
+    }
+    case 'turn.failed': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          message: toNonEmptyString(payload.message) || '执行失败',
+        },
+      };
+    }
+    case 'session.aborted': {
+      return {
+        ...base,
+        payload: {
+          ...payload,
+          reason: toNonEmptyString(payload.reason) || 'manual',
+        },
+      };
+    }
+    case 'tool.result.enhanced':
+    case 'photo.task.created':
+    case 'photo.task.updated':
+    case 'photo.ready':
+    case 'copy.ready': {
+      return {
+        ...base,
+        payload: input.event.payload,
+      };
+    }
+    default: {
+      return {
+        ...base,
+        payload: input.event.payload,
+      };
+    }
+  }
+}
+
 export class SessionRunningError extends Error {
   readonly code = 'SESSION_RUNNING';
 
@@ -106,10 +307,20 @@ export class RuntimeRouter {
       await touchAgentSessionTurn(sessionId);
 
       try {
+        const onEvent = async (event: AgentRuntimeEvent) => {
+          const normalized = normalizeRuntimeEvent({
+            event,
+            engine: runtime.engine,
+            sessionId,
+            fallbackTurnId: input.turnId,
+          });
+          await input.onEvent(normalized);
+        };
+
         await runtime.runTurn({
           turnId: input.turnId,
           text: input.text,
-          onEvent: input.onEvent,
+          onEvent,
         });
 
         await appendTraceLog({

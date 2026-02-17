@@ -1,6 +1,13 @@
 export type AgentEngine = 'coding-agent' | 'agent-core';
 export type AgentSessionStatus = 'idle' | 'running' | 'failed' | 'aborted';
 export type AgentMentionKind = 'project' | 'scene' | 'model' | 'image';
+export type AgentApiErrorCode =
+  | 'INVALID_PAYLOAD'
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_ARCHIVED'
+  | 'SESSION_RUNNING'
+  | 'SESSION_NOT_RUNNING'
+  | 'INTERNAL_ERROR';
 
 export interface AgentMentionImageRef {
   id: string;
@@ -70,6 +77,57 @@ export interface AgentCapabilities {
   externalEventBridge: boolean;
   toolResultEnhancement: boolean;
 }
+
+export interface AgentTurnStartedPayload {
+  engine: AgentEngine | null;
+  providerId: string | null;
+  model: string | null;
+  activeTools: string[];
+  [key: string]: unknown;
+}
+
+export interface AgentAssistantCompletedPayload {
+  text: string;
+  stopReason: string | null;
+  errorMessage: string | null;
+  usage: unknown | null;
+  [key: string]: unknown;
+}
+
+export interface AgentQueueUpdatedPayload {
+  queueAction: string;
+  clientMessageId: string | null;
+  mode: 'steer' | 'follow-up';
+  text: string;
+  mentions?: unknown[];
+  mentionDrops?: unknown[];
+  queuedAt?: string | null;
+  appliedAt?: string | null;
+  promotedFromFollowUp?: boolean;
+  [key: string]: unknown;
+}
+
+export interface AgentToolResultPayload {
+  toolCallId: string | null;
+  toolName: string | null;
+  isError: boolean;
+  result?: unknown;
+  [key: string]: unknown;
+}
+
+export interface AgentSessionAbortedPayload {
+  reason: string;
+  [key: string]: unknown;
+}
+
+export type AgentTurnEventPayload =
+  | AgentTurnStartedPayload
+  | AgentAssistantCompletedPayload
+  | AgentQueueUpdatedPayload
+  | AgentToolResultPayload
+  | AgentSessionAbortedPayload
+  | Record<string, unknown>
+  | null;
 
 export interface AgentTurnEvent {
   type:

@@ -1,6 +1,7 @@
 import { apiUrl } from '@/lib/api-config';
 import { agentTraceClient } from '@/lib/agent-trace-client';
 import type {
+  AgentApiErrorCode,
   AgentEntry,
   AgentMention,
   AgentCapabilities,
@@ -19,15 +20,31 @@ interface ApiErrorPayload {
   [key: string]: unknown;
 }
 
+const AGENT_API_ERROR_CODES: AgentApiErrorCode[] = [
+  'INVALID_PAYLOAD',
+  'SESSION_NOT_FOUND',
+  'SESSION_ARCHIVED',
+  'SESSION_RUNNING',
+  'SESSION_NOT_RUNNING',
+  'INTERNAL_ERROR',
+];
+
+function normalizeAgentApiErrorCode(value: unknown): AgentApiErrorCode | null {
+  if (typeof value !== 'string') return null;
+  return AGENT_API_ERROR_CODES.includes(value as AgentApiErrorCode)
+    ? (value as AgentApiErrorCode)
+    : null;
+}
+
 export class AgentApiError extends Error {
   status: number;
-  code: string | null;
+  code: AgentApiErrorCode | null;
   details: unknown;
 
   constructor(options: {
     message: string;
     status: number;
-    code?: string | null;
+    code?: AgentApiErrorCode | null;
     details?: unknown;
   }) {
     super(options.message);
@@ -58,7 +75,7 @@ function toApiError(response: Response, body: unknown, fallback: string) {
         ? payload.error.trim()
         : fallback,
     status: response.status,
-    code: typeof payload?.code === 'string' ? payload.code : null,
+    code: normalizeAgentApiErrorCode(payload?.code),
     details: body,
   });
 }

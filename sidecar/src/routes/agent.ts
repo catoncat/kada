@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { AgentRuntimeEvent } from '../agent/runtime/agent-runtime';
 import { RuntimeRouter } from '../agent/runtime/runtime-router';
 import { getAgentFlags } from '../config/agent-flags';
@@ -35,6 +35,7 @@ import {
 import {
   type AgentEngine,
   type AgentOutputKind,
+  type AgentSessionSummary,
   appendAgentEntry,
   appendAgentOutput,
   createAgentSessionRecord,
@@ -57,6 +58,76 @@ function toError(message: string, code: string) {
   return { error: message, code };
 }
 
+type AgentActionName =
+  | 'turn'
+  | 'steer'
+  | 'follow-up'
+  | 'follow-up.promote'
+  | 'abort';
+
+type AgentActionErrorCode =
+  | 'INVALID_PAYLOAD'
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_ARCHIVED'
+  | 'SESSION_RUNNING'
+  | 'SESSION_NOT_RUNNING'
+  | 'INTERNAL_ERROR';
+
+const ACTION_ERROR_STATUS = {
+  INVALID_PAYLOAD: 400,
+  SESSION_NOT_FOUND: 404,
+  SESSION_ARCHIVED: 409,
+  SESSION_RUNNING: 409,
+  SESSION_NOT_RUNNING: 409,
+  INTERNAL_ERROR: 500,
+} as const satisfies Record<AgentActionErrorCode, 400 | 404 | 409 | 500>;
+
+function actionError(
+  c: Context,
+  input: {
+    code: AgentActionErrorCode;
+    message: string;
+  },
+): Response {
+  return c.json(
+    toError(input.message, input.code),
+    ACTION_ERROR_STATUS[input.code],
+  );
+}
+
+async function rejectAction(
+  c: Context,
+  input: {
+    sessionId: string;
+    turnId?: string | null;
+    clientMessageId?: string | null;
+    action: AgentActionName;
+    code: AgentActionErrorCode;
+    message: string;
+    traceMessage?: string;
+    level?: 'debug' | 'info' | 'warn' | 'error';
+  },
+): Promise<Response> {
+  await traceApiTurnEvent({
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    clientMessageId: input.clientMessageId,
+    event: 'api.turn.rejected',
+    level: input.level || (input.code === 'INTERNAL_ERROR' ? 'error' : 'warn'),
+    ok: false,
+    data: {
+      action: input.action,
+      reason: input.code,
+      message: input.traceMessage || input.message,
+    },
+  });
+
+  return actionError(c, {
+    code: input.code,
+    message: input.message,
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -77,6 +148,79 @@ function parseClientMessageId(payload: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const text = raw.trim();
   return text || null;
+}
+
+function parseBodyText(payload: unknown): string {
+  if (!isRecord(payload)) return '';
+  const raw = payload.text;
+  if (typeof raw !== 'string') return '';
+  return raw.trim();
+}
+
+function parseBodyMentions(payload: unknown): unknown[] {
+  if (!isRecord(payload)) return [];
+  if (!Array.isArray(payload.mentions)) return [];
+  return payload.mentions;
+}
+
+async function ensureActionSession(
+  c: Context,
+  input: {
+    sessionId: string;
+    action: AgentActionName;
+    clientMessageId?: string | null;
+    turnId?: string | null;
+    archivedMessage: string;
+  },
+): Promise<AgentSessionSummary | Response> {
+  const session = await getAgentSessionRecord(input.sessionId);
+  if (!session) {
+    return rejectAction(c, {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      clientMessageId: input.clientMessageId,
+      action: input.action,
+      code: 'SESSION_NOT_FOUND',
+      message: '会话不存在。',
+    });
+  }
+
+  if (session.archivedAt) {
+    return rejectAction(c, {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      clientMessageId: input.clientMessageId,
+      action: input.action,
+      code: 'SESSION_ARCHIVED',
+      message: input.archivedMessage,
+    });
+  }
+
+  return session;
+}
+
+async function ensureActionRunning(
+  c: Context,
+  input: {
+    sessionId: string;
+    action: AgentActionName;
+    clientMessageId?: string | null;
+    turnId?: string | null;
+    notRunningMessage: string;
+  },
+): Promise<true | Response> {
+  const running = await runtimeRouter.isRunning(input.sessionId);
+  if (!running) {
+    return rejectAction(c, {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      clientMessageId: input.clientMessageId,
+      action: input.action,
+      code: 'SESSION_NOT_RUNNING',
+      message: input.notRunningMessage,
+    });
+  }
+  return true;
 }
 
 function toTraceErrorMessage(error: unknown): string {
@@ -467,76 +611,42 @@ agentRoutes.delete('/sessions/:id', async (c) => {
 agentRoutes.post('/sessions/:id/turn', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const text = parseBodyText(body);
   const clientMessageId = parseClientMessageId(body);
-  const rawMentions =
-    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
+  const rawMentions = parseBodyMentions(body);
   setAgentTraceContext({
     sessionId,
     clientMessageId,
   });
 
   if (!text) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'INVALID_PAYLOAD',
-        message: '消息不能为空',
-      },
+      action: 'turn',
+      code: 'INVALID_PAYLOAD',
+      message: '消息不能为空。',
+      traceMessage: '消息不能为空',
     });
-    return c.json(toError('消息不能为空。', 'INVALID_PAYLOAD'), 400);
   }
   if (!clientMessageId) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'INVALID_PAYLOAD',
-        message: '缺少 clientMessageId',
-      },
+      action: 'turn',
+      code: 'INVALID_PAYLOAD',
+      message: '缺少 clientMessageId。',
+      traceMessage: '缺少 clientMessageId',
     });
-    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
-  const session = await getAgentSessionRecord(sessionId);
-  if (!session) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
-  }
-  if (session.archivedAt) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(
-      toError('会话已归档，无法继续对话。', 'SESSION_ARCHIVED'),
-      409,
-    );
+  const initialSession = await ensureActionSession(c, {
+    sessionId,
+    action: 'turn',
+    clientMessageId,
+    archivedMessage: '会话已归档，无法继续对话。',
+  });
+  if (initialSession instanceof Response) {
+    return initialSession;
   }
 
   const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
@@ -552,59 +662,28 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
     clientMessageId,
   });
   if (!runtimeRouter.tryAcquireTurnGate(sessionId)) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
       turnId,
       clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'SESSION_RUNNING',
-      },
+      action: 'turn',
+      code: 'SESSION_RUNNING',
+      message: '会话正在执行中，请稍后或改为 follow-up。',
     });
-    return c.json(
-      toError('会话正在执行中，请稍后或改为 follow-up。', 'SESSION_RUNNING'),
-      409,
-    );
   }
-  const lockedSession = await getAgentSessionRecord(sessionId);
-  if (!lockedSession) {
+
+  const lockedSessionResult = await ensureActionSession(c, {
+    sessionId,
+    action: 'turn',
+    turnId,
+    clientMessageId,
+    archivedMessage: '会话已归档，无法继续对话。',
+  });
+  if (lockedSessionResult instanceof Response) {
     runtimeRouter.releaseTurnGate(sessionId);
-    await traceApiTurnEvent({
-      sessionId,
-      turnId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
+    return lockedSessionResult;
   }
-  if (lockedSession.archivedAt) {
-    runtimeRouter.releaseTurnGate(sessionId);
-    await traceApiTurnEvent({
-      sessionId,
-      turnId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(
-      toError('会话已归档，无法继续对话。', 'SESSION_ARCHIVED'),
-      409,
-    );
-  }
+  const lockedSession = lockedSessionResult;
 
   await traceApiTurnEvent({
     sessionId,
@@ -979,20 +1058,16 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
     });
   } catch (error) {
     runtimeRouter.releaseTurnGate(sessionId);
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
       turnId,
       clientMessageId,
-      event: 'api.turn.rejected',
+      action: 'turn',
+      code: 'INTERNAL_ERROR',
+      message: '启动流式响应失败，请稍后重试。',
+      traceMessage: toTraceErrorMessage(error),
       level: 'error',
-      ok: false,
-      data: {
-        action: 'turn',
-        reason: 'STREAM_INIT_FAILED',
-        message: toTraceErrorMessage(error),
-      },
     });
-    throw error;
   }
 
   return new Response(stream, {
@@ -1009,98 +1084,52 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
 agentRoutes.post('/sessions/:id/steer', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const text = parseBodyText(body);
   const clientMessageId = parseClientMessageId(body);
-  const rawMentions =
-    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
+  const rawMentions = parseBodyMentions(body);
   setAgentTraceContext({
     sessionId,
     clientMessageId,
   });
 
   if (!text) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'steer',
-        reason: 'INVALID_PAYLOAD',
-        message: 'steer 文本不能为空',
-      },
+      action: 'steer',
+      code: 'INVALID_PAYLOAD',
+      message: 'steer 文本不能为空。',
+      traceMessage: 'steer 文本不能为空',
     });
-    return c.json(toError('steer 文本不能为空。', 'INVALID_PAYLOAD'), 400);
   }
   if (!clientMessageId) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'steer',
-        reason: 'INVALID_PAYLOAD',
-        message: '缺少 clientMessageId',
-      },
+      action: 'steer',
+      code: 'INVALID_PAYLOAD',
+      message: '缺少 clientMessageId。',
+      traceMessage: '缺少 clientMessageId',
     });
-    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
-  const session = await getAgentSessionRecord(sessionId);
-  if (!session) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'steer',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
-  }
-  if (session.archivedAt) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'steer',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(
-      toError('会话已归档，无法发送 steer。', 'SESSION_ARCHIVED'),
-      409,
-    );
+  const sessionResult = await ensureActionSession(c, {
+    sessionId,
+    action: 'steer',
+    clientMessageId,
+    archivedMessage: '会话已归档，无法发送 steer。',
+  });
+  if (sessionResult instanceof Response) {
+    return sessionResult;
   }
 
-  const running = await runtimeRouter.isRunning(sessionId);
-  if (!running) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'steer',
-        reason: 'SESSION_NOT_RUNNING',
-      },
-    });
-    return c.json(
-      toError(
-        '当前会话没有执行中的 turn，无法执行 steer。',
-        'SESSION_NOT_RUNNING',
-      ),
-      409,
-    );
+  const runningResult = await ensureActionRunning(c, {
+    sessionId,
+    action: 'steer',
+    clientMessageId,
+    notRunningMessage: '当前会话没有执行中的 turn，无法执行 steer。',
+  });
+  if (runningResult instanceof Response) {
+    return runningResult;
   }
 
   const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
@@ -1122,38 +1151,51 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
     },
   });
 
-  await runtimeRouter.steer(sessionId, {
-    clientMessageId,
-    text,
-    runtimeText,
-    mentions: mentionsResolution.mentions,
-    mentionDrops: mentionsResolution.dropped,
-  });
-  if (!agentFlags.queueAppliedEvent) {
-    await appendAgentEntry({
-      sessionId,
-      turnId: null,
-      entryType: 'user',
-      payload: {
-        text,
-        mode: 'steer',
-        clientMessageId,
-        mentions: mentionsResolution.mentions,
-        mentionDrops: mentionsResolution.dropped,
-      },
+  try {
+    await runtimeRouter.steer(sessionId, {
+      clientMessageId,
+      text,
+      runtimeText,
+      mentions: mentionsResolution.mentions,
+      mentionDrops: mentionsResolution.dropped,
     });
+    if (!agentFlags.queueAppliedEvent) {
+      await appendAgentEntry({
+        sessionId,
+        turnId: null,
+        entryType: 'user',
+        payload: {
+          text,
+          mode: 'steer',
+          clientMessageId,
+          mentions: mentionsResolution.mentions,
+          mentionDrops: mentionsResolution.dropped,
+        },
+      });
 
-    await appendTraceLog({
+      await appendTraceLog({
+        sessionId,
+        clientMessageId,
+        channel: 'db',
+        event: 'db.user_entry.appended',
+        data: {
+          mode: 'steer',
+        },
+      });
+    }
+    await touchAgentSessionTurn(sessionId);
+  } catch (error) {
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      channel: 'db',
-      event: 'db.user_entry.appended',
-      data: {
-        mode: 'steer',
-      },
+      action: 'steer',
+      code: 'INTERNAL_ERROR',
+      message: 'steer 执行失败，请稍后重试。',
+      traceMessage: toTraceErrorMessage(error),
+      level: 'error',
     });
   }
-  await touchAgentSessionTurn(sessionId);
+
   return c.json({
     success: true,
     mentionsResolved: mentionsResolution.mentions.length,
@@ -1164,98 +1206,52 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
 agentRoutes.post('/sessions/:id/follow-up', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const text = parseBodyText(body);
   const clientMessageId = parseClientMessageId(body);
-  const rawMentions =
-    isRecord(body) && Array.isArray(body.mentions) ? body.mentions : [];
+  const rawMentions = parseBodyMentions(body);
   setAgentTraceContext({
     sessionId,
     clientMessageId,
   });
 
   if (!text) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up',
-        reason: 'INVALID_PAYLOAD',
-        message: 'follow-up 文本不能为空',
-      },
+      action: 'follow-up',
+      code: 'INVALID_PAYLOAD',
+      message: 'follow-up 文本不能为空。',
+      traceMessage: 'follow-up 文本不能为空',
     });
-    return c.json(toError('follow-up 文本不能为空。', 'INVALID_PAYLOAD'), 400);
   }
   if (!clientMessageId) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up',
-        reason: 'INVALID_PAYLOAD',
-        message: '缺少 clientMessageId',
-      },
+      action: 'follow-up',
+      code: 'INVALID_PAYLOAD',
+      message: '缺少 clientMessageId。',
+      traceMessage: '缺少 clientMessageId',
     });
-    return c.json(toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'), 400);
   }
 
-  const session = await getAgentSessionRecord(sessionId);
-  if (!session) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
-  }
-  if (session.archivedAt) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(
-      toError('会话已归档，无法发送 follow-up。', 'SESSION_ARCHIVED'),
-      409,
-    );
+  const sessionResult = await ensureActionSession(c, {
+    sessionId,
+    action: 'follow-up',
+    clientMessageId,
+    archivedMessage: '会话已归档，无法发送 follow-up。',
+  });
+  if (sessionResult instanceof Response) {
+    return sessionResult;
   }
 
-  const running = await runtimeRouter.isRunning(sessionId);
-  if (!running) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up',
-        reason: 'SESSION_NOT_RUNNING',
-      },
-    });
-    return c.json(
-      toError(
-        '当前会话没有执行中的 turn，无法执行 follow-up。',
-        'SESSION_NOT_RUNNING',
-      ),
-      409,
-    );
+  const runningResult = await ensureActionRunning(c, {
+    sessionId,
+    action: 'follow-up',
+    clientMessageId,
+    notRunningMessage: '当前会话没有执行中的 turn，无法执行 follow-up。',
+  });
+  if (runningResult instanceof Response) {
+    return runningResult;
   }
 
   const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
@@ -1277,38 +1273,51 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
     },
   });
 
-  await runtimeRouter.followUp(sessionId, {
-    clientMessageId,
-    text,
-    runtimeText,
-    mentions: mentionsResolution.mentions,
-    mentionDrops: mentionsResolution.dropped,
-  });
-  if (!agentFlags.queueAppliedEvent) {
-    await appendAgentEntry({
-      sessionId,
-      turnId: null,
-      entryType: 'user',
-      payload: {
-        text,
-        mode: 'follow-up',
-        clientMessageId,
-        mentions: mentionsResolution.mentions,
-        mentionDrops: mentionsResolution.dropped,
-      },
+  try {
+    await runtimeRouter.followUp(sessionId, {
+      clientMessageId,
+      text,
+      runtimeText,
+      mentions: mentionsResolution.mentions,
+      mentionDrops: mentionsResolution.dropped,
     });
+    if (!agentFlags.queueAppliedEvent) {
+      await appendAgentEntry({
+        sessionId,
+        turnId: null,
+        entryType: 'user',
+        payload: {
+          text,
+          mode: 'follow-up',
+          clientMessageId,
+          mentions: mentionsResolution.mentions,
+          mentionDrops: mentionsResolution.dropped,
+        },
+      });
 
-    await appendTraceLog({
+      await appendTraceLog({
+        sessionId,
+        clientMessageId,
+        channel: 'db',
+        event: 'db.user_entry.appended',
+        data: {
+          mode: 'follow-up',
+        },
+      });
+    }
+    await touchAgentSessionTurn(sessionId);
+  } catch (error) {
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      channel: 'db',
-      event: 'db.user_entry.appended',
-      data: {
-        mode: 'follow-up',
-      },
+      action: 'follow-up',
+      code: 'INTERNAL_ERROR',
+      message: 'follow-up 执行失败，请稍后重试。',
+      traceMessage: toTraceErrorMessage(error),
+      level: 'error',
     });
   }
-  await touchAgentSessionTurn(sessionId);
+
   return c.json({
     success: true,
     mentionsResolved: mentionsResolution.mentions.length,
@@ -1319,7 +1328,7 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
 agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
   const sessionId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
-  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  const text = parseBodyText(body);
   const clientMessageId = parseClientMessageId(body);
   setAgentTraceContext({
     sessionId,
@@ -1327,76 +1336,33 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
   });
 
   if (!clientMessageId) {
-    await traceApiTurnEvent({
+    return rejectAction(c, {
       sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up.promote',
-        reason: 'INVALID_PAYLOAD',
-        message: '缺少 clientMessageId',
-      },
+      action: 'follow-up.promote',
+      code: 'INVALID_PAYLOAD',
+      message: '缺少 clientMessageId。',
+      traceMessage: '缺少 clientMessageId',
     });
-    return c.json(
-      toError('缺少 clientMessageId。', 'INVALID_PAYLOAD'),
-      400,
-    );
   }
 
-  const session = await getAgentSessionRecord(sessionId);
-  if (!session) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up.promote',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
-  }
-  if (session.archivedAt) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up.promote',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(
-      toError('会话已归档，无法执行 follow-up promote。', 'SESSION_ARCHIVED'),
-      409,
-    );
+  const sessionResult = await ensureActionSession(c, {
+    sessionId,
+    action: 'follow-up.promote',
+    clientMessageId,
+    archivedMessage: '会话已归档，无法执行 follow-up promote。',
+  });
+  if (sessionResult instanceof Response) {
+    return sessionResult;
   }
 
-  const running = await runtimeRouter.isRunning(sessionId);
-  if (!running) {
-    await traceApiTurnEvent({
-      sessionId,
-      clientMessageId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'follow-up.promote',
-        reason: 'SESSION_NOT_RUNNING',
-      },
-    });
-    return c.json(
-      toError(
-        '当前会话没有执行中的 turn，无法执行 follow-up promote。',
-        'SESSION_NOT_RUNNING',
-      ),
-      409,
-    );
+  const runningResult = await ensureActionRunning(c, {
+    sessionId,
+    action: 'follow-up.promote',
+    clientMessageId,
+    notRunningMessage: '当前会话没有执行中的 turn，无法执行 follow-up promote。',
+  });
+  if (runningResult instanceof Response) {
+    return runningResult;
   }
 
   await traceApiTurnEvent({
@@ -1409,35 +1375,48 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
     },
   });
 
-  const removed = await runtimeRouter.promoteFollowUpToSteer(
-    sessionId,
-    { clientMessageId },
-  );
-  if (!agentFlags.queueAppliedEvent && removed && text) {
-    await appendAgentEntry({
+  let removed = false;
+  try {
+    removed = await runtimeRouter.promoteFollowUpToSteer(
       sessionId,
-      turnId: null,
-      entryType: 'user',
-      payload: {
-        text,
-        mode: 'steer',
-        clientMessageId,
-        promotedFromFollowUp: true,
-      },
-    });
+      { clientMessageId },
+    );
+    if (!agentFlags.queueAppliedEvent && removed && text) {
+      await appendAgentEntry({
+        sessionId,
+        turnId: null,
+        entryType: 'user',
+        payload: {
+          text,
+          mode: 'steer',
+          clientMessageId,
+          promotedFromFollowUp: true,
+        },
+      });
 
-    await appendTraceLog({
+      await appendTraceLog({
+        sessionId,
+        clientMessageId,
+        channel: 'db',
+        event: 'db.user_entry.appended',
+        data: {
+          mode: 'steer',
+          promotedFromFollowUp: true,
+        },
+      });
+    }
+    await touchAgentSessionTurn(sessionId);
+  } catch (error) {
+    return rejectAction(c, {
       sessionId,
       clientMessageId,
-      channel: 'db',
-      event: 'db.user_entry.appended',
-      data: {
-        mode: 'steer',
-        promotedFromFollowUp: true,
-      },
+      action: 'follow-up.promote',
+      code: 'INTERNAL_ERROR',
+      message: 'follow-up promote 执行失败，请稍后重试。',
+      traceMessage: toTraceErrorMessage(error),
+      level: 'error',
     });
   }
-  await touchAgentSessionTurn(sessionId);
 
   return c.json({ success: true, removed });
 });
@@ -1449,51 +1428,26 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
     sessionId,
     clientMessageId: traceContext?.clientMessageId || null,
   });
+  const clientMessageId = traceContext?.clientMessageId || null;
 
-  const session = await getAgentSessionRecord(sessionId);
-  if (!session) {
-    await traceApiTurnEvent({
-      sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'abort',
-        reason: 'SESSION_NOT_FOUND',
-      },
-    });
-    return c.json(toError('会话不存在。', 'SESSION_NOT_FOUND'), 404);
-  }
-  if (session.archivedAt) {
-    await traceApiTurnEvent({
-      sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'abort',
-        reason: 'SESSION_ARCHIVED',
-      },
-    });
-    return c.json(toError('会话已归档。', 'SESSION_ARCHIVED'), 409);
+  const sessionResult = await ensureActionSession(c, {
+    sessionId,
+    action: 'abort',
+    clientMessageId,
+    archivedMessage: '会话已归档。',
+  });
+  if (sessionResult instanceof Response) {
+    return sessionResult;
   }
 
-  const running = await runtimeRouter.isRunning(sessionId);
-  if (!running) {
-    await traceApiTurnEvent({
-      sessionId,
-      event: 'api.turn.rejected',
-      level: 'warn',
-      ok: false,
-      data: {
-        action: 'abort',
-        reason: 'SESSION_NOT_RUNNING',
-      },
-    });
-    return c.json(
-      toError('当前会话没有执行中的 turn。', 'SESSION_NOT_RUNNING'),
-      409,
-    );
+  const runningResult = await ensureActionRunning(c, {
+    sessionId,
+    action: 'abort',
+    clientMessageId,
+    notRunningMessage: '当前会话没有执行中的 turn。',
+  });
+  if (runningResult instanceof Response) {
+    return runningResult;
   }
 
   await traceApiTurnEvent({
@@ -1504,7 +1458,19 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
     },
   });
 
-  await runtimeRouter.abort(sessionId);
+  try {
+    await runtimeRouter.abort(sessionId);
+  } catch (error) {
+    return rejectAction(c, {
+      sessionId,
+      clientMessageId,
+      action: 'abort',
+      code: 'INTERNAL_ERROR',
+      message: '中断会话失败，请稍后重试。',
+      traceMessage: toTraceErrorMessage(error),
+      level: 'error',
+    });
+  }
 
   return c.json({ success: true });
 });

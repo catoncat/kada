@@ -112,6 +112,47 @@ describe('agent message view model', () => {
     });
   });
 
+  it('renders assistant text consistently for normalized payloads from both runtimes', () => {
+    const rows = buildAgentMessageRows({
+      entries: [
+        entry({
+          id: 'assistant-core-normalized',
+          entryType: 'assistant',
+          turnId: 'turn-core',
+          payload: {
+            text: '同一回复',
+            stopReason: null,
+            errorMessage: null,
+            usage: null,
+          },
+        }),
+        entry({
+          id: 'assistant-coding-normalized',
+          entryType: 'assistant',
+          turnId: 'turn-coding',
+          payload: {
+            text: '同一回复',
+            stopReason: 'stop',
+            errorMessage: null,
+            usage: { totalTokens: 10 },
+          },
+        }),
+      ],
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      kind: 'message',
+      role: 'assistant',
+      text: '同一回复',
+    });
+    expect(rows[1]).toMatchObject({
+      kind: 'message',
+      role: 'assistant',
+      text: '同一回复',
+    });
+  });
+
   it('ignores empty assistant rows with unrelated stopReason', () => {
     const rows = buildAgentMessageRows({
       entries: [
