@@ -163,9 +163,10 @@ flowchart LR
 | `GET /api/agent/profiles` | 新增 | profile 列表 |
 | `POST /api/agent/profiles` | 新增 | 创建 profile |
 | `GET /api/agent/profiles/:id` | 新增 | profile 详情（含 `skillIds/workflowIds/version`） |
-| `PUT /api/agent/profiles/:id` | 新增 | 更新 profile（含 `skillIds/workflowIds`） |
+| `PUT /api/agent/profiles/:id` | 新增 | 全量更新 profile（需 `expectedVersion`） |
 | `GET /api/agent/workflows` | 新增 | workflow 列表 |
 | `POST /api/agent/workflows` | 新增 | 创建 workflow |
+| `GET /api/agent/sessions/:id/events` | 扩展 | cursor 过期时返回标准错误（`CURSOR_EXPIRED`） |
 
 ## 5.2 请求/响应契约（新增字段）
 
@@ -188,6 +189,7 @@ flowchart LR
 {
   "id": "session_x",
   "title": "春节母婴主题",
+  "requestedEngine": "coding-agent",
   "engine": "coding-agent",
   "status": "idle",
   "profileId": "profile_photo_copy_basic"
@@ -211,6 +213,9 @@ flowchart LR
     "workflows": ["photo-default"],
     "capabilities": {
       "read": false,
+      "grep": false,
+      "find": false,
+      "ls": false,
       "edit": false,
       "write": false,
       "bash": false
@@ -234,12 +239,49 @@ flowchart LR
   "workflowIds": ["photo-default"],
   "capabilities": {
     "read": false,
+    "grep": false,
+    "find": false,
+    "ls": false,
     "edit": false,
     "write": false,
     "bash": false
   }
 }
 ```
+
+字段映射约束：
+
+1. API 层 `skillIds` 语义等价于存储层 `skill_key`。
+2. API 层 `workflowIds` 语义等价于存储层 `workflow_id`。
+
+### `PUT /api/agent/profiles/:id`
+
+请求示例（全量替换）：
+
+```json
+{
+  "name": "图文基础版",
+  "status": "active",
+  "expectedVersion": 3,
+  "skillIds": ["resource-search", "photo-copy"],
+  "workflowIds": ["photo-default"],
+  "capabilities": {
+    "read": false,
+    "grep": false,
+    "find": false,
+    "ls": false,
+    "edit": false,
+    "write": false,
+    "bash": false
+  }
+}
+```
+
+并发控制约束：
+
+1. `expectedVersion` 必填。
+2. 若当前版本不匹配，返回 `409 VERSION_CONFLICT`。
+3. 仅在配置实际变更时执行 `version = version + 1`。
 
 ## 5.3 事件协议 v2（兼容 SSE）
 
@@ -248,6 +290,12 @@ flowchart LR
 - `actorId: string`（Phase 1 默认 `main`）
 - `workflowStepId?: string | null`
 - `eventVersion: 2`
+
+`workflowStepId` 生成规则（强约束）：
+
+1. workflow DSL 结构：`steps: [{ id: string, tool: string, ... }]`。
+2. `step.id` 在单 workflow 内必须唯一且不可为空。
+3. 运行时生成规则固定为：`workflowStepId = "${workflowId}:${step.id}"`。
 
 事件结构：
 
@@ -276,6 +324,25 @@ flowchart LR
 3. 若 `eventVersion=1`：按旧事件解析，默认 `actorId='main'`、`workflowStepId=null`。
 4. UI 第一阶段不展示多 Agent 面板，仅保留调试可观测字段。
 
+### 5.5 `GET /api/agent/sessions/:id/events` cursor 过期契约
+
+当客户端携带的 `cursor` 早于当前保留窗口时，服务端返回 `410 CURSOR_EXPIRED`：
+
+```json
+{
+  "error": "事件游标已过期，请从最新保留窗口恢复。",
+  "code": "CURSOR_EXPIRED",
+  "minCursor": 18231,
+  "earliestEventAt": "2026-01-17T00:00:00.000Z"
+}
+```
+
+前端处理约束：
+
+1. 展示“历史已清理，已从最近记录恢复”提示。
+2. 使用 `minCursor` 重置本地 cursor 后继续轮询。
+3. 不得将该错误视为会话失败。
+
 ---
 
 ## 6. 数据模型与迁移方案
@@ -292,8 +359,8 @@ flowchart LR
 | `status` | text | `active/inactive` |
 | `version` | integer | profile 版本号（每次配置变更 +1） |
 | `capabilities_json` | text | 能力开关 JSON |
-| `created_at` | timestamp | 创建时间 |
-| `updated_at` | timestamp | 更新时间 |
+| `created_at` | integer | 创建时间（Unix 秒，UTC） |
+| `updated_at` | integer | 更新时间（Unix 秒，UTC） |
 
 ### `agent_profile_skills`
 
@@ -302,7 +369,7 @@ flowchart LR
 | `id` | text PK | 记录 ID |
 | `profile_id` | text | 关联 profile |
 | `skill_key` | text | skill 标识 |
-| `skill_path` | text | 实际路径 |
+| `skill_path` | text | 实际路径（仅白名单映射，不允许任意路径） |
 | `sort_order` | integer | 顺序 |
 
 ### `agent_profile_workflows`
@@ -327,8 +394,8 @@ flowchart LR
 | `name` | text | 名称 |
 | `definition_json` | text | 声明式步骤 |
 | `status` | text | `active/inactive` |
-| `created_at` | timestamp | 创建时间 |
-| `updated_at` | timestamp | 更新时间 |
+| `created_at` | integer | 创建时间（Unix 秒，UTC） |
+| `updated_at` | integer | 更新时间（Unix 秒，UTC） |
 
 ### `agent_session_profile_snapshot`
 
@@ -339,7 +406,7 @@ flowchart LR
 | `profile_id` | text | profile ID |
 | `profile_version` | integer | 快照版本 |
 | `snapshot_json` | text | 完整快照 |
-| `created_at` | timestamp | 固化时间 |
+| `created_at` | integer | 固化时间（Unix 秒，UTC） |
 
 ### `agent_retention_cursor`
 
@@ -358,8 +425,9 @@ flowchart LR
 | `id` | text PK | 幂等键（hash） |
 | `session_id` | text | 会话 |
 | `task_id` | text | 任务 |
-| `status` | text | completed/failed |
-| `created_at` | timestamp | 创建时间 |
+| `status` | text | processing/completed/failed |
+| `created_at` | integer | 创建时间（Unix 秒，UTC） |
+| `updated_at` | integer | 更新时间（Unix 秒，UTC） |
 
 ## 6.2 现有表扩展
 
@@ -368,6 +436,12 @@ flowchart LR
 新增：
 
 - `profile_id TEXT`
+- `requested_engine TEXT NOT NULL DEFAULT 'coding-agent'`
+
+说明：
+
+1. `requested_engine` 表示会话创建时请求的引擎。
+2. `engine` 表示实际运行引擎；若发生 fallback，允许与 `requested_engine` 不同。
 
 索引建议：
 
@@ -379,12 +453,19 @@ flowchart LR
 
 - `actor_id TEXT NOT NULL DEFAULT 'main'`
 - `workflow_step_id TEXT NULL`
-- `event_version INTEGER NOT NULL DEFAULT 2`
+- `event_version INTEGER NOT NULL DEFAULT 1`
 
 索引建议：
 
 - `agent_events_created_session_id_idx(created_at, session_id, id)`（TTL 扫描）
 - 保留现有 `agent_events_session_seq_idx(session_id, seq)`
+- 新增唯一约束：`unique(session_id, seq)`（防并发重复序号）
+
+### `agent_entries`
+
+新增索引建议：
+
+- `agent_entries_created_session_id_idx(created_at, session_id, id)`（TTL 扫描）
 
 ### `agent_outputs`
 
@@ -407,6 +488,7 @@ flowchart LR
 5. 发布顺序硬约束：
    - 回填未完成前，`AGENT_EVENT_V2_ENABLED` 必须保持关闭
    - 回填完成后再启用新事件写入与 v2 解析逻辑
+   - 开关开启后，事件写入路径必须显式写入 `event_version=2`
 6. 启用新 API/新字段返回。
 7. 最后启用 TTL 清理任务。
 
@@ -415,13 +497,18 @@ flowchart LR
 默认值（可配置）：
 
 - `agent_events`: 30 天
+- `agent_entries`: 30 天
 - `agent_outputs`: 90 天
+- `agent_external_event_dedup`: 90 天
 - `agent_sessions`: 长期保留摘要，不自动删除
+- `tasks/generation_artifacts`: Phase 1 不清理明细，仅在风险中持续跟踪体量增长
 
 配置键建议：
 
 - `agent.retention.events_days`
+- `agent.retention.entries_days`
 - `agent.retention.outputs_days`
+- `agent.retention.dedup_days`
 - `agent.retention.enabled`
 - `agent.retention.batch_size`
 
@@ -434,8 +521,15 @@ flowchart LR
 cursor key 命名规范（强约束）：
 
 1. `agent_events_ttl`：仅用于 `agent_events` 清理游标。
-2. `agent_outputs_ttl`：仅用于 `agent_outputs` 清理游标。
-3. 禁止复用同一 key 到多个清理任务，避免游标覆盖。
+2. `agent_entries_ttl`：仅用于 `agent_entries` 清理游标。
+3. `agent_outputs_ttl`：仅用于 `agent_outputs` 清理游标。
+4. `agent_dedup_ttl`：仅用于 `agent_external_event_dedup` 清理游标。
+5. 禁止复用同一 key 到多个清理任务，避免游标覆盖。
+
+时间类型统一约束（强约束）：
+
+1. `agent_*` 相关表与 retention cursor 统一使用 `INTEGER`（Unix 秒，UTC）存储时间。
+2. API 层统一输出 ISO8601 字符串，禁止在协议中混用 epoch 与 ISO。
 
 ---
 
@@ -448,6 +542,9 @@ cursor key 命名规范（强约束）：
 3. 同一 `turnId` 下事件顺序保持发生顺序。
 4. `turn.failed` 保证至少一次写入。
 5. `event_version` 写入规则固定：历史回填为 `1`，Phase 1 新写入为 `2`。
+6. `AGENT_EVENT_V2_ENABLED=false` 时，所有事件路径必须显式写 `event_version=1`。
+7. `AGENT_EVENT_V2_ENABLED=true` 时，所有事件路径必须显式写 `event_version=2`（禁止依赖 DB 默认值）。
+8. EventStore 查询层统一补齐 `eventVersion`，SSE 与 `/events` 必须共用同一映射器。
 
 ## 7.2 外部事件桥幂等
 
@@ -455,13 +552,19 @@ cursor key 命名规范（强约束）：
 
 `hash(sessionId + taskId + status + artifactId + turnId)`
 
-写入 `agent_external_event_dedup` 成功后才允许写 `agent_events/entries/outputs`。
+强一致实现约束（必须）：
+
+1. `dedup + agent_events + agent_entries + agent_outputs` 必须在同一个本地 DB 事务中提交。
+2. 若 dedup 插入冲突，整笔事务直接短路返回“已处理”。
+3. 任一写入失败必须回滚，确保后续重试仍可成功。
+4. 禁止“先写 dedup、后写事件且非事务”的实现。
 
 ## 7.3 故障恢复矩阵
 
 | 故障场景 | 检测点 | 自动恢复 | 人工排查 |
 |---|---|---|---|
 | SSE 中断 | 前端连接断开 | 轮询 `events?cursor=` 增量补齐 | 检查网络与 sidecar 日志 |
+| cursor 过期 | `CURSOR_EXPIRED` | 前端重置到 `minCursor` 并继续拉取 | 检查 TTL 与离线时长 |
 | turn 并发冲突 | `SESSION_RUNNING` | 默认返回 `SESSION_RUNNING`；仅在 `AGENT_AUTO_FOLLOWUP_ON_SESSION_RUNNING` 打开时自动降级 `follow-up` | 检查 queue 与 UI 操作时序 |
 | provider 失败 | `turn.failed` / `tool.result.isError` | 路由回退（图片主次路由） | 检查 provider capabilities |
 | worker 重复回写 | dedup 命中 | 跳过重复写入 | 检查 task 与 dedup 表 |
@@ -599,6 +702,13 @@ sequenceDiagram
 
 Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工具。
 
+配置安全约束（必须）：
+
+1. `skill_key` 必须命中内置 registry 白名单。
+2. `skill_path` 仅允许由 `skill_key -> path` 的内置映射生成，不允许直接从请求体任意注入。
+3. workflow `definition_json` 必须通过 JSON Schema 校验。
+4. workflow 引用的 `tool` 必须属于“系统注册工具集合 ∩ profile 允许集合”。
+
 ## 8.3 审计要求
 
 1. 每次 tool.call / tool.result 必须可通过 sessionId + turnId 回放。
@@ -616,6 +726,7 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 1. 定义事件 v2 与 profile/workflow API 契约。
 2. 增加 DB migration（新表 + 扩列 + 索引 + dedup + retention cursor 三元组）。
 3. store 层新增 profile/skills/workflows/snapshot 读写能力。
+4. 明确 `GET /events` 的 `CURSOR_EXPIRED` 契约并完成前端处理。
 
 交付标准：
 
@@ -653,7 +764,7 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 目标：消除外部回写重复风险并引入 TTL。
 
 1. external event bridge 加幂等去重。
-2. 新增 retention cleaner（定时批处理 + cursor 断点）。
+2. 新增 retention cleaner（覆盖 events/entries/outputs/dedup，定时批处理 + cursor 断点）。
 3. 增加清理指标日志（删除条数、耗时、错误）。
 
 交付标准：
@@ -686,9 +797,11 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 | 功能 | `steer/follow-up/promote` | queue 状态与 UI 芯片一致，无幽灵消息 |
 | 功能 | `photo.ready/copy.ready` | 产物栏正确更新且可回放 |
 | 恢复 | SSE 中断后 cursor 补偿 | 无重复、无漏事件 |
+| 恢复 | cursor 过期（离线超出保留窗口） | 返回 `CURSOR_EXPIRED`，前端可自动恢复到 `minCursor` |
 | 恢复 | 会话并发 turn | 返回 `SESSION_RUNNING` 且不污染状态 |
 | 恢复（可选） | 打开自动降级开关后并发 turn | 自动转 follow-up 且 queue 状态一致 |
 | 幂等 | worker 重复回写 | dedup 生效，不重复写 output |
+| 幂等 | dedup 后中途失败重试 | 事务回滚后可重试成功，不丢事件 |
 | 兼容 | 历史事件 payload 无 `actorId/eventVersion` | 服务端补齐 `eventVersion=1`，前端默认值兜底 |
 | 兼容 | 旧会话无 `profileId` | 自动绑定默认 profile snapshot |
 | 非功能 | SSE + polling 并发 | UI 无明显抖动，CPU/内存可控 |
@@ -725,10 +838,13 @@ Phase 1 推荐默认 profile：仅允许 `resource_*`、`photo_*`、`copy_*` 工
 3. Provider 路由继续采用文本/图片分离与图片回退。
 4. TTL 默认建议：
    - `agent_events` 30 天
+   - `agent_entries` 30 天
    - `agent_outputs` 90 天
+   - `agent_external_event_dedup` 90 天
    - `agent_sessions` 长期保留摘要
 5. 保持 `coding-agent -> agent-core` fallback，仅在 runtime 初始化阶段触发。
 6. 并发 turn 默认返回 `SESSION_RUNNING`，不自动降级；仅在开关开启时降级为 follow-up。
+7. `event_version` 默认值为 `1`，仅在 v2 开关开启并走新写入路径时显式写 `2`。
 
 ---
 

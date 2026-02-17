@@ -60,3 +60,7 @@ rg -n "toolResult|collapse|expand|stream|summary|detail|render|diff" \
 2. 方案说明中必须引用上游对照点（至少 2 处代码位置）。
 3. 无上游依据时，再参考 Codex / Claude Code / OpenCode 的公开实现。
 4. 实施前若无“上游对照结论”，视为信息不足，不应直接定稿 UI。
+
+## 对照结果落档
+
+- Agent 上游差异与去重清单：`docs/dev/agent-upstream-gap.md`
