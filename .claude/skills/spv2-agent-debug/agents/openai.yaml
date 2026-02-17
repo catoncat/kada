@@ -1,4 +1,3 @@
 interface:
-  display_name: "SPV2 Agent Trace Debug"
-  short_description: "Trace full Agent pipeline and pinpoint no-response breakpoints"
-  default_prompt: "Use $spv2-agent-debug to diagnose a no-response chat by traceId and show the exact break point."
+  display_name: "Spv2 Agent Debug"
+  short_description: "Help with Spv2 Agent Debug tasks"

@@ -35,6 +35,7 @@ pnpm tauri:dev   # 需要桌面壳联调时使用
 
 - 不要手改生成/产物：`dist/`、`sidecar/dist/`、`src/routeTree.gen.ts`、`.tanstack/`、`src-tauri/target/`
 - 默认端口：前端 `1420`（`strictPort`），Sidecar `3001`
+- Python 脚本统一优先使用 `uv run`（按需用 `--with` 注入依赖），避免全局 Python 依赖缺失导致命令失败
 - 不要提交密钥/Provider 凭据；避免在日志中输出敏感信息（详见 `docs/dev/contributing.md`）
 - 前端开发默认优先复用 `src/components/ui/` 组件（详见 `docs/dev/frontend.md`）
 - 涉及 Agent 运行时/事件/toolResult 交互的改动，先对齐本地上游参考 `.upstream/pi-mono`（详见 `docs/dev/upstream-pi-mono.md`）
