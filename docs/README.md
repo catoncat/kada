@@ -11,6 +11,7 @@
    - 上游 Agent 参考基线：`docs/dev/upstream-pi-mono.md`
    - Agent 上游差异与去重清单：`docs/dev/agent-upstream-gap.md`
    - Agent 上游差异实施进度：`docs/dev/agent-upstream-gap-progress.md`
+   - Agent 保留能力偏离与 SLA：`docs/dev/agent-upstream-deviations.md`
 4. 架构与端侧规范：`docs/dev/architecture.md`、`docs/dev/frontend.md`
 5. 重构路线：`docs/refactor/v2-roadmap.md`
 6. 设计先行流程：`docs/dev/skills.md`

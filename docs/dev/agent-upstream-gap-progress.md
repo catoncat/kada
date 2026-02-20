@@ -1,13 +1,14 @@
 # Agent 上游差异收敛实施进度（执行跟踪）
 
-更新时间：`2026-02-17`
+更新时间：`2026-02-20`
 关联主文档：`docs/dev/agent-upstream-gap.md`
+关联偏离/SLA 文档：`docs/dev/agent-upstream-deviations.md`
 
 ## 当前状态
 
-- 阶段：`P1`
+- 阶段：`P2`
 - 结论：`已完成`
-- 说明：`P0 + P1` 已完成，已落地 runtime 事件规范化入口与路由错误码/校验标准化；按“可清库”约束执行，不提供历史数据兼容。
+- 说明：`P0 + P1 + P2` 已全部完成；保留能力偏离说明、SLA、独立回归用例均已落地并通过验证。
 
 ## P0 完成项
 
@@ -29,6 +30,14 @@
 | 主备 runtime 关键字段全集对齐 | ✅ 完成 | `turn.started`、`assistant.completed`、`queue.updated`、`session.aborted`、`tool.result` 统一补齐默认字段 |
 | 路由层错误码与请求校验标准化 | ✅ 完成 | `turn/steer/follow-up/promote/abort` 统一校验与错误码映射（含 `INTERNAL_ERROR`） |
 | Runtime/API parity 测试补齐 | ✅ 完成 | 新增 `runtime-router` 规范化测试与双引擎路由 parity 测试 |
+
+## P2 进展（本轮）
+
+| 事项 | 状态 | 结果 |
+|---|---|---|
+| 保留特化能力偏离说明文档化 | ✅ 完成 | 新增 `docs/dev/agent-upstream-deviations.md`，覆盖 timeline/output rail/@mention/trace/readable |
+| trace / tool readable 链路边界与 SLA 明确化 | ✅ 完成 | 已定义边界、硬约束、运行目标、告警建议 |
+| 诊断链路与可读化链路独立回归用例 | ✅ 完成 | 新增 `agent-trace-store.test.ts` 与 `agent-toolresult-enhance.test.ts` 并纳入 sidecar 默认测试基线 |
 
 ## 本次关键变更文件
 
@@ -61,6 +70,8 @@
 - `sidecar/src/services/agent-event-store.turn-id.test.ts`
 - `sidecar/src/routes/agent-replay-turn-filter.test.ts`
 - `sidecar/src/routes/agent.runtime-parity.test.ts`
+- `sidecar/src/services/agent-trace-store.test.ts`
+- `sidecar/src/worker/handlers/agent-toolresult-enhance.test.ts`
 - `src/__tests__/agent-message-view-model.test.ts`
 - `src/__tests__/agent-message-list-scroll.test.tsx`
 
@@ -72,8 +83,9 @@
 - `pnpm -C sidecar test`
 - `pnpm typecheck`
 - `pnpm test:run -- src/__tests__/agent-message-view-model.test.ts src/__tests__/agent-message-list-scroll.test.tsx`
+- `pnpm -C sidecar exec tsx --test src/services/agent-trace-store.test.ts src/worker/handlers/agent-toolresult-enhance.test.ts`
 
-## 下一阶段（P2）待办
+## 下一步（建议）
 
-1. 保留特化能力的偏离说明与回滚条件文档化。
-2. trace / tool readable 链路维护边界与 SLA 明确化。
+1. 在 CI 中固定 Node 版本（避免 `better-sqlite3` ABI 漂移导致偶发失败）。
+2. 将 trace/readable 的关键指标纳入持续监控看板（失败率、超时率、限流占比）。
