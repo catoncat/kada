@@ -405,7 +405,7 @@ export class CodingAgentRuntime implements AgentRuntime {
     const cwd = process.cwd();
     const model = buildModel(input.provider);
 
-    const authStorage = new AuthStorage();
+    const authStorage = AuthStorage.inMemory();
     authStorage.setRuntimeApiKey(input.provider.id, input.provider.apiKey);
 
     const settingsManager = SettingsManager.inMemory({
