@@ -29,28 +29,39 @@ const AGENT_API_ERROR_CODES: AgentApiErrorCode[] = [
   'INTERNAL_ERROR',
 ];
 
-function normalizeAgentApiErrorCode(value: unknown): AgentApiErrorCode | null {
+function parseAgentApiErrorCode(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  return AGENT_API_ERROR_CODES.includes(value as AgentApiErrorCode)
-    ? (value as AgentApiErrorCode)
+  const text = value.trim();
+  return text || null;
+}
+
+function normalizeAgentApiErrorCode(value: unknown): AgentApiErrorCode | null {
+  const code = parseAgentApiErrorCode(value);
+  if (!code) return null;
+  return AGENT_API_ERROR_CODES.includes(code as AgentApiErrorCode)
+    ? (code as AgentApiErrorCode)
     : null;
 }
 
 export class AgentApiError extends Error {
   status: number;
-  code: AgentApiErrorCode | null;
+  code: string | null;
+  knownCode: AgentApiErrorCode | null;
   details: unknown;
 
   constructor(options: {
     message: string;
     status: number;
-    code?: AgentApiErrorCode | null;
+    code?: string | null;
+    knownCode?: AgentApiErrorCode | null;
     details?: unknown;
   }) {
     super(options.message);
     this.name = 'AgentApiError';
     this.status = options.status;
     this.code = options.code ?? null;
+    this.knownCode =
+      options.knownCode ?? normalizeAgentApiErrorCode(options.code);
     this.details = options.details;
   }
 }
@@ -69,13 +80,15 @@ async function readJson(response: Response): Promise<unknown> {
 
 function toApiError(response: Response, body: unknown, fallback: string) {
   const payload = isRecord(body) ? (body as ApiErrorPayload) : null;
+  const rawCode = parseAgentApiErrorCode(payload?.code);
   return new AgentApiError({
     message:
       typeof payload?.error === 'string' && payload.error.trim()
         ? payload.error.trim()
         : fallback,
     status: response.status,
-    code: normalizeAgentApiErrorCode(payload?.code),
+    code: rawCode,
+    knownCode: normalizeAgentApiErrorCode(rawCode),
     details: body,
   });
 }
@@ -103,9 +116,7 @@ function enrichErrorWithTraceMeta(
   response: Response | null,
   traceId?: string,
 ): AgentApiError {
-  const details = isRecord(error.details)
-    ? { ...error.details }
-    : {};
+  const details = isRecord(error.details) ? { ...error.details } : {};
 
   if (response) {
     const responseTraceId = response.headers.get('x-agent-trace-id');
@@ -452,22 +463,19 @@ export async function streamAgentTurn(input: {
 
   let res: Response;
   try {
-    res = await fetch(
-      apiUrl(`/api/agent/sessions/${input.sessionId}/turn`),
-      {
-        method: 'POST',
-        headers: createJsonHeaders({
-          traceId: input.traceId,
-          clientMessageId: input.clientMessageId,
-        }),
-        body: JSON.stringify({
-          text: input.text,
-          clientMessageId: input.clientMessageId,
-          mentions: input.mentions,
-        }),
-        signal: input.signal,
-      },
-    );
+    res = await fetch(apiUrl(`/api/agent/sessions/${input.sessionId}/turn`), {
+      method: 'POST',
+      headers: createJsonHeaders({
+        traceId: input.traceId,
+        clientMessageId: input.clientMessageId,
+      }),
+      body: JSON.stringify({
+        text: input.text,
+        clientMessageId: input.clientMessageId,
+        mentions: input.mentions,
+      }),
+      signal: input.signal,
+    });
   } catch (error) {
     if (input.traceId) {
       agentTraceClient.log({
@@ -689,7 +697,9 @@ export async function searchAgentResources(input: {
     params.set('limit', String(Math.max(1, Math.floor(input.limit))));
   }
 
-  const res = await fetch(apiUrl(`/api/agent/resources/search?${params.toString()}`));
+  const res = await fetch(
+    apiUrl(`/api/agent/resources/search?${params.toString()}`),
+  );
   const data = await readJson(res);
   if (!res.ok) {
     throw toApiError(res, data, 'Agent 资源搜索失败');

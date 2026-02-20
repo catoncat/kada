@@ -649,60 +649,64 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
     return initialSession;
   }
 
-  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
-  const mentionsContext = buildAgentMentionsContextBlock(
-    mentionsResolution.mentions,
-  );
-  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
-
   const turnId = randomUUID();
   setAgentTraceContext({
     sessionId,
     turnId,
     clientMessageId,
   });
-  if (!runtimeRouter.tryAcquireTurnGate(sessionId)) {
-    return rejectAction(c, {
-      sessionId,
-      turnId,
-      clientMessageId,
-      action: 'turn',
-      code: 'SESSION_RUNNING',
-      message: '会话正在执行中，请稍后或改为 follow-up。',
-    });
-  }
-
-  const lockedSessionResult = await ensureActionSession(c, {
-    sessionId,
-    action: 'turn',
-    turnId,
-    clientMessageId,
-    archivedMessage: '会话已归档，无法继续对话。',
-  });
-  if (lockedSessionResult instanceof Response) {
-    runtimeRouter.releaseTurnGate(sessionId);
-    return lockedSessionResult;
-  }
-  const lockedSession = lockedSessionResult;
-
-  await traceApiTurnEvent({
-    sessionId,
-    turnId,
-    clientMessageId,
-    event: 'api.turn.accepted',
-    data: {
-      action: 'turn',
-      textLen: text.length,
-      runtimeTextLen: runtimeText.length,
-      mentionsResolved: mentionsResolution.mentions.length,
-      mentionsDropped: mentionsResolution.dropped.length,
-    },
-  });
 
   const encoder = new TextEncoder();
 
   let stream: ReadableStream<Uint8Array>;
+  let gateAcquired = false;
   try {
+    const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+    const mentionsContext = buildAgentMentionsContextBlock(
+      mentionsResolution.mentions,
+    );
+    const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
+    if (!runtimeRouter.tryAcquireTurnGate(sessionId)) {
+      return rejectAction(c, {
+        sessionId,
+        turnId,
+        clientMessageId,
+        action: 'turn',
+        code: 'SESSION_RUNNING',
+        message: '会话正在执行中，请稍后或改为 follow-up。',
+      });
+    }
+    gateAcquired = true;
+
+    const lockedSessionResult = await ensureActionSession(c, {
+      sessionId,
+      action: 'turn',
+      turnId,
+      clientMessageId,
+      archivedMessage: '会话已归档，无法继续对话。',
+    });
+    if (lockedSessionResult instanceof Response) {
+      runtimeRouter.releaseTurnGate(sessionId);
+      gateAcquired = false;
+      return lockedSessionResult;
+    }
+    const lockedSession = lockedSessionResult;
+
+    await traceApiTurnEvent({
+      sessionId,
+      turnId,
+      clientMessageId,
+      event: 'api.turn.accepted',
+      data: {
+        action: 'turn',
+        textLen: text.length,
+        runtimeTextLen: runtimeText.length,
+        mentionsResolved: mentionsResolution.mentions.length,
+        mentionsDropped: mentionsResolution.dropped.length,
+      },
+    });
+
     stream = new ReadableStream<Uint8Array>({
       start(controller) {
         let closed = false;
@@ -1057,7 +1061,9 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
       },
     });
   } catch (error) {
-    runtimeRouter.releaseTurnGate(sessionId);
+    if (gateAcquired) {
+      runtimeRouter.releaseTurnGate(sessionId);
+    }
     return rejectAction(c, {
       sessionId,
       turnId,
@@ -1132,26 +1138,26 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
     return runningResult;
   }
 
-  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
-  const mentionsContext = buildAgentMentionsContextBlock(
-    mentionsResolution.mentions,
-  );
-  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
-
-  await traceApiTurnEvent({
-    sessionId,
-    clientMessageId,
-    event: 'api.turn.accepted',
-    data: {
-      action: 'steer',
-      textLen: text.length,
-      runtimeTextLen: runtimeText.length,
-      mentionsResolved: mentionsResolution.mentions.length,
-      mentionsDropped: mentionsResolution.dropped.length,
-    },
-  });
-
   try {
+    const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+    const mentionsContext = buildAgentMentionsContextBlock(
+      mentionsResolution.mentions,
+    );
+    const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
+    await traceApiTurnEvent({
+      sessionId,
+      clientMessageId,
+      event: 'api.turn.accepted',
+      data: {
+        action: 'steer',
+        textLen: text.length,
+        runtimeTextLen: runtimeText.length,
+        mentionsResolved: mentionsResolution.mentions.length,
+        mentionsDropped: mentionsResolution.dropped.length,
+      },
+    });
+
     await runtimeRouter.steer(sessionId, {
       clientMessageId,
       text,
@@ -1184,6 +1190,11 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
       });
     }
     await touchAgentSessionTurn(sessionId);
+    return c.json({
+      success: true,
+      mentionsResolved: mentionsResolution.mentions.length,
+      mentionsDropped: mentionsResolution.dropped.length,
+    });
   } catch (error) {
     return rejectAction(c, {
       sessionId,
@@ -1195,12 +1206,6 @@ agentRoutes.post('/sessions/:id/steer', async (c) => {
       level: 'error',
     });
   }
-
-  return c.json({
-    success: true,
-    mentionsResolved: mentionsResolution.mentions.length,
-    mentionsDropped: mentionsResolution.dropped.length,
-  });
 });
 
 agentRoutes.post('/sessions/:id/follow-up', async (c) => {
@@ -1254,26 +1259,26 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
     return runningResult;
   }
 
-  const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
-  const mentionsContext = buildAgentMentionsContextBlock(
-    mentionsResolution.mentions,
-  );
-  const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
-
-  await traceApiTurnEvent({
-    sessionId,
-    clientMessageId,
-    event: 'api.turn.accepted',
-    data: {
-      action: 'follow-up',
-      textLen: text.length,
-      runtimeTextLen: runtimeText.length,
-      mentionsResolved: mentionsResolution.mentions.length,
-      mentionsDropped: mentionsResolution.dropped.length,
-    },
-  });
-
   try {
+    const mentionsResolution = await resolveAgentMentionsForRuntime(rawMentions);
+    const mentionsContext = buildAgentMentionsContextBlock(
+      mentionsResolution.mentions,
+    );
+    const runtimeText = mentionsContext ? `${text}\n\n${mentionsContext}` : text;
+
+    await traceApiTurnEvent({
+      sessionId,
+      clientMessageId,
+      event: 'api.turn.accepted',
+      data: {
+        action: 'follow-up',
+        textLen: text.length,
+        runtimeTextLen: runtimeText.length,
+        mentionsResolved: mentionsResolution.mentions.length,
+        mentionsDropped: mentionsResolution.dropped.length,
+      },
+    });
+
     await runtimeRouter.followUp(sessionId, {
       clientMessageId,
       text,
@@ -1306,6 +1311,11 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
       });
     }
     await touchAgentSessionTurn(sessionId);
+    return c.json({
+      success: true,
+      mentionsResolved: mentionsResolution.mentions.length,
+      mentionsDropped: mentionsResolution.dropped.length,
+    });
   } catch (error) {
     return rejectAction(c, {
       sessionId,
@@ -1317,12 +1327,6 @@ agentRoutes.post('/sessions/:id/follow-up', async (c) => {
       level: 'error',
     });
   }
-
-  return c.json({
-    success: true,
-    mentionsResolved: mentionsResolution.mentions.length,
-    mentionsDropped: mentionsResolution.dropped.length,
-  });
 });
 
 agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
@@ -1365,18 +1369,18 @@ agentRoutes.post('/sessions/:id/follow-up/promote', async (c) => {
     return runningResult;
   }
 
-  await traceApiTurnEvent({
-    sessionId,
-    clientMessageId,
-    event: 'api.turn.accepted',
-    data: {
-      action: 'follow-up.promote',
-      textLen: text.length,
-    },
-  });
-
   let removed = false;
   try {
+    await traceApiTurnEvent({
+      sessionId,
+      clientMessageId,
+      event: 'api.turn.accepted',
+      data: {
+        action: 'follow-up.promote',
+        textLen: text.length,
+      },
+    });
+
     removed = await runtimeRouter.promoteFollowUpToSteer(
       sessionId,
       { clientMessageId },
@@ -1450,15 +1454,15 @@ agentRoutes.post('/sessions/:id/abort', async (c) => {
     return runningResult;
   }
 
-  await traceApiTurnEvent({
-    sessionId,
-    event: 'api.turn.accepted',
-    data: {
-      action: 'abort',
-    },
-  });
-
   try {
+    await traceApiTurnEvent({
+      sessionId,
+      event: 'api.turn.accepted',
+      data: {
+        action: 'abort',
+      },
+    });
+
     await runtimeRouter.abort(sessionId);
   } catch (error) {
     return rejectAction(c, {
