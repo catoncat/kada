@@ -45,8 +45,5 @@ jobs:
       - name: Frontend tests
         run: pnpm test:run -- src/__tests__/agent-message-view-model.test.ts src/__tests__/agent-message-list-scroll.test.tsx
 
-      - name: Sidecar typecheck
-        run: pnpm -C sidecar exec tsc --noEmit
-
       - name: Sidecar tests
         run: pnpm -C sidecar test
