@@ -87,5 +87,5 @@
 
 ## 下一步（建议）
 
-1. 在 CI 中固定 Node 版本（避免 `better-sqlite3` ABI 漂移导致偶发失败）。
+1. ✅ CI 已固定 Node 版本：`.github/workflows/ci.yml` 使用 `Node 22.18.0`（避免 `better-sqlite3` ABI 漂移导致偶发失败）。
 2. 将 trace/readable 的关键指标纳入持续监控看板（失败率、超时率、限流占比）。
