@@ -3,14 +3,26 @@ import { streamAgentTurn } from '@/lib/agent-api';
 import type { AgentMention, AgentTurnStreamChunk } from '@/types/agent';
 
 export function useAgentTurnStream() {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [streamingCount, setStreamingCount] = useState(0);
+  const controllersRef = useRef(new Map<string, AbortController>());
 
-  const abort = useCallback(() => {
-    if (!abortRef.current) return;
-    abortRef.current.abort();
-    abortRef.current = null;
-    setIsStreaming(false);
+  const abort = useCallback((sessionId?: string | null) => {
+    if (sessionId) {
+      const controller = controllersRef.current.get(sessionId);
+      if (!controller) return;
+      controller.abort();
+      controllersRef.current.delete(sessionId);
+      setStreamingCount((prev) => Math.max(0, prev - 1));
+      return;
+    }
+
+    const all = [...controllersRef.current.values()];
+    if (all.length === 0) return;
+    controllersRef.current.clear();
+    for (const controller of all) {
+      controller.abort();
+    }
+    setStreamingCount(0);
   }, []);
 
   const runTurn = useCallback(
@@ -22,13 +34,13 @@ export function useAgentTurnStream() {
       mentions?: AgentMention[];
       onEvent: (chunk: AgentTurnStreamChunk) => void;
     }) => {
-      if (isStreaming) {
-        throw new Error('当前已有执行中的 turn');
+      if (controllersRef.current.has(input.sessionId)) {
+        throw new Error('当前会话已有执行中的 turn');
       }
 
       const controller = new AbortController();
-      abortRef.current = controller;
-      setIsStreaming(true);
+      controllersRef.current.set(input.sessionId, controller);
+      setStreamingCount((prev) => prev + 1);
 
       try {
         await streamAgentTurn({
@@ -41,17 +53,24 @@ export function useAgentTurnStream() {
           onEvent: input.onEvent,
         });
       } finally {
-        if (abortRef.current === controller) {
-          abortRef.current = null;
+        const current = controllersRef.current.get(input.sessionId);
+        if (current === controller) {
+          controllersRef.current.delete(input.sessionId);
+          setStreamingCount((prev) => Math.max(0, prev - 1));
         }
-        setIsStreaming(false);
       }
     },
-    [isStreaming],
+    [],
   );
 
+  const isSessionStreaming = useCallback((sessionId?: string | null) => {
+    if (!sessionId) return false;
+    return controllersRef.current.has(sessionId);
+  }, []);
+
   return {
-    isStreaming,
+    isStreaming: streamingCount > 0,
+    isSessionStreaming,
     runTurn,
     abort,
   };

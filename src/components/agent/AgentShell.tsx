@@ -149,6 +149,18 @@ function extractTraceIdFromError(error: unknown): string | null {
   return text || null;
 }
 
+function isPendingForSession(
+  mutation: { isPending: boolean; variables?: unknown },
+  sessionId: string | null,
+): boolean {
+  if (!mutation.isPending || !sessionId) return false;
+  const variables =
+    mutation.variables && typeof mutation.variables === 'object'
+      ? (mutation.variables as Record<string, unknown>)
+      : null;
+  return variables?.sessionId === sessionId;
+}
+
 export function AgentShell() {
   const sessionsQuery = useAgentSessions();
   const capabilitiesQuery = useAgentCapabilities();
@@ -184,6 +196,7 @@ export function AgentShell() {
   const streamingAssistantTextRef = useRef('');
   const activeTurnTraceIdRef = useRef<string | null>(null);
   const sessionListRef = useRef<HTMLDivElement | null>(null);
+  const previousActiveSessionIdRef = useRef<string | null>(null);
 
   const sessions = sessionsQuery.data?.data || [];
   const activeSessions = useMemo(
@@ -198,6 +211,7 @@ export function AgentShell() {
     () => sessions.find((item) => item.id === activeSessionId) || null,
     [activeSessionId, sessions],
   );
+  const currentSessionStreaming = turnStream.isSessionStreaming(activeSessionId);
   const sortedActiveSessions = useMemo(
     () =>
       [...activeSessions].sort((a, b) => {
@@ -287,6 +301,13 @@ export function AgentShell() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时重置本地 UI 状态
   useEffect(() => {
+    const previousSessionId = previousActiveSessionIdRef.current;
+    previousActiveSessionIdRef.current = activeSessionId;
+
+    if (previousSessionId && previousSessionId !== activeSessionId) {
+      turnStream.abort(previousSessionId);
+    }
+
     pollingRef.current?.abort();
     pollingRef.current = null;
     if (enhancedRefreshTimerRef.current) {
@@ -309,11 +330,22 @@ export function AgentShell() {
   const outputs =
     outputsQuery.data?.data || sessionDetailQuery.data?.outputs || [];
 
+  const abortPendingForActive = isPendingForSession(abortMutation, activeSessionId);
+  const steerPendingForActive = isPendingForSession(steerMutation, activeSessionId);
+  const followUpPendingForActive = isPendingForSession(
+    followUpMutation,
+    activeSessionId,
+  );
+  const promotePendingForActive = isPendingForSession(
+    promoteFollowUpMutation,
+    activeSessionId,
+  );
+
   const composerDisabled =
     !activeSessionId ||
     createSessionMutation.isPending ||
     Boolean(activeSession?.archivedAt) ||
-    abortMutation.isPending;
+    abortPendingForActive;
 
   const setStreamingText = useCallback((value: string | ((prev: string) => string)) => {
     const next =
@@ -441,6 +473,14 @@ export function AgentShell() {
     event: AgentTurnEvent,
     seq?: number,
   ) => {
+    if (
+      activeSessionId &&
+      event.sessionId &&
+      event.sessionId !== activeSessionId
+    ) {
+      return;
+    }
+
     if (typeof seq === 'number') {
       if (seq <= lastAckSeqRef.current) {
         return;
@@ -616,6 +656,7 @@ export function AgentShell() {
       setStreamingText('');
     }
   }, [
+    activeSessionId,
     outputsQuery.refetch,
     sessionDetailQuery.refetch,
     sessionsQuery.refetch,
@@ -694,7 +735,7 @@ export function AgentShell() {
     void run();
     const timer = window.setInterval(() => {
       void run();
-    }, turnStream.isStreaming ? 1200 : 3000);
+    }, currentSessionStreaming ? 1200 : 3000);
 
     return () => {
       controller.abort();
@@ -702,9 +743,9 @@ export function AgentShell() {
     };
   }, [
     activeSessionId,
+    currentSessionStreaming,
     handleEvent,
     sessionDetailQuery.data?.cursor,
-    turnStream.isStreaming,
   ]);
 
   const handleSend = async ({ text, mentions }: AgentComposerSubmitPayload) => {
@@ -849,11 +890,11 @@ export function AgentShell() {
       },
     });
 
-    const insertionId = turnStream.isStreaming
+    const insertionId = currentSessionStreaming
       ? appendStreamingInsertion(clientMessageId, text)
       : null;
     const optimisticId =
-      turnStream.isStreaming ? null : appendOptimisticUserMessage(text);
+      currentSessionStreaming ? null : appendOptimisticUserMessage(text);
     try {
       await steerMutation.mutateAsync({
         sessionId: activeSessionId,
@@ -1011,7 +1052,7 @@ export function AgentShell() {
       });
       return;
     }
-    if (!turnStream.isStreaming) {
+    if (!currentSessionStreaming) {
       agentTraceClient.log({
         traceId,
         sessionId: activeSessionId,
@@ -1079,11 +1120,11 @@ export function AgentShell() {
   };
 
   const activeStatus = useMemo(() => {
-    if (turnStream.isStreaming) return statusLabel('running');
+    if (currentSessionStreaming) return statusLabel('running');
     if (activeSession?.archivedAt) return '已归档';
     if (activeSession?.status === 'aborted') return statusLabel('idle');
     return statusLabel(activeSession?.status || 'idle');
-  }, [activeSession, turnStream.isStreaming]);
+  }, [activeSession, currentSessionStreaming]);
 
   const toggleTimelinePanel = () => {
     setShowTimeline((prev) => {
@@ -1145,13 +1186,13 @@ export function AgentShell() {
         </ContextMenuTrigger>
 
         <ContextMenuPopup>
-          <ContextMenuItem onClick={() => void handleCopySessionId(session.id)}>
+          <ContextMenuItem onSelect={() => void handleCopySessionId(session.id)}>
             <Copy className="h-4 w-4" />
             复制 Chat ID
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
-            onClick={() => void handleArchiveSession(session.id, !isArchived)}
+            onSelect={() => void handleArchiveSession(session.id, !isArchived)}
           >
             {isArchived ? (
               <ArchiveRestore className="h-4 w-4" />
@@ -1163,7 +1204,7 @@ export function AgentShell() {
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
-            onClick={() => void handleDeleteSession(session.id)}
+            onSelect={() => void handleDeleteSession(session.id)}
           >
             <Trash2 className="h-4 w-4" />
             删除
@@ -1283,15 +1324,15 @@ export function AgentShell() {
           optimisticUserMessages={optimisticUserMessages}
           streamingInsertions={streamingInsertions}
           events={events}
-          streaming={turnStream.isStreaming}
+          streaming={currentSessionStreaming}
         />
 
         <AgentComposer
           disabled={composerDisabled}
-          streaming={turnStream.isStreaming}
-          steerPending={steerMutation.isPending || promoteFollowUpMutation.isPending}
-          followUpPending={followUpMutation.isPending}
-          abortPending={abortMutation.isPending}
+          streaming={currentSessionStreaming}
+          steerPending={steerPendingForActive || promotePendingForActive}
+          followUpPending={followUpPendingForActive}
+          abortPending={abortPendingForActive}
           focusKey={activeSessionId}
           queuedFollowUps={queuedFollowUps}
           onSend={handleSend}
