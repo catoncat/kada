@@ -31,6 +31,11 @@ function getState(input: Record<string, unknown>): BddState {
   return input as BddState;
 }
 
+function parseOutputKind(value: string): OutputKind {
+  if (value === 'photo' || value === 'copy') return value;
+  throw new Error(`非法 kind 参数: ${value}`);
+}
+
 function toOutputList(value: unknown): OutputItem[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -166,11 +171,33 @@ Then('会话快照中的 outputs 数应为 {int}', async ({ bddState }, expected
 
 Then('outputs 列表按 kind {string} 过滤应仅返回 {int} 条', async ({ bddState }, kindRaw, expected) => {
   const state = getState(bddState);
-  const kind = kindRaw === 'photo' ? 'photo' : 'copy';
+  const kind = parseOutputKind(kindRaw);
   const outputs = state.outputsByKind?.[kind] || [];
   expect(outputs.length).toBe(expected);
   const allMatched = outputs.every((item) => item.kind === kind);
   expect(allMatched).toBeTruthy();
+});
+
+Then('会话快照与 outputs 列表的 ID 集合应一致', async ({ bddState }) => {
+  const state = getState(bddState);
+  const snapshotOutputs = state.snapshotOutputs || [];
+  const byKind = state.outputsByKind || {};
+  const listOutputs = [...(byKind.photo || []), ...(byKind.copy || [])];
+
+  const snapshotIds = new Set(snapshotOutputs.map((item) => item.id));
+  const listIds = new Set(listOutputs.map((item) => item.id));
+
+  expect(snapshotOutputs.length).toBe(snapshotIds.size);
+  expect(listOutputs.length).toBe(listIds.size);
+  expect(snapshotIds.size).toBe(listIds.size);
+
+  for (const id of snapshotIds) {
+    expect(listIds.has(id)).toBeTruthy();
+  }
+
+  for (const id of listIds) {
+    expect(snapshotIds.has(id)).toBeTruthy();
+  }
 });
 
 Then('outputs 列表按 photo turnId 过滤应返回 {int} 条 photo 输出', async ({ bddState }, expected) => {

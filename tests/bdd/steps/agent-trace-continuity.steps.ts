@@ -16,6 +16,7 @@ type TracePage = {
 
 type BddState = Record<string, unknown> & {
   traceId?: string;
+  expectedEvents?: string[];
   firstPage?: TracePage;
   secondPage?: TracePage;
   timelineTotalEvents?: number;
@@ -52,6 +53,7 @@ function toTraceRows(value: unknown): TraceRow[] {
 Given('我写入一组同 traceId 的客户端追踪事件', async ({ request, bddState }) => {
   const state = getState(bddState);
   const traceId = `trace-bdd-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const expectedEvents = ['ui.bdd.trace.start', 'render.bdd.trace.commit'];
 
   const response = await request.post('/api/agent/traces/client-batch', {
     data: {
@@ -59,14 +61,14 @@ Given('我写入一组同 traceId 的客户端追踪事件', async ({ request, b
         {
           traceId,
           channel: 'ui',
-          event: 'ui.bdd.trace.start',
+          event: expectedEvents[0],
           level: 'info',
           data: { step: 1 },
         },
         {
           traceId,
           channel: 'render',
-          event: 'render.bdd.trace.commit',
+          event: expectedEvents[1],
           level: 'info',
           data: { step: 2 },
         },
@@ -84,6 +86,7 @@ Given('我写入一组同 traceId 的客户端追踪事件', async ({ request, b
   expect(payload.accepted).toBe(2);
 
   state.traceId = traceId;
+  state.expectedEvents = expectedEvents;
   state.firstPage = undefined;
   state.secondPage = undefined;
   state.timelineTotalEvents = undefined;
@@ -106,14 +109,17 @@ When('我按 cursor 分页拉取该 trace 日志', async ({ request, bddState })
 
   const firstPayload = (await firstRes.json()) as {
     data?: unknown;
-    cursor?: number;
+    cursor?: unknown;
     total?: number;
   };
 
+  if (typeof firstPayload.cursor !== 'number' || !Number.isFinite(firstPayload.cursor)) {
+    throw new Error(`第一页 cursor 非法: payload=${JSON.stringify(firstPayload)}`);
+  }
+
   const firstPage: TracePage = {
     data: toTraceRows(firstPayload.data),
-    cursor:
-      typeof firstPayload.cursor === 'number' ? firstPayload.cursor : 0,
+    cursor: firstPayload.cursor,
     total: typeof firstPayload.total === 'number' ? firstPayload.total : 0,
   };
 
@@ -128,14 +134,17 @@ When('我按 cursor 分页拉取该 trace 日志', async ({ request, bddState })
 
   const secondPayload = (await secondRes.json()) as {
     data?: unknown;
-    cursor?: number;
+    cursor?: unknown;
     total?: number;
   };
 
+  if (typeof secondPayload.cursor !== 'number' || !Number.isFinite(secondPayload.cursor)) {
+    throw new Error(`第二页 cursor 非法: payload=${JSON.stringify(secondPayload)}`);
+  }
+
   const secondPage: TracePage = {
     data: toTraceRows(secondPayload.data),
-    cursor:
-      typeof secondPayload.cursor === 'number' ? secondPayload.cursor : 0,
+    cursor: secondPayload.cursor,
     total: typeof secondPayload.total === 'number' ? secondPayload.total : 0,
   };
 
@@ -185,6 +194,27 @@ Then('第二页首条 seq 应大于第一页 cursor', async ({ bddState }) => {
   const secondFirstSeq = secondPage?.data[0]?.seq ?? 0;
   const firstCursor = firstPage?.cursor ?? 0;
   expect(secondFirstSeq).toBeGreaterThan(firstCursor);
+});
+
+Then('分页结果应绑定到同一 traceId 且包含写入事件', async ({ bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.traceId).toBe('string');
+  expect(Array.isArray(state.expectedEvents)).toBeTruthy();
+
+  const traceId = state.traceId as string;
+  const expectedEvents = state.expectedEvents as string[];
+  const firstPage = state.firstPage;
+  const secondPage = state.secondPage;
+  const rows = [...(firstPage?.data || []), ...(secondPage?.data || [])];
+
+  expect(rows.length).toBeGreaterThanOrEqual(expectedEvents.length);
+  expect(rows.every((row) => row.traceId === traceId)).toBeTruthy();
+  expect(new Set(rows.map((row) => row.seq)).size).toBe(rows.length);
+
+  const bindings = new Set(rows.map((row) => `${row.traceId}::${row.event}`));
+  for (const event of expectedEvents) {
+    expect(bindings.has(`${traceId}::${event}`)).toBeTruthy();
+  }
 });
 
 Then('该 trace timeline 的 totalEvents 应不少于 {int}', async ({ bddState }, minEvents) => {

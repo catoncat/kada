@@ -16,6 +16,8 @@
 4. 架构与端侧规范：`docs/dev/architecture.md`、`docs/dev/frontend.md`
 5. 重构路线：`docs/refactor/v2-roadmap.md`
 6. BDD 实施计划：`docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md`
+   - 能力映射总览：`docs/specs/agent-chat-bdd-implementation/02-capability-feature-map.md`
+   - Phase 泳道图：`docs/specs/agent-chat-bdd-implementation/03-phase-swimlane.md`
    - 需求评审模板（含 Scenario 清单）：`docs/specs/_templates/feature-intake-with-bdd.md`
 7. 设计先行流程：`docs/dev/skills.md`
 8. 决策记录：`docs/adr/README.md`

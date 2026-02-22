@@ -1,4 +1,4 @@
-@northstar @output-rail
+@northstar @output-rail @phase6
 Feature: 产物栏输出一致性
   作为 Chat-Only 工作台用户
   我希望会话快照与 outputs 列表保持一致
@@ -10,5 +10,6 @@ Feature: 产物栏输出一致性
     Then 会话快照中的 outputs 数应为 2
     And outputs 列表按 kind "photo" 过滤应仅返回 1 条
     And outputs 列表按 kind "copy" 过滤应仅返回 1 条
+    And 会话快照与 outputs 列表的 ID 集合应一致
     And outputs 列表按 photo turnId 过滤应返回 1 条 photo 输出
     And outputs 列表按 copy turnId 过滤应返回 1 条 copy 输出

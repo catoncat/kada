@@ -2,6 +2,8 @@
 
 更新时间：`2026-02-22`
 负责人：`Agent + 产品 + 前端 + Sidecar`
+配套能力映射：`docs/specs/agent-chat-bdd-implementation/02-capability-feature-map.md`
+配套 Phase 泳道：`docs/specs/agent-chat-bdd-implementation/03-phase-swimlane.md`
 
 ---
 
