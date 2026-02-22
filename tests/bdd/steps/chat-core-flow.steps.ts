@@ -54,6 +54,15 @@ function parseExpectedTypes(text: string): string[] {
     .filter(Boolean);
 }
 
+function findLastEventIndex(events: AgentStreamEvent[], type: string): number {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === type) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 async function readSseEvents(response: Response): Promise<AgentStreamEvent[]> {
   const events: AgentStreamEvent[] = [];
   const body = response.body;
@@ -399,6 +408,37 @@ Then('turn 流应包含 steer 入队并应用事件', async ({ bddState }) => {
   expect(queueIndex).toBeGreaterThan(-1);
   expect(appliedIndex).toBeGreaterThan(-1);
   expect(queueIndex).toBeLessThan(appliedIndex);
+});
+
+Then('turn 应以 aborted 语义结束', async ({ bddState }) => {
+  const state = getState(bddState);
+  const events = await resolveTurnEvents(state);
+
+  if (state.turnResponseStatus !== 200) {
+    throw new Error(
+      `turn 响应状态异常: status=${state.turnResponseStatus} body=${state.turnErrorBody || ''}`,
+    );
+  }
+
+  const sessionAbortedIndex = events.findIndex(
+    (event) => event.type === 'session.aborted',
+  );
+  expect(sessionAbortedIndex).toBeGreaterThan(-1);
+
+  const assistantCompletedIndex = findLastEventIndex(events, 'assistant.completed');
+  expect(assistantCompletedIndex).toBeGreaterThan(-1);
+  const assistantCompletedPayload = toPayloadRecord(
+    events[assistantCompletedIndex]?.payload,
+  );
+  expect(assistantCompletedPayload.stopReason).toBe('aborted');
+
+  const turnCompletedIndex = events.findIndex((event) => {
+    if (event.type !== 'turn.completed') return false;
+    const payload = toPayloadRecord(event.payload);
+    return payload.aborted === true;
+  });
+  expect(turnCompletedIndex).toBeGreaterThan(-1);
+  expect(sessionAbortedIndex).toBeLessThan(turnCompletedIndex);
 });
 
 Then('该会话状态最终应为 {string}', async ({ request, bddState }, expectedStatus) => {

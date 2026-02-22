@@ -362,6 +362,9 @@ export function AgentShell() {
           }`}
           data-testid="agent-session-item"
           data-session-id={session.id}
+          data-session-state={isActive ? 'current' : 'idle'}
+          data-session-bucket={isArchived ? 'archived' : 'active'}
+          aria-current={isActive ? 'true' : undefined}
           onClick={() => setActiveSessionId(session.id)}
         >
           <div className="flex items-start gap-2">
@@ -446,6 +449,16 @@ export function AgentShell() {
               >
                 {sortedActiveSessions.length} 个活跃线程
               </p>
+              <span
+                className="sr-only"
+                data-testid="agent-current-session-marker"
+                data-session-id={activeSessionId || ''}
+                data-session-bucket={
+                  activeSession?.archivedAt ? 'archived' : activeSessionId ? 'active' : 'none'
+                }
+              >
+                {activeSessionId || 'none'}
+              </span>
             </div>
             <Button
               size="sm"
@@ -480,7 +493,9 @@ export function AgentShell() {
             </div>
           ) : null}
 
-          {sortedActiveSessions.map(renderSessionItem)}
+          <div data-testid="agent-session-group-active" className="space-y-2">
+            {sortedActiveSessions.map(renderSessionItem)}
+          </div>
 
           {sortedArchivedSessions.length > 0 ? (
             <div className="pt-1">
@@ -502,7 +517,10 @@ export function AgentShell() {
               </button>
 
               {showArchived ? (
-                <div className="mt-1 space-y-1">
+                <div
+                  className="mt-1 space-y-1"
+                  data-testid="agent-session-group-archived"
+                >
                   {sortedArchivedSessions.map(renderSessionItem)}
                 </div>
               ) : null}

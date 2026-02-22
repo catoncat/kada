@@ -22,6 +22,7 @@
     "bdd:gen": "bddgen -c playwright-bdd.config.ts",
     "bdd:test": "pnpm bdd:gen && playwright test -c playwright-bdd.config.ts",
     "bdd:smoke": "bddgen -c playwright-bdd.config.ts --tags \"@smoke and not @wip\" && playwright test -c playwright-bdd.config.ts",
+    "bdd:phase23": "bddgen -c playwright-bdd.config.ts --tags \"(@phase2 or @phase3) and not @wip\" && playwright test -c playwright-bdd.config.ts",
     "bdd:export": "bddgen export -c playwright-bdd.config.ts",
     "bdd:report": "playwright show-report",
     "typecheck": "tsc --noEmit",

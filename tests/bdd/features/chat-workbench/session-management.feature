@@ -11,6 +11,7 @@ Feature: Chat 工作台会话管理
   Scenario: 创建会话后成为当前会话
     When 我新建一个会话
     Then 会话列表里应该出现 1 个活跃会话
+    And 当前会话应被选中
     And 当前状态栏应该显示 "空闲"
 
   Scenario: 会话可以归档后再恢复

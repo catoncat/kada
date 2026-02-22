@@ -1,4 +1,4 @@
-@northstar @chat-core
+@northstar @chat-core @phase3
 Feature: Chat Core 流程编排
   作为 Chat-Only 工作台的用户
   我希望 turn / follow-up / steer / abort 行为稳定可验证
@@ -29,4 +29,5 @@ Feature: Chat Core 流程编排
     When 我启动一个流式 turn "请生成一段较长的响应"
     And 我在 turn 运行中执行 abort
     Then turn 流应包含事件 "session.aborted"
+    And turn 应以 aborted 语义结束
     And 该会话状态最终应为 "aborted"

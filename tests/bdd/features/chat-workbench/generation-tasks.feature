@@ -1,4 +1,4 @@
-@northstar @workflow
+@northstar @workflow @phase2
 Feature: 方案与生图任务编排能力
   作为 Chat-Only 工作台的用户
   我希望底层生成能力能被稳定调用
