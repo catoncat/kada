@@ -33,6 +33,8 @@ tests/bdd/
     multi-session-parity.feature
     resource-context.feature
     task-recovery.feature
+    output-rail-consistency.feature
+    agent-trace-continuity.feature
   steps/
     fixtures.ts
     workspace.steps.ts
@@ -41,6 +43,8 @@ tests/bdd/
     multi-session-parity.steps.ts
     resource-context.steps.ts
     task-recovery.steps.ts
+    output-rail-consistency.steps.ts
+    agent-trace-continuity.steps.ts
     helpers/sqlite-db.ts
 playwright-bdd.config.ts
 ```
@@ -65,7 +69,7 @@ pnpm bdd:report   # 查看报告
 4. 人工评审场景后，再进入编码。
 5. PR 必须附带新/改场景与执行结果。
 
-## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5）
+## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6）
 
 ### Chat 工作台（UI）
 
@@ -109,6 +113,18 @@ pnpm bdd:report   # 查看报告
   - failed 图片任务 retry 回 pending
   - 任务详情 recoveryContext 可回到 `projectResult`
   - replay 同 requestId 命中幂等去重
+
+### 产物栏一致性（Output Rail）
+
+- `output-rail-consistency.feature`
+  - 会话快照 `outputs` 与 `/outputs` 过滤结果一致
+  - kind / turnId 过滤可稳定返回对应产物
+
+### Trace 连续性（Agent Trace）
+
+- `agent-trace-continuity.feature`
+  - `cursor` 分页连续拉取不漏事件
+  - timeline `totalEvents` 与写入量对齐
 
 ## 7. 维护约束
 

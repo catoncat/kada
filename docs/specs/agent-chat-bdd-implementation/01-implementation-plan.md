@@ -33,7 +33,8 @@
 - `f49d1fb`：deterministic runtime 测试模式（Phase 3 支撑）
 - `56ee297`：Chat Core Flow 场景（Phase 3）
 - `7ee4c74`：并发隔离 + 资源上下文场景（Phase 4）
-- `（Phase 5）`：任务恢复与 image mention 完整路径（本轮提交）
+- `21b69e8`：任务恢复与 image mention 完整路径（Phase 5）
+- `（Phase 6）`：output rail + trace continuity 场景（本轮提交）
 
 ### 2.2 已落地文件
 
@@ -48,6 +49,8 @@
   - `tests/bdd/features/chat-workbench/multi-session-parity.feature`
   - `tests/bdd/features/chat-workbench/resource-context.feature`
   - `tests/bdd/features/chat-workbench/task-recovery.feature`
+  - `tests/bdd/features/chat-workbench/output-rail-consistency.feature`
+  - `tests/bdd/features/chat-workbench/agent-trace-continuity.feature`
   - `tests/bdd/steps/fixtures.ts`
   - `tests/bdd/steps/workspace.steps.ts`
   - `tests/bdd/steps/project-generation.steps.ts`
@@ -55,6 +58,8 @@
   - `tests/bdd/steps/multi-session-parity.steps.ts`
   - `tests/bdd/steps/resource-context.steps.ts`
   - `tests/bdd/steps/task-recovery.steps.ts`
+  - `tests/bdd/steps/output-rail-consistency.steps.ts`
+  - `tests/bdd/steps/agent-trace-continuity.steps.ts`
   - `tests/bdd/steps/helpers/sqlite-db.ts`
 - Runtime 测试支撑
   - `sidecar/src/agent/runtime/deterministic-runtime.ts`
@@ -176,13 +181,22 @@ pnpm bdd:report
 - 失败恢复场景已纳入全量 BDD 执行并稳定通过。
 - 每个失败场景包含明确恢复动作断言。
 
-## Phase 6（P2）CI 分层与治理固化
+## Phase 6（进行中，P2）可观测与治理固化
 
 ### 目标
 
-把 BDD 变成团队默认流程，而非临时测试集。
+把 BDD 变成团队默认流程，并补齐“产物栏 + trace”可观测验收。
 
-### 计划任务
+### 已完成任务
+
+1. 新增 `output-rail-consistency.feature`
+   - 会话快照 `outputs` 与 `/outputs` 过滤结果一致
+   - kind / turnId 过滤返回稳定
+2. 新增 `agent-trace-continuity.feature`
+   - trace `cursor` 分页连续拉取
+   - timeline `totalEvents` 不丢失
+
+### 剩余任务
 
 1. CI 分层
    - PR：`bdd:smoke`
@@ -195,7 +209,7 @@ pnpm bdd:report
    - PR 模板要求：关联 feature 文件
    - 需求评审模板：先给 Scenario 清单
 
-### DoD
+### 阶段 DoD
 
 - 所有 Agent 相关 PR 必须关联至少 1 条 BDD 场景。
 - 新需求进入开发前有 feature 草案。
@@ -213,7 +227,8 @@ pnpm bdd:report
 | BDD-005 | multi-session-parity.feature | 多会话并发隔离 | P0 | ✅ |
 | BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | ✅ |
 | BDD-007 | task-recovery.feature | 失败恢复路径 | P1 | ✅ |
-| BDD-008 | output-rail-consistency.feature | 产物链路一致性 | P1 | ⏳ |
+| BDD-008 | output-rail-consistency.feature | 产物链路一致性 | P1 | ✅ |
+| BDD-009 | agent-trace-continuity.feature | trace 连续性与分页一致性 | P1 | ✅ |
 
 ---
 
@@ -242,9 +257,9 @@ pnpm bdd:report
 
 ## 7. 执行顺序（下一轮）
 
-1. 新增 `output-rail-consistency.feature`（产物栏一致性）。
-2. 新增 `agent-trace-continuity.feature`（trace 断线续播一致性）。
-3. CI 增加分层执行（PR smoke + 夜间 full）。
+1. CI 增加分层执行（PR smoke + 夜间 full）。
+2. 在 CI 归档 Playwright HTML + Cucumber JSON + 失败 trace/video。
+3. 更新 PR/需求模板，强制关联 BDD 场景。
 4. 跑通 `bdd:test` 并将失败报告归档。
 
 ---
@@ -261,8 +276,9 @@ pnpm bdd:report
 ## 9. 新对话启动指令（复制即可）
 
 ```text
-请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 6）：
-1) 新增 output-rail-consistency.feature（产物栏一致性）；
-2) 新增 agent-trace-continuity.feature（trace 断线续播）；
-3) 跑 pnpm bdd:test 并提交。
+请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 推进 Phase 6 收口：
+1) CI 分层（PR 跑 bdd:smoke，Nightly 跑 bdd:test）；
+2) 归档 BDD 报告（HTML + Cucumber JSON + 失败 trace/video）；
+3) 更新 PR/需求模板，要求关联 BDD 场景；
+4) 跑 pnpm bdd:test 并提交。
 ```
