@@ -32,6 +32,7 @@ tests/bdd/
     chat-core-flow.feature
     multi-session-parity.feature
     resource-context.feature
+    task-recovery.feature
   steps/
     fixtures.ts
     workspace.steps.ts
@@ -39,6 +40,8 @@ tests/bdd/
     chat-core-flow.steps.ts
     multi-session-parity.steps.ts
     resource-context.steps.ts
+    task-recovery.steps.ts
+    helpers/sqlite-db.ts
 playwright-bdd.config.ts
 ```
 
@@ -62,7 +65,7 @@ pnpm bdd:report   # 查看报告
 4. 人工评审场景后，再进入编码。
 5. PR 必须附带新/改场景与执行结果。
 
-## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3 + Phase 4）
+## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5）
 
 ### Chat 工作台（UI）
 
@@ -97,7 +100,15 @@ pnpm bdd:report   # 查看报告
 
 - `resource-context.feature`
   - 检索 project / scene / model 资源
-  - turn 中同时验证 mention 成功解析与失效降级（drop）
+  - turn 中验证 mention 成功解析与失效降级（drop）
+  - image kind mention 成功解析并写入 turn entry
+
+### 任务恢复（tasks replay / retry）
+
+- `task-recovery.feature`
+  - failed 图片任务 retry 回 pending
+  - 任务详情 recoveryContext 可回到 `projectResult`
+  - replay 同 requestId 命中幂等去重
 
 ## 7. 维护约束
 

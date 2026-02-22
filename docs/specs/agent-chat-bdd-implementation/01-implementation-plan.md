@@ -32,7 +32,8 @@
 - `33fd558`：补充生成任务编排场景（Phase 2）
 - `f49d1fb`：deterministic runtime 测试模式（Phase 3 支撑）
 - `56ee297`：Chat Core Flow 场景（Phase 3）
-- `（Phase 4）`：并发隔离 + 资源上下文场景（本轮提交）
+- `7ee4c74`：并发隔离 + 资源上下文场景（Phase 4）
+- `（Phase 5）`：任务恢复与 image mention 完整路径（本轮提交）
 
 ### 2.2 已落地文件
 
@@ -46,12 +47,15 @@
   - `tests/bdd/features/chat-workbench/chat-core-flow.feature`
   - `tests/bdd/features/chat-workbench/multi-session-parity.feature`
   - `tests/bdd/features/chat-workbench/resource-context.feature`
+  - `tests/bdd/features/chat-workbench/task-recovery.feature`
   - `tests/bdd/steps/fixtures.ts`
   - `tests/bdd/steps/workspace.steps.ts`
   - `tests/bdd/steps/project-generation.steps.ts`
   - `tests/bdd/steps/chat-core-flow.steps.ts`
   - `tests/bdd/steps/multi-session-parity.steps.ts`
   - `tests/bdd/steps/resource-context.steps.ts`
+  - `tests/bdd/steps/task-recovery.steps.ts`
+  - `tests/bdd/steps/helpers/sqlite-db.ts`
 - Runtime 测试支撑
   - `sidecar/src/agent/runtime/deterministic-runtime.ts`
   - `sidecar/src/agent/runtime/runtime-router.ts`
@@ -126,7 +130,7 @@ pnpm bdd:report
 - `@northstar` 标签场景新增 4 条并稳定通过。
 - `pnpm bdd:test` 全量通过，`pnpm bdd:smoke` 保持稳定。
 
-## Phase 4（进行中，P1）资源与上下文注入
+## Phase 4（已完成，P1）资源与上下文注入
 
 ### 目标
 
@@ -140,40 +144,37 @@ pnpm bdd:report
 2. 新增场景：`resource-context.feature`
    - 资源检索覆盖 `project/scene/model`
    - turn 中 mention 成功解析 + 失效降级（drop）
+   - image kind mention 成功解析
 3. 新增步骤实现
    - `multi-session-parity.steps.ts`
    - `resource-context.steps.ts`
 
-### 剩余任务
+### 完成标准（已达成）
 
-- 补充 `image` kind 的 mention 成功路径（当前已覆盖 project/scene/model + drop）。
+- 并发隔离（BDD-005）稳定通过。
+- 资源上下文（BDD-006）含 image 成功路径稳定通过。
 
-### 阶段判定
-
-- 并发隔离（BDD-005）已达成。
-- 资源上下文（BDD-006）已达成核心路径，image 成功路径待补齐。
-
-## Phase 5（P1）任务恢复与可恢复反馈
+## Phase 5（已完成，P1）任务恢复与可恢复反馈
 
 ### 目标
 
 把“失败后下一步怎么做”从文案要求变成可执行验收。
 
-### 计划任务
+### 已完成任务
 
 1. 新增场景：`task-recovery.feature`
-   - 任务失败后返回可恢复动作
+   - failed 图片任务 retry 回 pending
    - replay/retry 行为正确
-   - 缺少上下文时仍可回到来源
+   - replay 同 requestId 命中幂等去重
 2. 新增 steps：`task-recovery.steps.ts`
-3. 校验点
+3. 校验点落地
    - `/api/tasks/:id/detail` recoveryContext
-   - 失败状态 + 下一步动作可执行
+   - 失败任务可执行下一步动作（retry/replay）
 
-### DoD
+### 完成标准（已达成）
 
-- 失败路径覆盖率 >= 成功路径的 50%。
-- 每个失败场景都包含“恢复动作”断言。
+- 失败恢复场景已纳入全量 BDD 执行并稳定通过。
+- 每个失败场景包含明确恢复动作断言。
 
 ## Phase 6（P2）CI 分层与治理固化
 
@@ -210,8 +211,8 @@ pnpm bdd:report
 | BDD-003 | generation-tasks.feature | 生成任务编排 | P0 | ✅ |
 | BDD-004 | chat-core-flow.feature | turn/steer/follow-up/abort | P0 | ✅ |
 | BDD-005 | multi-session-parity.feature | 多会话并发隔离 | P0 | ✅ |
-| BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | 🟡 |
-| BDD-007 | task-recovery.feature | 失败恢复路径 | P1 | ⏳ |
+| BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | ✅ |
+| BDD-007 | task-recovery.feature | 失败恢复路径 | P1 | ✅ |
 | BDD-008 | output-rail-consistency.feature | 产物链路一致性 | P1 | ⏳ |
 
 ---
@@ -241,9 +242,9 @@ pnpm bdd:report
 
 ## 7. 执行顺序（下一轮）
 
-1. 补齐 `resource-context.feature` 的 image kind 成功路径。
-2. 新增 `task-recovery.feature`（失败恢复动作可执行）。
-3. 新增 `output-rail-consistency.feature`（产物栏一致性）。
+1. 新增 `output-rail-consistency.feature`（产物栏一致性）。
+2. 新增 `agent-trace-continuity.feature`（trace 断线续播一致性）。
+3. CI 增加分层执行（PR smoke + 夜间 full）。
 4. 跑通 `bdd:test` 并将失败报告归档。
 
 ---
@@ -260,8 +261,8 @@ pnpm bdd:report
 ## 9. 新对话启动指令（复制即可）
 
 ```text
-请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 5）：
-1) 补齐 resource-context 的 image kind 成功路径；
-2) 新增 task-recovery.feature（失败恢复动作可执行）；
+请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 6）：
+1) 新增 output-rail-consistency.feature（产物栏一致性）；
+2) 新增 agent-trace-continuity.feature（trace 断线续播）；
 3) 跑 pnpm bdd:test 并提交。
 ```
