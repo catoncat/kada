@@ -105,3 +105,31 @@ INSERT INTO generation_artifacts (
 
   return { artifactId, runId };
 }
+
+export function seedAgentOutput(input: {
+  sessionId: string;
+  turnId: string;
+  kind: 'photo' | 'copy';
+  refId?: string;
+  content?: Record<string, unknown>;
+}): { outputId: string } {
+  const outputId = `ao_${randomUUID()}`;
+  const contentJson = JSON.stringify(input.content ?? null);
+  const refIdSql = input.refId ? quote(input.refId) : 'NULL';
+
+  runSql(`
+INSERT INTO agent_outputs (
+  id, session_id, turn_id, kind, ref_id, content_json, created_at
+) VALUES (
+  ${quote(outputId)},
+  ${quote(input.sessionId)},
+  ${quote(input.turnId)},
+  ${quote(input.kind)},
+  ${refIdSql},
+  ${quote(contentJson)},
+  unixepoch()
+);
+`);
+
+  return { outputId };
+}
