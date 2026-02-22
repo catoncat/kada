@@ -115,6 +115,21 @@ jobs:
       - name: BDD full suite
         run: pnpm bdd:test
 
+      - name: Build nightly flaky summary
+        if: always()
+        run: node .github/scripts/bdd-flaky-summary.mjs
+
+      - name: Upload nightly flaky summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-nightly-flaky-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/flaky/nightly-flaky-summary.json
+            test-results/flaky/nightly-flaky-summary.md
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload full BDD artifacts
         if: always()
         uses: actions/upload-artifact@v4

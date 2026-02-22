@@ -23,6 +23,7 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['html', { open: 'never' }],
+    ['json', { outputFile: 'test-results/playwright-bdd.json' }],
     cucumberReporter('json', {
       outputFile: 'test-results/cucumber-bdd.json',
     }),
