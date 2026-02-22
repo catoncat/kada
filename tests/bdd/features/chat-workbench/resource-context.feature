@@ -1,4 +1,4 @@
-@northstar @resource
+@northstar @resource @phase4
 Feature: 资源检索与 mention 上下文注入
   作为 Chat-Only 工作台的用户
   我希望在对话中稳定引用项目资源
@@ -15,7 +15,7 @@ Feature: 资源检索与 mention 上下文注入
     Given 我准备了资源上下文验证数据
     When 我发送包含有效与失效 mention 的 turn
     Then 本轮 user entry 应包含 1 条解析成功 mention
-    And 本轮 user entry 应包含 1 条 mention drop 且原因包含 "resource_not_found"
+    And 本轮 user entry 应包含 1 条 mention drop 且 mentionId 为 "m-project-missing" 且原因包含 "resource_not_found"
     And mention 场景执行后会话状态应为 "idle"
 
   Scenario: image mention 能被成功解析并写入 turn entry
@@ -23,5 +23,14 @@ Feature: 资源检索与 mention 上下文注入
     And 我写入一条可检索的图片产物
     When 我发送仅包含有效 image mention 的 turn
     Then 本轮 user entry 应包含 1 条 kind 为 "image" 的 mention
+    And 本轮 user entry 的 image mention 应绑定已写入图片产物
     And 本轮 user entry mention drop 数应为 0
+    And mention 场景执行后会话状态应为 "idle"
+
+  Scenario: image mention 子图失效时写入 image_not_found 降级信息
+    Given 我准备了资源上下文验证数据
+    And 我写入一条可检索的图片产物
+    When 我发送包含失效图片引用的 image mention turn
+    Then 本轮 user entry 应包含 1 条 kind 为 "image" 的 mention
+    And 本轮 user entry 应包含 1 条 mention drop 且 mentionId 为 "m-image-invalid-ref" 且原因包含 "image_not_found"
     And mention 场景执行后会话状态应为 "idle"

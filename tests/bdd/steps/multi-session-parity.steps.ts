@@ -49,6 +49,58 @@ function buildClientMessageId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function takeNextSseBlock(
+  source: string,
+): {
+  rawBlock: string;
+  rest: string;
+} | null {
+  const match = /\r?\n\r?\n/.exec(source);
+  if (!match || typeof match.index !== 'number') return null;
+  return {
+    rawBlock: source.slice(0, match.index),
+    rest: source.slice(match.index + match[0].length),
+  };
+}
+
+function parseSseDataPayload(rawBlock: string): string | null {
+  const dataLines = rawBlock
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.replace(/^data:\s*/, ''));
+
+  if (dataLines.length === 0) return null;
+  const payload = dataLines.join('\n').trim();
+  return payload || null;
+}
+
+function appendParsedEvent(events: StreamEvent[], rawPayload: string): void {
+  try {
+    const parsed = JSON.parse(rawPayload) as {
+      event?: {
+        type?: unknown;
+        sessionId?: unknown;
+      };
+    };
+
+    if (!parsed.event || typeof parsed.event.type !== 'string') {
+      return;
+    }
+
+    events.push({
+      type: parsed.event.type,
+      sessionId:
+        typeof parsed.event.sessionId === 'string' ? parsed.event.sessionId : null,
+    });
+  } catch {
+    // ignore malformed chunk
+  }
+}
+
 async function readSseEvents(response: Response): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   const body = response.body;
@@ -65,43 +117,19 @@ async function readSseEvents(response: Response): Promise<StreamEvent[]> {
     buffer += decoder.decode(value, { stream: true });
 
     while (true) {
-      const blockEnd = buffer.indexOf('\n\n');
-      if (blockEnd < 0) break;
+      const next = takeNextSseBlock(buffer);
+      if (!next) break;
+      buffer = next.rest;
 
-      const rawBlock = buffer.slice(0, blockEnd);
-      buffer = buffer.slice(blockEnd + 2);
-
-      const line = rawBlock
-        .split('\n')
-        .find((item) => item.startsWith('data:'));
-      if (!line) continue;
-
-      const rawPayload = line.replace(/^data:\s*/, '').trim();
+      const rawPayload = parseSseDataPayload(next.rawBlock);
       if (!rawPayload) continue;
-
-      try {
-        const parsed = JSON.parse(rawPayload) as {
-          event?: {
-            type?: unknown;
-            sessionId?: unknown;
-          };
-        };
-
-        if (!parsed.event || typeof parsed.event.type !== 'string') {
-          continue;
-        }
-
-        events.push({
-          type: parsed.event.type,
-          sessionId:
-            typeof parsed.event.sessionId === 'string'
-              ? parsed.event.sessionId
-              : null,
-        });
-      } catch {
-        // ignore malformed chunk
-      }
+      appendParsedEvent(events, rawPayload);
     }
+  }
+
+  const trailingPayload = parseSseDataPayload(buffer);
+  if (trailingPayload) {
+    appendParsedEvent(events, trailingPayload);
   }
 
   return events;
@@ -160,22 +188,71 @@ async function readSessionStatus(
   return payload.status;
 }
 
-async function waitForStatus(
+async function waitForConcurrentRunning(
   request: APIRequestContext,
-  sessionId: string,
-  expected: string,
+  sessionAId: string,
+  sessionBId: string,
   timeoutMs = 8_000,
 ): Promise<void> {
   const startedAt = Date.now();
+  let sawRunningA = false;
+  let sawRunningB = false;
+  let latestA = 'unknown';
+  let latestB = 'unknown';
 
   while (Date.now() - startedAt < timeoutMs) {
-    const status = await readSessionStatus(request, sessionId);
-    if (status === expected) return;
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    const [statusA, statusB] = await Promise.all([
+      readSessionStatus(request, sessionAId),
+      readSessionStatus(request, sessionBId),
+    ]);
+
+    latestA = statusA;
+    latestB = statusB;
+    sawRunningA = sawRunningA || statusA === 'running';
+    sawRunningB = sawRunningB || statusB === 'running';
+
+    if (statusA === 'running' && statusB === 'running') return;
+    await sleep(20);
   }
 
-  const latest = await readSessionStatus(request, sessionId);
-  throw new Error(`等待会话状态超时: expected=${expected}, actual=${latest}`);
+  throw new Error(
+    `未观察到并发运行窗口: sawRunningA=${sawRunningA} sawRunningB=${sawRunningB} latestA=${latestA} latestB=${latestB}`,
+  );
+}
+
+async function abortSessionWithRetry(
+  request: APIRequestContext,
+  sessionId: string,
+  timeoutMs = 8_000,
+): Promise<void> {
+  const startedAt = Date.now();
+  let latestAbortStatus = -1;
+  let latestAbortBody = '';
+  let latestSessionStatus = 'unknown';
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await request.post(`/api/agent/sessions/${sessionId}/abort`, {
+      data: {},
+    });
+    latestAbortStatus = response.status();
+    latestAbortBody = await response.text();
+
+    if (response.ok()) return;
+    if (response.status() !== 409) {
+      throw new Error(
+        `执行 abort 失败: status=${response.status()} body=${latestAbortBody}`,
+      );
+    }
+
+    latestSessionStatus = await readSessionStatus(request, sessionId);
+    if (latestSessionStatus === 'aborted') return;
+
+    await sleep(80);
+  }
+
+  throw new Error(
+    `执行 abort 超时: latestAbortStatus=${latestAbortStatus} latestSessionStatus=${latestSessionStatus} body=${latestAbortBody}`,
+  );
 }
 
 function getSessionId(state: BddState, key: SessionKey): string {
@@ -251,17 +328,15 @@ When('我在会话 {word} 运行中执行 abort', async ({ request, bddState }, 
   const key = toSessionKey(keyRaw);
   const sessionId = getSessionId(state, key);
 
-  await waitForStatus(request, sessionId, 'running');
+  await abortSessionWithRetry(request, sessionId);
+});
 
-  const response = await request.post(`/api/agent/sessions/${sessionId}/abort`, {
-    data: {},
-  });
+Then('两个会话应出现并发运行窗口', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  const sessionAId = getSessionId(state, 'A');
+  const sessionBId = getSessionId(state, 'B');
 
-  if (!response.ok()) {
-    throw new Error(
-      `会话 ${key} abort 失败: status=${response.status()} body=${await response.text()}`,
-    );
-  }
+  await waitForConcurrentRunning(request, sessionAId, sessionBId);
 });
 
 Then(
@@ -272,9 +347,15 @@ Then(
     const otherKey = toSessionKey(otherKeyRaw);
 
     const events = await resolveEvents(state, currentKey);
+    const currentSessionId = getSessionId(state, currentKey);
     const otherSessionId = getSessionId(state, otherKey);
 
     expect(events.length).toBeGreaterThan(0);
+    const hasCurrent = events.some(
+      (event) => event.sessionId === currentSessionId,
+    );
+    expect(hasCurrent).toBeTruthy();
+
     const mixed = events.some((event) => event.sessionId === otherSessionId);
     expect(mixed).toBeFalsy();
   },

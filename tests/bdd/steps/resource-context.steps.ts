@@ -3,6 +3,10 @@ import { seedImageArtifact } from './helpers/sqlite-db';
 import { expect, Given, Then, When } from './fixtures';
 
 const DETERMINISTIC_PROVIDER_ID = '__bdd_deterministic__';
+const MENTION_ID_SCENE_VALID = 'm-scene-valid';
+const MENTION_ID_PROJECT_MISSING = 'm-project-missing';
+const MENTION_ID_IMAGE_VALID = 'm-image-valid';
+const MENTION_ID_IMAGE_INVALID_REF = 'm-image-invalid-ref';
 
 interface StreamEvent {
   type: string;
@@ -43,6 +47,59 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function takeNextSseBlock(
+  source: string,
+): {
+  rawBlock: string;
+  rest: string;
+} | null {
+  const match = /\r?\n\r?\n/.exec(source);
+  if (!match || typeof match.index !== 'number') return null;
+  return {
+    rawBlock: source.slice(0, match.index),
+    rest: source.slice(match.index + match[0].length),
+  };
+}
+
+function parseSseDataPayload(rawBlock: string): string | null {
+  const dataLines = rawBlock
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.replace(/^data:\s*/, ''));
+
+  if (dataLines.length === 0) return null;
+  const payload = dataLines.join('\n').trim();
+  return payload || null;
+}
+
+function appendParsedEvent(events: StreamEvent[], rawPayload: string): void {
+  try {
+    const parsed = JSON.parse(rawPayload) as {
+      event?: {
+        type?: unknown;
+        turnId?: unknown;
+        payload?: unknown;
+      };
+    };
+
+    if (!parsed.event || typeof parsed.event.type !== 'string') {
+      return;
+    }
+
+    events.push({
+      type: parsed.event.type,
+      turnId: typeof parsed.event.turnId === 'string' ? parsed.event.turnId : null,
+      payload: toRecord(parsed.event.payload),
+    });
+  } catch {
+    // ignore malformed payload
+  }
+}
+
 async function readSseEvents(response: Response): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   const body = response.body;
@@ -59,43 +116,19 @@ async function readSseEvents(response: Response): Promise<StreamEvent[]> {
     buffer += decoder.decode(value, { stream: true });
 
     while (true) {
-      const blockEnd = buffer.indexOf('\n\n');
-      if (blockEnd < 0) break;
+      const next = takeNextSseBlock(buffer);
+      if (!next) break;
+      buffer = next.rest;
 
-      const rawBlock = buffer.slice(0, blockEnd);
-      buffer = buffer.slice(blockEnd + 2);
-
-      const line = rawBlock
-        .split('\n')
-        .find((item) => item.startsWith('data:'));
-      if (!line) continue;
-
-      const rawPayload = line.replace(/^data:\s*/, '').trim();
+      const rawPayload = parseSseDataPayload(next.rawBlock);
       if (!rawPayload) continue;
-
-      try {
-        const parsed = JSON.parse(rawPayload) as {
-          event?: {
-            type?: unknown;
-            turnId?: unknown;
-            payload?: unknown;
-          };
-        };
-
-        if (!parsed.event || typeof parsed.event.type !== 'string') {
-          continue;
-        }
-
-        events.push({
-          type: parsed.event.type,
-          turnId:
-            typeof parsed.event.turnId === 'string' ? parsed.event.turnId : null,
-          payload: toRecord(parsed.event.payload),
-        });
-      } catch {
-        // ignore malformed payload
-      }
+      appendParsedEvent(events, rawPayload);
     }
+  }
+
+  const trailingPayload = parseSseDataPayload(buffer);
+  if (trailingPayload) {
+    appendParsedEvent(events, trailingPayload);
   }
 
   return events;
@@ -122,34 +155,40 @@ async function readSessionStatus(
 async function fetchTurnUserEntry(request: APIRequestContext, state: BddState) {
   expect(typeof state.agentSessionId).toBe('string');
   expect(typeof state.mentionTurnId).toBe('string');
+  const startedAt = Date.now();
+  const timeoutMs = 8_000;
+  let latestCount = 0;
 
-  const response = await request.get(
-    `/api/agent/sessions/${state.agentSessionId}/entries?turnId=${encodeURIComponent(
-      state.mentionTurnId || '',
-    )}`,
-  );
-
-  if (!response.ok()) {
-    throw new Error(
-      `读取 entries 失败: status=${response.status()} body=${await response.text()}`,
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await request.get(
+      `/api/agent/sessions/${state.agentSessionId}/entries?turnId=${encodeURIComponent(
+        state.mentionTurnId || '',
+      )}`,
     );
+
+    if (!response.ok()) {
+      throw new Error(
+        `读取 entries 失败: status=${response.status()} body=${await response.text()}`,
+      );
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ entryType?: string; payload?: unknown }>;
+    };
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    latestCount = data.length;
+
+    const userEntry = data.find((entry) => {
+      if (entry.entryType !== 'user') return false;
+      const row = toRecord(entry.payload);
+      return row.mode === 'turn';
+    });
+
+    if (userEntry) return userEntry;
+    await sleep(80);
   }
 
-  const payload = (await response.json()) as {
-    data?: Array<{ entryType?: string; payload?: unknown }>;
-  };
-
-  const userEntry = (payload.data || []).find((entry) => {
-    if (entry.entryType !== 'user') return false;
-    const row = toRecord(entry.payload);
-    return row.mode === 'turn';
-  });
-
-  if (!userEntry) {
-    throw new Error('未找到本轮 user turn entry');
-  }
-
-  return userEntry;
+  throw new Error(`未找到本轮 user turn entry: total=${latestCount}`);
 }
 
 Given('我准备了资源上下文验证数据', async ({ request, bddState }) => {
@@ -302,14 +341,14 @@ When('我发送包含有效与失效 mention 的 turn', async ({ bddState }) => 
         clientMessageId: buildClientMessageId('cm-resource'),
         mentions: [
           {
-            mentionId: 'm-scene-valid',
+            mentionId: MENTION_ID_SCENE_VALID,
             kind: 'scene',
             resourceId: state.sceneId,
             resourceTitle: state.sceneTitle,
             images: [],
           },
           {
-            mentionId: 'm-project-missing',
+            mentionId: MENTION_ID_PROJECT_MISSING,
             kind: 'project',
             resourceId: `missing-${Date.now()}`,
             resourceTitle: 'missing-project',
@@ -359,11 +398,17 @@ When('我发送仅包含有效 image mention 的 turn', async ({ bddState }) => 
         clientMessageId: buildClientMessageId('cm-resource-image'),
         mentions: [
           {
-            mentionId: 'm-image-valid',
+            mentionId: MENTION_ID_IMAGE_VALID,
             kind: 'image',
             resourceId: state.imageArtifactId,
             resourceTitle: 'bdd-image',
-            images: [],
+            images: [
+              {
+                id: state.imageArtifactId,
+                resourceId: state.imageArtifactId,
+                filePath: null,
+              },
+            ],
           },
         ],
       }),
@@ -373,6 +418,62 @@ When('我发送仅包含有效 image mention 的 turn', async ({ bddState }) => 
   if (!response.ok) {
     throw new Error(
       `image mention turn 失败: status=${response.status} body=${await response.text()}`,
+    );
+  }
+
+  const events = await readSseEvents(response);
+  state.mentionTurnEvents = events;
+
+  const turnId =
+    events.find((event) => event.type === 'turn.started')?.turnId ||
+    events.find((event) => typeof event.turnId === 'string')?.turnId ||
+    null;
+
+  if (!turnId) {
+    throw new Error('无法从 SSE 中解析 turnId');
+  }
+
+  state.mentionTurnId = turnId;
+});
+
+When('我发送包含失效图片引用的 image mention turn', async ({ bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.agentSessionId).toBe('string');
+  expect(typeof state.imageArtifactId).toBe('string');
+
+  const apiBaseUrl = buildApiBaseUrl();
+  const response = await fetch(
+    `${apiBaseUrl}/api/agent/sessions/${state.agentSessionId}/turn`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: '请参考这张图片，并尝试读取一个不存在的子图引用',
+        clientMessageId: buildClientMessageId('cm-resource-image-missing'),
+        mentions: [
+          {
+            mentionId: MENTION_ID_IMAGE_INVALID_REF,
+            kind: 'image',
+            resourceId: state.imageArtifactId,
+            resourceTitle: 'bdd-image',
+            images: [
+              {
+                id: 'missing-image-ref',
+                resourceId: `missing-image-${Date.now()}`,
+                filePath: '/uploads/missing-image-ref.png',
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `invalid image mention turn 失败: status=${response.status} body=${await response.text()}`,
     );
   }
 
@@ -401,8 +502,8 @@ Then('本轮 user entry 应包含 {int} 条解析成功 mention', async ({ reque
 });
 
 Then(
-  '本轮 user entry 应包含 {int} 条 mention drop 且原因包含 {string}',
-  async ({ request, bddState }, expectedCount, reasonKeyword) => {
+  '本轮 user entry 应包含 {int} 条 mention drop 且 mentionId 为 {string} 且原因包含 {string}',
+  async ({ request, bddState }, expectedCount, mentionId, reasonKeyword) => {
     const state = getState(bddState);
     const userEntry = await fetchTurnUserEntry(request, state);
 
@@ -413,9 +514,16 @@ Then(
 
     expect(mentionDrops.length).toBe(expectedCount);
 
+    const mentionIdMatched = mentionDrops.some((item) => {
+      const row = toRecord(item);
+      return row.mentionId === mentionId;
+    });
+    expect(mentionIdMatched).toBeTruthy();
+
     const reasonMatched = mentionDrops.some((item) => {
       const row = toRecord(item);
       return (
+        row.mentionId === mentionId &&
         typeof row.reason === 'string' &&
         row.reason.toLowerCase().includes(reasonKeyword.toLowerCase())
       );
@@ -437,6 +545,34 @@ Then('本轮 user entry 应包含 {int} 条 kind 为 {string} 的 mention', asyn
   });
 
   expect(matched.length).toBe(expectedCount);
+});
+
+Then('本轮 user entry 的 image mention 应绑定已写入图片产物', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.imageArtifactId).toBe('string');
+
+  const userEntry = await fetchTurnUserEntry(request, state);
+  const userPayload = toRecord(userEntry.payload);
+  const mentions = Array.isArray(userPayload.mentions) ? userPayload.mentions : [];
+  const imageArtifactId = state.imageArtifactId || '';
+
+  const imageMention = mentions.find((item) => {
+    const row = toRecord(item);
+    return row.mentionId === MENTION_ID_IMAGE_VALID && row.kind === 'image';
+  });
+  expect(imageMention).toBeTruthy();
+
+  const imageMentionRow = toRecord(imageMention);
+  expect(imageMentionRow.resourceId).toBe(imageArtifactId);
+
+  const images = Array.isArray(imageMentionRow.images) ? imageMentionRow.images : [];
+  expect(images.length).toBeGreaterThan(0);
+
+  const hasBoundImage = images.some((item) => {
+    const row = toRecord(item);
+    return row.resourceId === imageArtifactId;
+  });
+  expect(hasBoundImage).toBeTruthy();
 });
 
 Then('本轮 user entry mention drop 数应为 {int}', async ({ request, bddState }, expectedCount) => {
