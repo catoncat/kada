@@ -2,6 +2,8 @@
 
 更新时间：`2026-02-22`
 
+关联执行蓝图：`docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md`
+
 ## 1. 目标
 
 把 `feature` 变成产品改造的可执行真相源：

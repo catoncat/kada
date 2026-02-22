@@ -15,8 +15,9 @@
    - Chat-First BDD 框架：`docs/dev/agent-chat-bdd-framework.md`
 4. 架构与端侧规范：`docs/dev/architecture.md`、`docs/dev/frontend.md`
 5. 重构路线：`docs/refactor/v2-roadmap.md`
-6. 设计先行流程：`docs/dev/skills.md`
-7. 决策记录：`docs/adr/README.md`
+6. BDD 实施计划：`docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md`
+7. 设计先行流程：`docs/dev/skills.md`
+8. 决策记录：`docs/adr/README.md`
 
 ## 目录说明
 
