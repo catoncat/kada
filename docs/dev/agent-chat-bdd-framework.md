@@ -52,7 +52,24 @@ pnpm bdd:report   # 查看报告
 4. 人工评审场景后，再进入编码。
 5. PR 必须附带新/改场景与执行结果。
 
-## 6. 维护约束
+## 6. 当前已落地场景（Phase 1 + Phase 2）
+
+### Chat 工作台（UI）
+
+- `session-management.feature`
+  - 创建会话
+  - 归档/恢复会话
+  - 删除会话
+- `error-recovery.feature`
+  - 未配置 Provider 时的可诊断错误提示
+
+### 生成编排能力（API 合约）
+
+- `generation-tasks.feature`
+  - 预览预案 prompt + 创建预案任务
+  - 创建图片任务 + 校验恢复上下文 `sourceType=projectResult`
+
+## 7. 维护约束
 
 1. 一条 Scenario 只表达一个行为规则。
 2. 避免实现细节导向步骤（描述 what，不描述 how）。
