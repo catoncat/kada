@@ -1051,10 +1051,44 @@ agentRoutes.post('/sessions/:id/turn', async (c) => {
             closeStream('error');
           });
 
+        const abortRuntimeAfterClientDisconnect = async () => {
+          try {
+            const stillRunning = await runtimeRouter.isRunning(sessionId);
+            if (!stillRunning) return;
+
+            await appendTraceLog({
+              sessionId,
+              turnId,
+              clientMessageId,
+              channel: 'api',
+              event: 'api.stream.client_abort_runtime_abort',
+              level: 'warn',
+              data: { action: 'turn' },
+            });
+
+            await runtimeRouter.abort(sessionId);
+          } catch (error) {
+            await appendTraceLog({
+              sessionId,
+              turnId,
+              clientMessageId,
+              channel: 'api',
+              event: 'api.stream.client_abort_runtime_abort_failed',
+              level: 'warn',
+              ok: false,
+              data: {
+                action: 'turn',
+                message: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+        };
+
         c.req.raw.signal.addEventListener(
           'abort',
           () => {
             closeStream('client');
+            void abortRuntimeAfterClientDisconnect();
           },
           { once: true },
         );

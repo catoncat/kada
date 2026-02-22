@@ -21,6 +21,7 @@ const EMPTY_DRAFT: MentionComposerValue = {
 };
 
 export function AgentComposer({
+  sessionId,
   disabled,
   streaming,
   steerPending,
@@ -34,6 +35,7 @@ export function AgentComposer({
   onSteerQueuedFollowUp,
   onAbort,
 }: {
+  sessionId?: string | null;
   disabled?: boolean;
   streaming: boolean;
   steerPending?: boolean;
@@ -51,17 +53,27 @@ export function AgentComposer({
   onAbort: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<MentionComposerValue>(EMPTY_DRAFT);
-  const [submittingAction, setSubmittingAction] = useState<
-    'send' | 'steer' | 'follow-up' | 'abort' | null
-  >(null);
+  const [submittingState, setSubmittingState] = useState<{
+    action: 'send' | 'steer' | 'follow-up' | 'abort';
+    ownerSessionId: string | null;
+    token: string;
+  } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const imeComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
+  const currentSessionId = sessionId || null;
 
   const text = draft.text.trim();
+  const submittingAction = submittingState?.action || null;
+  const isSubmittingCurrentSession =
+    submittingState?.ownerSessionId === currentSessionId;
+  const currentSubmittingAction = isSubmittingCurrentSession
+    ? submittingAction
+    : null;
   // sending 阶段只在“尚未进入 streaming”时阻塞，进入 streaming 后应允许继续排队/steer
   const submitting =
-    submittingAction !== null && !(submittingAction === 'send' && streaming);
+    Boolean(currentSubmittingAction) &&
+    !(currentSubmittingAction === 'send' && streaming);
   const anyPending =
     submitting ||
     disabled ||
@@ -71,7 +83,7 @@ export function AgentComposer({
   const inputDisabled =
     Boolean(disabled) ||
     Boolean(abortPending) ||
-    (submittingAction === 'send' && !streaming);
+    (currentSubmittingAction === 'send' && !streaming);
 
   useEffect(() => {
     if (!focusKey) return;
@@ -127,7 +139,7 @@ export function AgentComposer({
     primaryAction.action === 'abort'
       ? Boolean(disabled) ||
         Boolean(abortPending) ||
-        submittingAction === 'abort'
+        currentSubmittingAction === 'abort'
       : !primaryAction.payload.text.trim() || anyPending;
 
   const run = async (
@@ -143,7 +155,12 @@ export function AgentComposer({
 
     const prevDraft = draft;
     setDraft(EMPTY_DRAFT);
-    setSubmittingAction(action);
+    const token = `submit_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    setSubmittingState({
+      action,
+      ownerSessionId: currentSessionId,
+      token,
+    });
     try {
       await fn({
         text: normalized,
@@ -153,7 +170,10 @@ export function AgentComposer({
       setDraft(prevDraft);
       throw error;
     } finally {
-      setSubmittingAction(null);
+      setSubmittingState((prev) => {
+        if (!prev || prev.token !== token) return prev;
+        return null;
+      });
     }
   };
 
@@ -162,15 +182,23 @@ export function AgentComposer({
       !streaming ||
       Boolean(disabled) ||
       Boolean(abortPending) ||
-      submittingAction === 'abort'
+      currentSubmittingAction === 'abort'
     ) {
       return;
     }
-    setSubmittingAction('abort');
+    const token = `abort_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    setSubmittingState({
+      action: 'abort',
+      ownerSessionId: currentSessionId,
+      token,
+    });
     try {
       await onAbort();
     } finally {
-      setSubmittingAction(null);
+      setSubmittingState((prev) => {
+        if (!prev || prev.token !== token) return prev;
+        return null;
+      });
     }
   };
 
@@ -271,11 +299,11 @@ export function AgentComposer({
           aria-label={primaryAction.label}
         >
           {(primaryAction.action === 'abort' &&
-            (submittingAction === 'abort' || Boolean(abortPending))) ||
+            (currentSubmittingAction === 'abort' || Boolean(abortPending))) ||
           (streaming &&
-            (submittingAction === 'follow-up' ||
-              submittingAction === 'steer')) ||
-          (!streaming && submittingAction === 'send') ? (
+            (currentSubmittingAction === 'follow-up' ||
+              currentSubmittingAction === 'steer')) ||
+          (!streaming && currentSubmittingAction === 'send') ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : primaryAction.action === 'abort' ? (
             <StopCircle className="h-4 w-4" />

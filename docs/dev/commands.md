@@ -2,7 +2,7 @@
 
 ## 前置要求
 
-- Node.js 22+
+- Node.js `25.x`（建议 `25.0.0`，避免 `better-sqlite3` ABI 漂移）
 - pnpm 9+
 - Rust toolchain（仅在运行/打包 Tauri 时需要）
 

@@ -1,10 +1,10 @@
-import { apiUrl } from '@/lib/api-config';
 import { agentTraceClient } from '@/lib/agent-trace-client';
+import { apiUrl } from '@/lib/api-config';
 import type {
   AgentApiErrorCode,
+  AgentCapabilities,
   AgentEntry,
   AgentMention,
-  AgentCapabilities,
   AgentMentionImageRef,
   AgentMentionKind,
   AgentOutput,
@@ -111,6 +111,16 @@ function createJsonHeaders(input?: {
   return headers;
 }
 
+function logAgentSessionApi(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  console.info('[AgentSessionApi]', event, {
+    at: new Date().toISOString(),
+    ...(payload || {}),
+  });
+}
+
 function enrichErrorWithTraceMeta(
   error: AgentApiError,
   response: Response | null,
@@ -180,12 +190,22 @@ export async function updateAgentSession(
     archived?: boolean;
   },
 ): Promise<AgentSessionSummary> {
+  logAgentSessionApi('update.request', {
+    sessionId,
+    input,
+  });
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   const data = await readJson(res);
+  logAgentSessionApi('update.response', {
+    sessionId,
+    ok: res.ok,
+    status: res.status,
+    body: data,
+  });
   if (!res.ok) {
     throw toApiError(res, data, '更新 Agent 会话失败');
   }
@@ -193,10 +213,17 @@ export async function updateAgentSession(
 }
 
 export async function deleteAgentSession(sessionId: string): Promise<void> {
+  logAgentSessionApi('delete.request', { sessionId });
   const res = await fetch(apiUrl(`/api/agent/sessions/${sessionId}`), {
     method: 'DELETE',
   });
   const data = await readJson(res);
+  logAgentSessionApi('delete.response', {
+    sessionId,
+    ok: res.ok,
+    status: res.status,
+    body: data,
+  });
   if (!res.ok) {
     throw toApiError(res, data, '删除 Agent 会话失败');
   }

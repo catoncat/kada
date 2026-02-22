@@ -406,7 +406,7 @@ export class RuntimeRouter {
     const runtime = await this.ensureRuntime(sessionId);
     await runtime.abort();
     await setAgentSessionStatus(sessionId, 'aborted');
-    this.releaseTurnGate(sessionId);
+    // Gate release must happen in runTurn() finally after the running turn fully exits.
   }
 
   async isRunning(sessionId: string): Promise<boolean> {

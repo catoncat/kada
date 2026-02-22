@@ -170,4 +170,58 @@ describe('AgentMessageList scroll behavior', () => {
 
     vi.useRealTimers();
   });
+
+  it('clears settling tool rows when switching to another session', () => {
+    vi.useFakeTimers();
+    const events: AgentTurnEvent[] = [
+      {
+        type: 'turn.started',
+        sessionId: 'session-1',
+        turnId: 'turn-stream-1',
+        timestamp: '2026-02-16T10:00:00.000Z',
+        payload: {},
+      },
+      {
+        type: 'tool.progress',
+        sessionId: 'session-1',
+        turnId: 'turn-stream-1',
+        timestamp: '2026-02-16T10:00:01.000Z',
+        payload: { message: '处理中...' },
+      },
+    ];
+
+    const { rerender } = render(
+      <AgentMessageList
+        sessionId="session-1"
+        entries={[]}
+        streamingAssistantText=""
+        events={events}
+        streaming
+      />,
+    );
+
+    rerender(
+      <AgentMessageList
+        sessionId="session-1"
+        entries={[]}
+        streamingAssistantText=""
+        events={events}
+        streaming={false}
+      />,
+    );
+    expect(screen.queryByTestId('agent-stream-tools')).not.toBeNull();
+
+    rerender(
+      <AgentMessageList
+        sessionId="session-2"
+        entries={[]}
+        streamingAssistantText=""
+        events={[]}
+        streaming={false}
+      />,
+    );
+    expect(screen.queryByTestId('agent-stream-tools')).toBeNull();
+
+    vi.useRealTimers();
+  });
 });

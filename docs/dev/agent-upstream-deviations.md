@@ -5,7 +5,7 @@
 
 - `docs/dev/agent-upstream-gap.md`
 - `docs/dev/agent-upstream-gap-progress.md`
-- 上游基线：`.upstream/pi-mono @ 5133697`
+- 上游基线：`.upstream/pi-mono @ 3a3e37d`
 
 ## 目的
 

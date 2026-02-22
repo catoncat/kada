@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "node scripts/build.js",
     "start": "node dist/index.js",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 \"src/**/*.test.ts\"",
     "agent:trace": "tsx scripts/agent-trace.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
