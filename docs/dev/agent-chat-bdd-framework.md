@@ -132,3 +132,11 @@ pnpm bdd:report   # 查看报告
 2. 避免实现细节导向步骤（描述 what，不描述 how）。
 3. 缺失步骤默认 `fail-on-gen`，禁止“场景存在但不可执行”。
 4. 默认保留失败 trace：`trace: on-first-retry`。
+5. PR 必须填写 `.github/pull_request_template.md` 中的 BDD 场景项。
+
+## 8. CI 分层与模板入口
+
+- CI 分层：
+  - PR/Push：`bdd:smoke`
+  - Nightly/手动：`bdd:test`
+- 需求评审模板：`docs/specs/_templates/feature-intake-with-bdd.md`

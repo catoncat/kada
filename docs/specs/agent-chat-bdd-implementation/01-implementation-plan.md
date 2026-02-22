@@ -181,7 +181,7 @@ pnpm bdd:report
 - 失败恢复场景已纳入全量 BDD 执行并稳定通过。
 - 每个失败场景包含明确恢复动作断言。
 
-## Phase 6（进行中，P2）可观测与治理固化
+## Phase 6（已完成，P2）可观测与治理固化
 
 ### 目标
 
@@ -195,24 +195,19 @@ pnpm bdd:report
 2. 新增 `agent-trace-continuity.feature`
    - trace `cursor` 分页连续拉取
    - timeline `totalEvents` 不丢失
-
-### 剩余任务
-
-1. CI 分层
-   - PR：`bdd:smoke`
+3. CI 分层落地
+   - PR/Push：`bdd:smoke`
    - Nightly/手动：`bdd:test`
-2. 报告归档
-   - Playwright HTML
-   - Cucumber JSON
-   - trace/video（失败场景）
-3. 规范固化
-   - PR 模板要求：关联 feature 文件
-   - 需求评审模板：先给 Scenario 清单
+4. 报告归档落地
+   - 上传 Playwright HTML + `test-results`（含 Cucumber JSON）
+5. 规范固化
+   - 新增 `.github/pull_request_template.md`（强制填写 BDD 场景）
+   - 新增 `docs/specs/_templates/feature-intake-with-bdd.md`
 
-### 阶段 DoD
+### 完成标准（已达成）
 
-- 所有 Agent 相关 PR 必须关联至少 1 条 BDD 场景。
-- 新需求进入开发前有 feature 草案。
+- Agent 相关 PR 有明确 BDD 场景入口。
+- 新需求评审可直接复用 BDD 场景模板。
 
 ---
 
@@ -257,10 +252,10 @@ pnpm bdd:report
 
 ## 7. 执行顺序（下一轮）
 
-1. CI 增加分层执行（PR smoke + 夜间 full）。
-2. 在 CI 归档 Playwright HTML + Cucumber JSON + 失败 trace/video。
-3. 更新 PR/需求模板，强制关联 BDD 场景。
-4. 跑通 `bdd:test` 并将失败报告归档。
+1. 选择 1 条高价值业务链路补充新场景（建议：`output-rail` 失败恢复分支）。
+2. 继续扩展失败路径覆盖（目标：失败场景数量 ≥ 成功场景数量的 60%）。
+3. 保持 `bdd:smoke` 与 `bdd:test` 稳定性（监控 flaky）。
+4. 每周回顾并清理低价值/重复场景。
 
 ---
 
@@ -276,9 +271,8 @@ pnpm bdd:report
 ## 9. 新对话启动指令（复制即可）
 
 ```text
-请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 推进 Phase 6 收口：
-1) CI 分层（PR 跑 bdd:smoke，Nightly 跑 bdd:test）；
-2) 归档 BDD 报告（HTML + Cucumber JSON + 失败 trace/video）；
-3) 更新 PR/需求模板，要求关联 BDD 场景；
-4) 跑 pnpm bdd:test 并提交。
+请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 继续推进：
+1) 选择一个业务链路补充失败分支 BDD 场景；
+2) 运行 pnpm bdd:test 并修复 flakiness；
+3) 在 PR 中附上对应 .feature 与执行结果。
 ```

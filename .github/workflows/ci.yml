@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # 每日 02:00 CST（UTC+8）运行全量 BDD
+    - cron: '0 18 * * *'
+  workflow_dispatch:
 
 env:
   NODE_VERSION: 22.18.0
@@ -12,6 +16,7 @@ env:
 
 jobs:
   validate:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -53,3 +58,61 @@ jobs:
 
       - name: Sidecar tests
         run: pnpm -C sidecar test
+
+      - name: Upload smoke BDD artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-smoke-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+  bdd-full:
+    name: Nightly Full BDD
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            sidecar/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install sidecar dependencies
+        run: pnpm -C sidecar install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: BDD full suite
+        run: pnpm bdd:test
+
+      - name: Upload full BDD artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-full-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: warn
+          retention-days: 14
