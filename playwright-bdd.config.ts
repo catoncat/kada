@@ -41,7 +41,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      'bash -lc "rm -rf .tmp/bdd-data && mkdir -p .tmp/bdd-data && DATA_DIR=$PWD/.tmp/bdd-data pnpm dev:all"',
+      'bash -lc "rm -rf .tmp/bdd-data && mkdir -p .tmp/bdd-data && DATA_DIR=$PWD/.tmp/bdd-data AGENT_ENABLE_DETERMINISTIC_RUNTIME=1 pnpm dev:all"',
     url: 'http://localhost:1420/workspace',
     timeout: 180_000,
     reuseExistingServer: process.env.BDD_REUSE_SERVER === '1',

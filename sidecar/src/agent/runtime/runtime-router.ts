@@ -8,6 +8,10 @@ import {
   type AgentEngine,
 } from '../../services/agent-session-store';
 import { createAgentCoreRuntime } from './agent-core-runtime';
+import {
+  DETERMINISTIC_RUNTIME_PROVIDER_ID,
+  createDeterministicAgentRuntime,
+} from './deterministic-runtime';
 import type {
   AgentRuntime,
   AgentRuntimeEvent,
@@ -58,6 +62,13 @@ function toIsoTimestamp(value: unknown, fallback: string): string {
   const time = Date.parse(raw);
   if (!Number.isFinite(time)) return fallback;
   return new Date(time).toISOString();
+}
+
+function deterministicRuntimeEnabled(): boolean {
+  const raw = process.env.AGENT_ENABLE_DETERMINISTIC_RUNTIME;
+  if (typeof raw !== 'string') return false;
+  const value = raw.trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
 }
 
 export function normalizeRuntimeEvent(input: {
@@ -436,8 +447,24 @@ export class RuntimeRouter {
       throw new Error(`Agent 会话不存在: ${sessionId}`);
     }
 
-    const provider = await this.resolveProvider(session.providerId);
     const preferredEngine = session.engine;
+
+    if (
+      deterministicRuntimeEnabled() &&
+      session.providerId === DETERMINISTIC_RUNTIME_PROVIDER_ID
+    ) {
+      const runtime = await createDeterministicAgentRuntime({
+        sessionId,
+        engine: preferredEngine,
+      });
+      this.runtimeBySession.set(sessionId, {
+        runtime,
+        engine: preferredEngine,
+      });
+      return runtime;
+    }
+
+    const provider = await this.resolveProvider(session.providerId);
 
     if (preferredEngine === 'agent-core') {
       const runtime = await createAgentCoreRuntime({
