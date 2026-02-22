@@ -28,9 +28,13 @@ tests/bdd/
   features/chat-workbench/
     session-management.feature
     error-recovery.feature
+    generation-tasks.feature
+    chat-core-flow.feature
   steps/
     fixtures.ts
     workspace.steps.ts
+    project-generation.steps.ts
+    chat-core-flow.steps.ts
 playwright-bdd.config.ts
 ```
 
@@ -44,7 +48,7 @@ pnpm bdd:test     # 全量运行
 pnpm bdd:report   # 查看报告
 ```
 
-说明：BDD 运行时自动启动 `pnpm dev:all`，并隔离 Sidecar 数据目录：`.tmp/bdd-data`。
+说明：BDD 运行时自动启动 `pnpm dev:all`，并隔离 Sidecar 数据目录：`.tmp/bdd-data`；同时注入 `AGENT_ENABLE_DETERMINISTIC_RUNTIME=1`，用于 Phase 3 的可控流式场景。
 
 ## 5. AI 协作流程（防跑偏）
 
@@ -54,7 +58,7 @@ pnpm bdd:report   # 查看报告
 4. 人工评审场景后，再进入编码。
 5. PR 必须附带新/改场景与执行结果。
 
-## 6. 当前已落地场景（Phase 1 + Phase 2）
+## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3）
 
 ### Chat 工作台（UI）
 
@@ -70,6 +74,14 @@ pnpm bdd:report   # 查看报告
 - `generation-tasks.feature`
   - 预览预案 prompt + 创建预案任务
   - 创建图片任务 + 校验恢复上下文 `sourceType=projectResult`
+
+### Chat Core 流程（Runtime + API）
+
+- `chat-core-flow.feature`
+  - turn 流式完成（事件顺序校验）
+  - 运行中 follow-up 入队并应用
+  - 运行中 steer 入队并应用
+  - 运行中 abort 后状态保持 `aborted`
 
 ## 7. 维护约束
 

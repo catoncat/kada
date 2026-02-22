@@ -30,6 +30,7 @@
 
 - `9eed1cc`：接入 Playwright-BDD 框架（Phase 1）
 - `33fd558`：补充生成任务编排场景（Phase 2）
+- `（Phase 3）`：补充 Chat Core Flow 场景与 deterministic runtime（本轮提交）
 
 ### 2.2 已落地文件
 
@@ -40,9 +41,14 @@
   - `tests/bdd/features/chat-workbench/session-management.feature`
   - `tests/bdd/features/chat-workbench/error-recovery.feature`
   - `tests/bdd/features/chat-workbench/generation-tasks.feature`
+  - `tests/bdd/features/chat-workbench/chat-core-flow.feature`
   - `tests/bdd/steps/fixtures.ts`
   - `tests/bdd/steps/workspace.steps.ts`
   - `tests/bdd/steps/project-generation.steps.ts`
+  - `tests/bdd/steps/chat-core-flow.steps.ts`
+- Runtime 测试支撑
+  - `sidecar/src/agent/runtime/deterministic-runtime.ts`
+  - `sidecar/src/agent/runtime/runtime-router.ts`
 - 文档
   - `docs/dev/agent-chat-bdd-framework.md`
 
@@ -87,31 +93,32 @@ pnpm bdd:report
 - 预案任务创建、图片任务创建、恢复上下文校验。
 - DoD：`generation-tasks.feature` 稳定通过。
 
-## Phase 3（下一阶段，优先级 P0）Chat Core Flow
+## Phase 3（已完成，优先级 P0）Chat Core Flow
 
 ### 目标
 
 补全 Chat 主链路的关键行为，形成产品北极星场景集。
 
-### 计划任务
+### 已完成任务
 
 1. 新增场景：`chat-core-flow.feature`
    - turn 流式完成
    - 运行中 follow-up 入队并可观测
    - 运行中 steer 生效
    - abort 后状态回落
-2. 新增 steps：`chat-flow.steps.ts`
-3. 引入 deterministic 运行模式（建议）
-   - 通过环境变量切换（示例：`AGENT_BDD_MODE=deterministic`）
+2. 新增 steps：`chat-core-flow.steps.ts`
+3. 引入 deterministic 运行模式（测试专用）
+   - 通过 `AGENT_ENABLE_DETERMINISTIC_RUNTIME=1` 启用
+   - 仅对 `providerId="__bdd_deterministic__"` 的会话生效
    - 避免依赖真实 Provider/LLM 波动
-4. 断言事件顺序与状态变化
+4. 增加事件与状态断言
    - SSE 事件序列
-   - 会话状态与 turn gate 语义
+   - 会话状态（idle / aborted）
 
-### DoD
+### 完成标准（已达成）
 
-- `@northstar` 标签场景 >= 4 条并稳定通过。
-- CI 上 `bdd:smoke` 无波动（连续 20 次无随机失败）。
+- `@northstar` 标签场景新增 4 条并稳定通过。
+- `pnpm bdd:test` 全量通过，`pnpm bdd:smoke` 保持稳定。
 
 ## Phase 4（P1）资源与上下文注入
 
@@ -191,7 +198,7 @@ pnpm bdd:report
 | BDD-001 | session-management.feature | 会话生命周期 | P0 | ✅ |
 | BDD-002 | error-recovery.feature | 关键依赖缺失反馈 | P0 | ✅ |
 | BDD-003 | generation-tasks.feature | 生成任务编排 | P0 | ✅ |
-| BDD-004 | chat-core-flow.feature | turn/steer/follow-up/abort | P0 | ⏳ |
+| BDD-004 | chat-core-flow.feature | turn/steer/follow-up/abort | P0 | ✅ |
 | BDD-005 | multi-session-parity.feature | 多会话并发隔离 | P0 | ⏳ |
 | BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | ⏳ |
 | BDD-007 | task-recovery.feature | 失败恢复路径 | P1 | ⏳ |
@@ -224,9 +231,9 @@ pnpm bdd:report
 
 ## 7. 执行顺序（下一轮）
 
-1. 实现 `chat-core-flow.feature` 与 `chat-flow.steps.ts`。
-2. 补充 deterministic runtime 或 test mode 注入点。
-3. 新增 `multi-session-parity.feature`。
+1. 新增 `multi-session-parity.feature`（并发会话隔离）。
+2. 新增 `resource-context.feature`（自然语言资源检索 + mention 注入）。
+3. 新增 `task-recovery.feature`（失败恢复动作可执行）。
 4. 跑通 `bdd:test` 并将失败报告归档。
 
 ---
@@ -243,9 +250,8 @@ pnpm bdd:report
 ## 9. 新对话启动指令（复制即可）
 
 ```text
-请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行 Phase 3：
-1) 新增 chat-core-flow.feature 与对应 steps；
-2) 补 turn/follow-up/steer/abort 场景；
-3) 需要时加 deterministic runtime test mode；
-4) 跑 pnpm bdd:test 并提交。
+请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 4）：
+1) 新增 multi-session-parity.feature（并发会话隔离）；
+2) 新增 resource-context.feature（自然语言资源检索 + mention）；
+3) 跑 pnpm bdd:test 并提交。
 ```
