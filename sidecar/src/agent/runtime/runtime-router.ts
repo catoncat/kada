@@ -449,10 +449,12 @@ export class RuntimeRouter {
 
     const preferredEngine = session.engine;
 
-    if (
-      deterministicRuntimeEnabled() &&
-      session.providerId === DETERMINISTIC_RUNTIME_PROVIDER_ID
-    ) {
+    if (session.providerId === DETERMINISTIC_RUNTIME_PROVIDER_ID) {
+      if (!deterministicRuntimeEnabled()) {
+        throw new Error(
+          `Provider "${DETERMINISTIC_RUNTIME_PROVIDER_ID}" 仅用于 deterministic runtime，请设置 AGENT_ENABLE_DETERMINISTIC_RUNTIME=1 后重试。`,
+        );
+      }
       const runtime = await createDeterministicAgentRuntime({
         sessionId,
         engine: preferredEngine,

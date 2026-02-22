@@ -105,12 +105,12 @@ class DeterministicAgentRuntime implements AgentRuntime {
           },
         });
 
-        await this.flushPendingQueueOnce();
+        await this.flushPendingQueue();
         await this.sleep(this.stepDelayMs);
       }
 
       if (!this.abortRequested) {
-        await this.flushPendingQueueOnce();
+        await this.flushPendingQueue({ drainAll: true });
       }
 
       await this.emit({
@@ -223,23 +223,27 @@ class DeterministicAgentRuntime implements AgentRuntime {
     this.clearPendingQueue();
   }
 
-  private async flushPendingQueueOnce(): Promise<void> {
-    const applied = this.consumeNextPending();
-    if (!applied) return;
+  private async flushPendingQueue(input?: { drainAll?: boolean }): Promise<void> {
+    const drainAll = input?.drainAll === true;
 
-    await this.emit({
-      type: applied.mode === 'steer' ? 'steer.applied' : 'followup.applied',
-      payload: {
-        clientMessageId: applied.clientMessageId,
-        text: applied.text,
-        mode: applied.mode,
-        mentions: applied.mentions,
-        mentionDrops: applied.mentionDrops,
-        queuedAt: applied.createdAt,
-        appliedAt: nowIso(),
-        promotedFromFollowUp: applied.promotedFromFollowUp,
-      },
-    });
+    do {
+      const applied = this.consumeNextPending();
+      if (!applied) return;
+
+      await this.emit({
+        type: applied.mode === 'steer' ? 'steer.applied' : 'followup.applied',
+        payload: {
+          clientMessageId: applied.clientMessageId,
+          text: applied.text,
+          mode: applied.mode,
+          mentions: applied.mentions,
+          mentionDrops: applied.mentionDrops,
+          queuedAt: applied.createdAt,
+          appliedAt: nowIso(),
+          promotedFromFollowUp: applied.promotedFromFollowUp,
+        },
+      });
+    } while (drainAll);
   }
 
   private buildQueueItem(
