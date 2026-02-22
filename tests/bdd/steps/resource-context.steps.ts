@@ -1,4 +1,5 @@
 import type { APIRequestContext } from '@playwright/test';
+import { seedImageArtifact } from './helpers/sqlite-db';
 import { expect, Given, Then, When } from './fixtures';
 
 const DETERMINISTIC_PROVIDER_ID = '__bdd_deterministic__';
@@ -15,6 +16,7 @@ type BddState = Record<string, unknown> & {
   sceneId?: string;
   sceneTitle?: string;
   modelId?: string;
+  imageArtifactId?: string;
   agentSessionId?: string;
   searchResults?: Array<{ kind?: string; id?: string }>;
   mentionTurnId?: string;
@@ -117,6 +119,39 @@ async function readSessionStatus(
   return payload.status;
 }
 
+async function fetchTurnUserEntry(request: APIRequestContext, state: BddState) {
+  expect(typeof state.agentSessionId).toBe('string');
+  expect(typeof state.mentionTurnId).toBe('string');
+
+  const response = await request.get(
+    `/api/agent/sessions/${state.agentSessionId}/entries?turnId=${encodeURIComponent(
+      state.mentionTurnId || '',
+    )}`,
+  );
+
+  if (!response.ok()) {
+    throw new Error(
+      `读取 entries 失败: status=${response.status()} body=${await response.text()}`,
+    );
+  }
+
+  const payload = (await response.json()) as {
+    data?: Array<{ entryType?: string; payload?: unknown }>;
+  };
+
+  const userEntry = (payload.data || []).find((entry) => {
+    if (entry.entryType !== 'user') return false;
+    const row = toRecord(entry.payload);
+    return row.mode === 'turn';
+  });
+
+  if (!userEntry) {
+    throw new Error('未找到本轮 user turn entry');
+  }
+
+  return userEntry;
+}
+
 Given('我准备了资源上下文验证数据', async ({ request, bddState }) => {
   const state = getState(bddState);
   const prefix = `bdd-resource-${Date.now()}`;
@@ -191,10 +226,24 @@ Given('我准备了资源上下文验证数据', async ({ request, bddState }) =
   state.sceneTitle = sceneTitle;
   state.projectId = projectPayload.id;
   state.modelId = modelPayload.id;
+  state.imageArtifactId = undefined;
   state.agentSessionId = sessionPayload.id;
   state.searchResults = [];
   state.mentionTurnId = undefined;
   state.mentionTurnEvents = [];
+});
+
+Given('我写入一条可检索的图片产物', async ({ bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.projectId).toBe('string');
+
+  const seeded = seedImageArtifact({
+    ownerId: state.projectId || '',
+    ownerSlot: 'scene:0',
+    prompt: `${state.resourcePrefix || 'bdd'} image artifact`,
+  });
+
+  state.imageArtifactId = seeded.artifactId;
 });
 
 When('我搜索 Agent 资源关键词', async ({ request, bddState }) => {
@@ -292,36 +341,59 @@ When('我发送包含有效与失效 mention 的 turn', async ({ bddState }) => 
   state.mentionTurnId = turnId;
 });
 
-Then('本轮 user entry 应包含 {int} 条解析成功 mention', async ({ request, bddState }, expected) => {
+When('我发送仅包含有效 image mention 的 turn', async ({ bddState }) => {
   const state = getState(bddState);
   expect(typeof state.agentSessionId).toBe('string');
-  expect(typeof state.mentionTurnId).toBe('string');
+  expect(typeof state.imageArtifactId).toBe('string');
 
-  const response = await request.get(
-    `/api/agent/sessions/${state.agentSessionId}/entries?turnId=${encodeURIComponent(
-      state.mentionTurnId || '',
-    )}`,
+  const apiBaseUrl = buildApiBaseUrl();
+  const response = await fetch(
+    `${apiBaseUrl}/api/agent/sessions/${state.agentSessionId}/turn`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: '请只参考这张产物图片继续输出建议',
+        clientMessageId: buildClientMessageId('cm-resource-image'),
+        mentions: [
+          {
+            mentionId: 'm-image-valid',
+            kind: 'image',
+            resourceId: state.imageArtifactId,
+            resourceTitle: 'bdd-image',
+            images: [],
+          },
+        ],
+      }),
+    },
   );
 
-  if (!response.ok()) {
+  if (!response.ok) {
     throw new Error(
-      `读取 entries 失败: status=${response.status()} body=${await response.text()}`,
+      `image mention turn 失败: status=${response.status} body=${await response.text()}`,
     );
   }
 
-  const payload = (await response.json()) as {
-    data?: Array<{ entryType?: string; payload?: unknown }>;
-  };
+  const events = await readSseEvents(response);
+  state.mentionTurnEvents = events;
 
-  const userEntry = (payload.data || []).find((entry) => {
-    if (entry.entryType !== 'user') return false;
-    const row = toRecord(entry.payload);
-    return row.mode === 'turn';
-  });
+  const turnId =
+    events.find((event) => event.type === 'turn.started')?.turnId ||
+    events.find((event) => typeof event.turnId === 'string')?.turnId ||
+    null;
 
-  if (!userEntry) {
-    throw new Error('未找到本轮 user turn entry');
+  if (!turnId) {
+    throw new Error('无法从 SSE 中解析 turnId');
   }
+
+  state.mentionTurnId = turnId;
+});
+
+Then('本轮 user entry 应包含 {int} 条解析成功 mention', async ({ request, bddState }, expected) => {
+  const state = getState(bddState);
+  const userEntry = await fetchTurnUserEntry(request, state);
 
   const userPayload = toRecord(userEntry.payload);
   const mentions = Array.isArray(userPayload.mentions) ? userPayload.mentions : [];
@@ -332,34 +404,7 @@ Then(
   '本轮 user entry 应包含 {int} 条 mention drop 且原因包含 {string}',
   async ({ request, bddState }, expectedCount, reasonKeyword) => {
     const state = getState(bddState);
-    expect(typeof state.agentSessionId).toBe('string');
-    expect(typeof state.mentionTurnId).toBe('string');
-
-    const response = await request.get(
-      `/api/agent/sessions/${state.agentSessionId}/entries?turnId=${encodeURIComponent(
-        state.mentionTurnId || '',
-      )}`,
-    );
-
-    if (!response.ok()) {
-      throw new Error(
-        `读取 entries 失败: status=${response.status()} body=${await response.text()}`,
-      );
-    }
-
-    const payload = (await response.json()) as {
-      data?: Array<{ entryType?: string; payload?: unknown }>;
-    };
-
-    const userEntry = (payload.data || []).find((entry) => {
-      if (entry.entryType !== 'user') return false;
-      const row = toRecord(entry.payload);
-      return row.mode === 'turn';
-    });
-
-    if (!userEntry) {
-      throw new Error('未找到本轮 user turn entry');
-    }
+    const userEntry = await fetchTurnUserEntry(request, state);
 
     const userPayload = toRecord(userEntry.payload);
     const mentionDrops = Array.isArray(userPayload.mentionDrops)
@@ -379,6 +424,31 @@ Then(
     expect(reasonMatched).toBeTruthy();
   },
 );
+
+Then('本轮 user entry 应包含 {int} 条 kind 为 {string} 的 mention', async ({ request, bddState }, expectedCount, kind) => {
+  const state = getState(bddState);
+  const userEntry = await fetchTurnUserEntry(request, state);
+  const userPayload = toRecord(userEntry.payload);
+  const mentions = Array.isArray(userPayload.mentions) ? userPayload.mentions : [];
+
+  const matched = mentions.filter((item) => {
+    const row = toRecord(item);
+    return row.kind === kind;
+  });
+
+  expect(matched.length).toBe(expectedCount);
+});
+
+Then('本轮 user entry mention drop 数应为 {int}', async ({ request, bddState }, expectedCount) => {
+  const state = getState(bddState);
+  const userEntry = await fetchTurnUserEntry(request, state);
+  const userPayload = toRecord(userEntry.payload);
+  const mentionDrops = Array.isArray(userPayload.mentionDrops)
+    ? userPayload.mentionDrops
+    : [];
+
+  expect(mentionDrops.length).toBe(expectedCount);
+});
 
 Then('mention 场景执行后会话状态应为 {string}', async ({ request, bddState }, expectedStatus) => {
   const state = getState(bddState);

@@ -17,3 +17,11 @@ Feature: 资源检索与 mention 上下文注入
     Then 本轮 user entry 应包含 1 条解析成功 mention
     And 本轮 user entry 应包含 1 条 mention drop 且原因包含 "resource_not_found"
     And mention 场景执行后会话状态应为 "idle"
+
+  Scenario: image mention 能被成功解析并写入 turn entry
+    Given 我准备了资源上下文验证数据
+    And 我写入一条可检索的图片产物
+    When 我发送仅包含有效 image mention 的 turn
+    Then 本轮 user entry 应包含 1 条 kind 为 "image" 的 mention
+    And 本轮 user entry mention drop 数应为 0
+    And mention 场景执行后会话状态应为 "idle"
