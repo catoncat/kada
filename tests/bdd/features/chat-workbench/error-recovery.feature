@@ -1,4 +1,4 @@
-@smoke @error
+@smoke @error @phase1
 Feature: Chat 工作台错误反馈
   作为使用 Chat 工作台的用户
   我希望系统在关键依赖缺失时给出明确错误

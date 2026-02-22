@@ -1,4 +1,4 @@
-@smoke @northstar
+@smoke @northstar @phase1
 Feature: Chat 工作台会话管理
   作为使用 Chat 工作台的用户
   我希望在同一界面里完成会话管理
