@@ -1,4 +1,5 @@
 import type { APIRequestContext } from '@playwright/test';
+import { readSseDataPayloads } from './helpers/sse';
 import { expect, Given, Then, When } from './fixtures';
 
 const DETERMINISTIC_PROVIDER_ID = '__bdd_deterministic__';
@@ -65,63 +66,36 @@ function findLastEventIndex(events: AgentStreamEvent[], type: string): number {
 
 async function readSseEvents(response: Response): Promise<AgentStreamEvent[]> {
   const events: AgentStreamEvent[] = [];
-  const body = response.body;
-  if (!body) return events;
+  const payloads = await readSseDataPayloads(response);
 
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    while (true) {
-      const blockEnd = buffer.indexOf('\n\n');
-      if (blockEnd < 0) break;
-
-      const rawBlock = buffer.slice(0, blockEnd);
-      buffer = buffer.slice(blockEnd + 2);
-
-      const dataLine = rawBlock
-        .split('\n')
-        .find((line) => line.startsWith('data:'));
-
-      if (!dataLine) continue;
-
-      const rawPayload = dataLine.replace(/^data:\s*/, '').trim();
-      if (!rawPayload) continue;
-
-      try {
-        const parsed = JSON.parse(rawPayload) as {
-          event?: {
-            type?: unknown;
-            sessionId?: unknown;
-            turnId?: unknown;
-            timestamp?: unknown;
-            payload?: unknown;
-          };
+  for (const rawPayload of payloads) {
+    try {
+      const parsed = JSON.parse(rawPayload) as {
+        event?: {
+          type?: unknown;
+          sessionId?: unknown;
+          turnId?: unknown;
+          timestamp?: unknown;
+          payload?: unknown;
         };
+      };
 
-        const event = parsed.event;
-        if (!event || typeof event.type !== 'string') {
-          continue;
-        }
-
-        events.push({
-          type: event.type,
-          sessionId:
-            typeof event.sessionId === 'string' ? event.sessionId : null,
-          turnId: typeof event.turnId === 'string' ? event.turnId : null,
-          timestamp:
-            typeof event.timestamp === 'string' ? event.timestamp : null,
-          payload: toPayloadRecord(event.payload),
-        });
-      } catch {
-        // ignore malformed chunk
+      const event = parsed.event;
+      if (!event || typeof event.type !== 'string') {
+        continue;
       }
+
+      events.push({
+        type: event.type,
+        sessionId:
+          typeof event.sessionId === 'string' ? event.sessionId : null,
+        turnId: typeof event.turnId === 'string' ? event.turnId : null,
+        timestamp:
+          typeof event.timestamp === 'string' ? event.timestamp : null,
+        payload: toPayloadRecord(event.payload),
+      });
+    } catch {
+      // ignore malformed chunk
     }
   }
 
@@ -439,6 +413,61 @@ Then('turn 应以 aborted 语义结束', async ({ bddState }) => {
   });
   expect(turnCompletedIndex).toBeGreaterThan(-1);
   expect(sessionAbortedIndex).toBeLessThan(turnCompletedIndex);
+});
+
+Then('follow-up 应按发送顺序被应用为 {string}', async ({ bddState }, rawExpected) => {
+  const state = getState(bddState);
+  const events = await resolveTurnEvents(state);
+
+  const expected = rawExpected
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  expect(expected.length).toBeGreaterThan(0);
+
+  const appliedTexts = events
+    .filter((event) => event.type === 'followup.applied')
+    .map((event) => {
+      const payload = toPayloadRecord(event.payload);
+      return typeof payload.text === 'string' ? payload.text : '';
+    })
+    .filter(Boolean);
+
+  let cursor = -1;
+  for (const text of expected) {
+    const next = appliedTexts.indexOf(text, cursor + 1);
+    expect(next).toBeGreaterThan(-1);
+    cursor = next;
+  }
+});
+
+Then('steer 应在 follow-up 之前被应用', async ({ bddState }) => {
+  const state = getState(bddState);
+  const events = await resolveTurnEvents(state);
+
+  const steerIndex = events.findIndex((event) => event.type === 'steer.applied');
+  const followUpIndex = events.findIndex(
+    (event) => event.type === 'followup.applied',
+  );
+
+  expect(steerIndex).toBeGreaterThan(-1);
+  expect(followUpIndex).toBeGreaterThan(-1);
+  expect(steerIndex).toBeLessThan(followUpIndex);
+});
+
+Then('abort 之后不应出现事件 {string}', async ({ bddState }, rawEvents) => {
+  const state = getState(bddState);
+  const events = await resolveTurnEvents(state);
+
+  const sessionAbortedIndex = events.findIndex(
+    (event) => event.type === 'session.aborted',
+  );
+  expect(sessionAbortedIndex).toBeGreaterThan(-1);
+
+  const trailing = events.slice(sessionAbortedIndex + 1).map((event) => event.type);
+  for (const type of parseExpectedTypes(rawEvents)) {
+    expect(trailing.includes(type)).toBeFalsy();
+  }
 });
 
 Then('该会话状态最终应为 {string}', async ({ request, bddState }, expectedStatus) => {

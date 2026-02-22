@@ -19,7 +19,10 @@ type BddState = Record<string, unknown> & {
   expectedEvents?: string[];
   firstPage?: TracePage;
   secondPage?: TracePage;
+  repeatPage?: TracePage;
   timelineTotalEvents?: number;
+  hugeCursorStatus?: number;
+  hugeCursorRows?: TraceRow[];
 };
 
 function getState(input: Record<string, unknown>): BddState {
@@ -89,7 +92,10 @@ Given('我写入一组同 traceId 的客户端追踪事件', async ({ request, b
   state.expectedEvents = expectedEvents;
   state.firstPage = undefined;
   state.secondPage = undefined;
+  state.repeatPage = undefined;
   state.timelineTotalEvents = undefined;
+  state.hugeCursorStatus = undefined;
+  state.hugeCursorRows = undefined;
 });
 
 When('我按 cursor 分页拉取该 trace 日志', async ({ request, bddState }) => {
@@ -169,6 +175,66 @@ When('我按 cursor 分页拉取该 trace 日志', async ({ request, bddState })
       : 0;
 });
 
+When('我重复使用第一页 cursor 拉取该 trace 日志', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.traceId).toBe('string');
+  expect(Boolean(state.firstPage)).toBeTruthy();
+
+  const traceId = state.traceId as string;
+  const firstCursor = state.firstPage?.cursor;
+  if (typeof firstCursor !== 'number' || !Number.isFinite(firstCursor)) {
+    throw new Error('缺少第一页 cursor，无法重复拉取');
+  }
+
+  const response = await request.get(
+    `/api/agent/traces?traceId=${encodeURIComponent(traceId)}&limit=1&cursor=${firstCursor}`,
+  );
+
+  if (!response.ok()) {
+    throw new Error(
+      `重复拉取失败: status=${response.status()} body=${await response.text()}`,
+    );
+  }
+
+  const payload = (await response.json()) as {
+    data?: unknown;
+    cursor?: unknown;
+    total?: number;
+  };
+
+  if (typeof payload.cursor !== 'number' || !Number.isFinite(payload.cursor)) {
+    throw new Error(`重复拉取 cursor 非法: payload=${JSON.stringify(payload)}`);
+  }
+
+  state.repeatPage = {
+    data: toTraceRows(payload.data),
+    cursor: payload.cursor,
+    total: typeof payload.total === 'number' ? payload.total : 0,
+  };
+});
+
+When('我以超大 cursor 拉取该 trace 日志', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.traceId).toBe('string');
+
+  const traceId = state.traceId as string;
+  const hugeCursor = Number.MAX_SAFE_INTEGER;
+
+  const response = await request.get(
+    `/api/agent/traces?traceId=${encodeURIComponent(traceId)}&limit=20&cursor=${hugeCursor}`,
+  );
+
+  state.hugeCursorStatus = response.status();
+
+  if (!response.ok()) {
+    state.hugeCursorRows = [];
+    return;
+  }
+
+  const payload = (await response.json()) as { data?: unknown };
+  state.hugeCursorRows = toTraceRows(payload.data);
+});
+
 Then('第一页应返回 {int} 条 trace 日志', async ({ bddState }, expected) => {
   const state = getState(bddState);
   const page = state.firstPage;
@@ -215,6 +281,33 @@ Then('分页结果应绑定到同一 traceId 且包含写入事件', async ({ bd
   for (const event of expectedEvents) {
     expect(bindings.has(`${traceId}::${event}`)).toBeTruthy();
   }
+});
+
+Then('重复拉取得到的 seq 集合应与第二页一致', async ({ bddState }) => {
+  const state = getState(bddState);
+  const secondPage = state.secondPage;
+  const repeatPage = state.repeatPage;
+
+  expect(Boolean(secondPage)).toBeTruthy();
+  expect(Boolean(repeatPage)).toBeTruthy();
+
+  const secondSeqSet = new Set((secondPage?.data || []).map((row) => row.seq));
+  const repeatSeqSet = new Set((repeatPage?.data || []).map((row) => row.seq));
+
+  expect(Array.from(repeatSeqSet).sort((a, b) => a - b)).toEqual(
+    Array.from(secondSeqSet).sort((a, b) => a - b),
+  );
+});
+
+Then('trace 拉取响应状态码应为 {int}', async ({ bddState }, expectedStatus) => {
+  const state = getState(bddState);
+  expect(state.hugeCursorStatus).toBe(expectedStatus);
+});
+
+Then('trace 返回数据应为 {int} 条', async ({ bddState }, expectedCount) => {
+  const state = getState(bddState);
+  const rows = state.hugeCursorRows || [];
+  expect(rows.length).toBe(expectedCount);
 });
 
 Then('该 trace timeline 的 totalEvents 应不少于 {int}', async ({ bddState }, minEvents) => {

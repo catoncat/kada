@@ -25,6 +25,7 @@ type BddState = Record<string, unknown> & {
     photo?: OutputItem[];
     copy?: OutputItem[];
   };
+  missingTurnOutputs?: OutputItem[];
 };
 
 function getState(input: Record<string, unknown>): BddState {
@@ -111,6 +112,7 @@ Given('我准备了一个包含 photo 与 copy 输出的会话', async ({ reques
   state.snapshotOutputs = [];
   state.outputsByKind = {};
   state.outputsByTurn = {};
+  state.missingTurnOutputs = [];
 });
 
 When('我读取该会话快照与 outputs 列表', async ({ request, bddState }) => {
@@ -161,6 +163,27 @@ When('我读取该会话快照与 outputs 列表', async ({ request, bddState })
     photo: toOutputList(photoTurnPayload.data),
     copy: toOutputList(copyTurnPayload.data),
   };
+});
+
+When('我按不存在的 turnId 过滤 outputs 列表', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.outputSessionId).toBe('string');
+
+  const sessionId = state.outputSessionId as string;
+  const missingTurnId = `turn-missing-${randomUUID()}`;
+
+  const response = await request.get(
+    `/api/agent/sessions/${sessionId}/outputs?turnId=${encodeURIComponent(missingTurnId)}`,
+  );
+
+  if (!response.ok()) {
+    throw new Error(
+      `按不存在 turnId 过滤 outputs 失败: status=${response.status()} body=${await response.text()}`,
+    );
+  }
+
+  const payload = (await response.json()) as { data?: unknown };
+  state.missingTurnOutputs = toOutputList(payload.data);
 });
 
 Then('会话快照中的 outputs 数应为 {int}', async ({ bddState }, expected) => {
@@ -224,4 +247,19 @@ Then('outputs 列表按 copy turnId 过滤应返回 {int} 条 copy 输出', asyn
   expect(allMatched).toBeTruthy();
 
   expect(outputs[0]?.id).toBe(state.copyOutputId);
+});
+
+Then('不存在 turnId 过滤结果应为 {int} 条', async ({ bddState }, expected) => {
+  const state = getState(bddState);
+  const outputs = state.missingTurnOutputs || [];
+  expect(outputs.length).toBe(expected);
+});
+
+Then('copy 输出的 refId 应为 null', async ({ bddState }) => {
+  const state = getState(bddState);
+  const copyOutputs = state.outputsByKind?.copy || [];
+  expect(copyOutputs.length).toBeGreaterThan(0);
+
+  const allNull = copyOutputs.every((item) => item.refId === null);
+  expect(allNull).toBeTruthy();
 });
