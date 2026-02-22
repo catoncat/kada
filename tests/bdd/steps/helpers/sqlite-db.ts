@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
+const SQLITE_RETRY_DELAYS_MS = [80, 160, 320, 640] as const;
+const SQLITE_LOCK_ERROR_PATTERN = /(SQLITE_BUSY|SQLITE_LOCKED|database is locked)/i;
+
 function sqliteEscape(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -14,38 +17,75 @@ function bddDbPath(): string {
   return path.join(process.cwd(), '.tmp', 'bdd-data', 'shooting-planner.db');
 }
 
-export function runSql(sql: string): void {
-  const payload = `PRAGMA busy_timeout=3000; ${sql}`;
-  execFileSync('sqlite3', [bddDbPath(), payload], {
-    stdio: 'pipe',
-  });
+function sleepSync(ms: number): void {
+  const lock = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(lock, 0, 0, ms);
 }
 
-export function seedLocalReplayProvider(): string {
-  const providerId = `prov_${randomUUID()}`;
-  const name = `bdd-local-${Date.now()}`;
+function toText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString('utf8');
+  }
+  return '';
+}
 
-  runSql(`
-INSERT INTO providers (
-  id, name, format, routing_profile, base_url, api_key,
-  text_model, image_model, is_default, is_builtin, created_at, updated_at
-) VALUES (
-  ${quote(providerId)},
-  ${quote(name)},
-  'local',
-  'native',
-  'http://localhost/local',
-  '',
-  'bdd-text-model',
-  'bdd-image-model',
-  0,
-  0,
-  unixepoch(),
-  unixepoch()
-);
-`);
+function explainSqliteError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const row = error as Error & {
+    status?: number;
+    stderr?: unknown;
+    stdout?: unknown;
+  };
 
-  return providerId;
+  const details = [row.message];
+  if (typeof row.status === 'number') details.push(`status=${row.status}`);
+
+  const stderr = toText(row.stderr).trim();
+  if (stderr) details.push(`stderr=${stderr}`);
+
+  const stdout = toText(row.stdout).trim();
+  if (stdout) details.push(`stdout=${stdout}`);
+
+  return details.join(' | ');
+}
+
+function isSqliteLockError(error: unknown): boolean {
+  return SQLITE_LOCK_ERROR_PATTERN.test(explainSqliteError(error));
+}
+
+export function runSql(sql: string): void {
+  const statements = sql.trim();
+  if (!statements) return;
+
+  const payload = `
+PRAGMA busy_timeout=8000;
+BEGIN IMMEDIATE;
+${statements}
+COMMIT;
+`.trim();
+
+  let attempt = 0;
+
+  while (attempt <= SQLITE_RETRY_DELAYS_MS.length) {
+    try {
+      execFileSync('sqlite3', [bddDbPath(), payload], {
+        stdio: 'pipe',
+      });
+      return;
+    } catch (error) {
+      if (!isSqliteLockError(error) || attempt === SQLITE_RETRY_DELAYS_MS.length) {
+        throw new Error(
+          `执行 sqlite SQL 失败: db=${bddDbPath()} attempt=${
+            attempt + 1
+          } reason=${explainSqliteError(error)}`,
+        );
+      }
+
+      sleepSync(SQLITE_RETRY_DELAYS_MS[attempt]);
+      attempt += 1;
+    }
+  }
 }
 
 export function markTaskFailed(taskId: string, message: string): void {

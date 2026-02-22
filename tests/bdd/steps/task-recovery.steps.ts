@@ -1,4 +1,4 @@
-import { markTaskFailed, seedLocalReplayProvider } from './helpers/sqlite-db';
+import { markTaskFailed } from './helpers/sqlite-db';
 import { expect, Given, Then, When } from './fixtures';
 
 type BddState = Record<string, unknown> & {
@@ -120,7 +120,28 @@ Then('该任务详情恢复上下文 sourceType 应为 {string}', async ({ reque
 Given('我准备了一个可重放的预案任务', async ({ request, bddState }) => {
   const state = getState(bddState);
 
-  const providerId = seedLocalReplayProvider();
+  const providerRes = await request.post('/api/providers', {
+    data: {
+      name: uniqueTitle('bdd-replay-provider'),
+      format: 'local',
+      baseUrl: 'http://localhost/local',
+      apiKey: '',
+      textModel: 'bdd-text-model',
+      imageModel: 'bdd-image-model',
+      isDefault: false,
+      isBuiltin: false,
+    },
+  });
+  if (providerRes.status() !== 201) {
+    throw new Error(
+      `创建 provider 失败: status=${providerRes.status()} body=${await providerRes.text()}`,
+    );
+  }
+  const providerPayload = (await providerRes.json()) as {
+    provider?: { id?: string };
+  };
+  expect(typeof providerPayload.provider?.id).toBe('string');
+  const providerId = providerPayload.provider?.id as string;
 
   const projectRes = await request.post('/api/projects', {
     data: {

@@ -1,4 +1,5 @@
 import type { APIRequestContext } from '@playwright/test';
+import { readSseDataPayloads } from './helpers/sse';
 import { expect, Given, Then, When } from './fixtures';
 
 const DETERMINISTIC_PROVIDER_ID = '__bdd_deterministic__';
@@ -53,31 +54,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function takeNextSseBlock(
-  source: string,
-): {
-  rawBlock: string;
-  rest: string;
-} | null {
-  const match = /\r?\n\r?\n/.exec(source);
-  if (!match || typeof match.index !== 'number') return null;
-  return {
-    rawBlock: source.slice(0, match.index),
-    rest: source.slice(match.index + match[0].length),
-  };
-}
-
-function parseSseDataPayload(rawBlock: string): string | null {
-  const dataLines = rawBlock
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => line.replace(/^data:\s*/, ''));
-
-  if (dataLines.length === 0) return null;
-  const payload = dataLines.join('\n').trim();
-  return payload || null;
-}
-
 function appendParsedEvent(events: StreamEvent[], rawPayload: string): void {
   try {
     const parsed = JSON.parse(rawPayload) as {
@@ -103,35 +79,10 @@ function appendParsedEvent(events: StreamEvent[], rawPayload: string): void {
 
 async function readSseEvents(response: Response): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
-  const body = response.body;
-  if (!body) return events;
-
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    while (true) {
-      const next = takeNextSseBlock(buffer);
-      if (!next) break;
-      buffer = next.rest;
-
-      const rawPayload = parseSseDataPayload(next.rawBlock);
-      if (!rawPayload) continue;
-      appendParsedEvent(events, rawPayload);
-    }
+  const payloads = await readSseDataPayloads(response);
+  for (const rawPayload of payloads) {
+    appendParsedEvent(events, rawPayload);
   }
-
-  const trailingPayload = parseSseDataPayload(buffer);
-  if (trailingPayload) {
-    appendParsedEvent(events, trailingPayload);
-  }
-
   return events;
 }
 

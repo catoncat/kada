@@ -235,6 +235,26 @@ When('我以超大 cursor 拉取该 trace 日志', async ({ request, bddState })
   state.hugeCursorRows = toTraceRows(payload.data);
 });
 
+When('我以非法 cursor 拉取该 trace 日志', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.traceId).toBe('string');
+
+  const traceId = state.traceId as string;
+
+  const response = await request.get(
+    `/api/agent/traces?traceId=${encodeURIComponent(traceId)}&limit=1&cursor=invalid-cursor`,
+  );
+
+  state.hugeCursorStatus = response.status();
+  if (!response.ok()) {
+    state.hugeCursorRows = [];
+    return;
+  }
+
+  const payload = (await response.json()) as { data?: unknown };
+  state.hugeCursorRows = toTraceRows(payload.data);
+});
+
 Then('第一页应返回 {int} 条 trace 日志', async ({ bddState }, expected) => {
   const state = getState(bddState);
   const page = state.firstPage;
