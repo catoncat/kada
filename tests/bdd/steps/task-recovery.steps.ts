@@ -8,6 +8,9 @@ type BddState = Record<string, unknown> & {
   replayFirstTaskId?: string;
   replaySecondTaskId?: string;
   replaySecondDeduped?: boolean;
+  replayMissingRequestIdStatus?: number;
+  retryNonFailedTaskId?: string;
+  retryNonFailedStatus?: number;
 };
 
 function getState(input: Record<string, unknown>): BddState {
@@ -159,6 +162,7 @@ Given('我准备了一个可重放的预案任务', async ({ request, bddState }
   state.replayFirstTaskId = undefined;
   state.replaySecondTaskId = undefined;
   state.replaySecondDeduped = undefined;
+  state.replayMissingRequestIdStatus = undefined;
 });
 
 When('我以 requestId {string} 重放该任务', async ({ request, bddState }, requestId) => {
@@ -174,17 +178,23 @@ When('我以 requestId {string} 重放该任务', async ({ request, bddState }, 
     },
   );
 
-  if (![200, 201].includes(response.status())) {
+  if (response.status() !== 201) {
     throw new Error(
-      `重放任务失败: status=${response.status()} body=${await response.text()}`,
+      `首次重放任务失败: status=${response.status()} body=${await response.text()}`,
     );
   }
 
   const payload = (await response.json()) as {
     task?: { id?: string };
+    deduped?: boolean;
   };
 
-  state.replayFirstTaskId = payload.task?.id;
+  expect(payload.deduped).toBe(false);
+  expect(typeof payload.task?.id).toBe('string');
+  const firstReplayTaskId = payload.task?.id as string;
+  expect(firstReplayTaskId).not.toBe(state.replaySourceTaskId);
+
+  state.replayFirstTaskId = firstReplayTaskId;
 });
 
 When(
@@ -202,7 +212,7 @@ When(
       },
     );
 
-    if (![200, 201].includes(response.status())) {
+    if (response.status() !== 200) {
       throw new Error(
         `二次重放任务失败: status=${response.status()} body=${await response.text()}`,
       );
@@ -213,13 +223,18 @@ When(
       deduped?: boolean;
     };
 
+    expect(typeof payload.deduped).toBe('boolean');
+    expect(payload.deduped).toBe(true);
+    expect(typeof payload.task?.id).toBe('string');
+
     state.replaySecondTaskId = payload.task?.id;
-    state.replaySecondDeduped = Boolean(payload.deduped);
+    state.replaySecondDeduped = payload.deduped;
   },
 );
 
 Then('第二次重放应返回 deduped 为 true', async ({ bddState }) => {
   const state = getState(bddState);
+  expect(typeof state.replaySecondDeduped).toBe('boolean');
   expect(state.replaySecondDeduped).toBe(true);
 });
 
@@ -228,4 +243,83 @@ Then('两次重放返回的任务 ID 应一致', async ({ bddState }) => {
   expect(typeof state.replayFirstTaskId).toBe('string');
   expect(typeof state.replaySecondTaskId).toBe('string');
   expect(state.replayFirstTaskId).toBe(state.replaySecondTaskId);
+});
+
+When('我重放该任务但不传 requestId', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.replaySourceTaskId).toBe('string');
+
+  const response = await request.post(`/api/tasks/${state.replaySourceTaskId}/replay`, {
+    data: {},
+  });
+
+  state.replayMissingRequestIdStatus = response.status();
+});
+
+Then('重放请求应返回 400', async ({ bddState }) => {
+  const state = getState(bddState);
+  expect(state.replayMissingRequestIdStatus).toBe(400);
+});
+
+Given('我准备了一个非 failed 的图片任务', async ({ request, bddState }) => {
+  const state = getState(bddState);
+
+  const projectRes = await request.post('/api/projects', {
+    data: {
+      title: uniqueTitle('bdd-retry-non-failed-project'),
+    },
+  });
+  if (!projectRes.ok()) {
+    throw new Error(
+      `创建项目失败: status=${projectRes.status()} body=${await projectRes.text()}`,
+    );
+  }
+
+  const project = (await projectRes.json()) as { id?: string };
+  expect(typeof project.id).toBe('string');
+
+  const createTaskRes = await request.post('/api/tasks', {
+    data: {
+      type: 'image-generation',
+      input: {
+        prompt: 'bdd retry non failed image task',
+        owner: {
+          type: 'planScene',
+          id: project.id,
+          slot: 'scene:0',
+        },
+      },
+      relatedId: project.id,
+      relatedMeta: JSON.stringify({
+        sceneIndex: 0,
+      }),
+    },
+  });
+
+  if (createTaskRes.status() !== 201) {
+    throw new Error(
+      `创建任务失败: status=${createTaskRes.status()} body=${await createTaskRes.text()}`,
+    );
+  }
+
+  const payload = (await createTaskRes.json()) as {
+    task?: { id?: string };
+  };
+
+  expect(typeof payload.task?.id).toBe('string');
+  state.retryNonFailedTaskId = payload.task?.id;
+  state.retryNonFailedStatus = undefined;
+});
+
+When('我重试该非 failed 任务', async ({ request, bddState }) => {
+  const state = getState(bddState);
+  expect(typeof state.retryNonFailedTaskId).toBe('string');
+
+  const response = await request.post(`/api/tasks/${state.retryNonFailedTaskId}/retry`);
+  state.retryNonFailedStatus = response.status();
+});
+
+Then('重试请求应返回 400', async ({ bddState }) => {
+  const state = getState(bddState);
+  expect(state.retryNonFailedStatus).toBe(400);
 });
