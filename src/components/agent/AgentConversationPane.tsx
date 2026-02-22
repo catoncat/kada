@@ -929,7 +929,9 @@ export function AgentConversationPane({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="border-b bg-background px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between gap-2">
-            <span>当前状态：{activeStatus}</span>
+            <span data-testid="agent-conversation-status">
+              当前状态：{activeStatus}
+            </span>
             <div className="flex items-center gap-2">
               <Button
                 size="xs"

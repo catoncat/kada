@@ -21,6 +21,19 @@ pnpm dev:sidecar  # 仅 Sidecar（http://localhost:3001）
 pnpm dev:all      # 同时启动两者（推荐）
 ```
 
+## BDD（Chat-First 行为场景）
+
+```bash
+pnpm exec playwright install chromium  # 首次运行前安装浏览器
+pnpm bdd:export   # 导出可用步骤词典（给 AI 生成场景用）
+pnpm bdd:gen      # 从 .feature 生成 Playwright 测试
+pnpm bdd:smoke    # 仅运行 @smoke 场景
+pnpm bdd:test     # 运行全部 BDD 场景
+pnpm bdd:report   # 打开 Playwright HTML 报告
+```
+
+说明：`bdd:test` 会自动启动 `pnpm dev:all`，并使用隔离的 `DATA_DIR=.tmp/bdd-data`。
+
 ## 构建与预览
 
 ```bash

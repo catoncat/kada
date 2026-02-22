@@ -19,6 +19,11 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
+    "bdd:gen": "bddgen -c playwright-bdd.config.ts",
+    "bdd:test": "pnpm bdd:gen && playwright test -c playwright-bdd.config.ts",
+    "bdd:smoke": "bddgen -c playwright-bdd.config.ts --tags \"@smoke and not @wip\" && playwright test -c playwright-bdd.config.ts",
+    "bdd:export": "bddgen export -c playwright-bdd.config.ts",
+    "bdd:report": "playwright show-report",
     "typecheck": "tsc --noEmit",
     "validate": "pnpm typecheck && pnpm lint"
   },
@@ -53,6 +58,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.3",
+    "@playwright/test": "^1.58.2",
     "@tauri-apps/cli": "^2.10.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
@@ -64,6 +70,7 @@
     "@vitest/ui": "^4.0.18",
     "concurrently": "^9.2.1",
     "jsdom": "^28.1.0",
+    "playwright-bdd": "^8.4.2",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5.9.3",
     "vite": "8.0.0-beta.15",

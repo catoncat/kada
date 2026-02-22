@@ -9,13 +9,20 @@
 
 本仓库当前未配置 ESLint/Prettier 等统一格式化工具；改动请尽量保持 diff 小且风格一致。
 
-## 本地验证（替代测试）
+## 本地验证
 
-目前没有 `pnpm test` 脚本/测试框架。提交前至少完成：
+提交前至少完成：
 
 ```bash
-pnpm build
-pnpm dev:all
+pnpm typecheck
+pnpm test:run
+pnpm -C sidecar test
+```
+
+涉及 Chat-First 行为改造（`/workspace`、`/api/agent/**`）时，额外建议：
+
+```bash
+pnpm bdd:smoke
 ```
 
 涉及桌面壳、权限、CSP、文件系统等问题时，额外用：

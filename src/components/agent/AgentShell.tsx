@@ -360,6 +360,8 @@ export function AgentShell() {
                 ? 'border-border/60 bg-muted/20 hover:bg-muted/35'
                 : 'border-transparent hover:border-border/60 hover:bg-muted/35'
           }`}
+          data-testid="agent-session-item"
+          data-session-id={session.id}
           onClick={() => setActiveSessionId(session.id)}
         >
           <div className="flex items-start gap-2">
@@ -438,7 +440,10 @@ export function AgentShell() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold">会话</h3>
-              <p className="text-[11px] text-muted-foreground">
+              <p
+                className="text-[11px] text-muted-foreground"
+                data-testid="agent-active-session-count"
+              >
                 {sortedActiveSessions.length} 个活跃线程
               </p>
             </div>
@@ -458,6 +463,7 @@ export function AgentShell() {
 
         <div
           ref={sessionListRef}
+          data-testid="agent-session-list"
           className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2"
         >
           {sessionsQuery.isLoading ? (
@@ -480,6 +486,7 @@ export function AgentShell() {
             <div className="pt-1">
               <button
                 type="button"
+                data-testid="agent-archived-toggle"
                 className="flex w-full items-center justify-between rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted/40"
                 onClick={() => setShowArchived((prev) => !prev)}
               >

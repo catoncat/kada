@@ -23,6 +23,12 @@ sidecar/sidecar.exe
 # Generated files
 src/routeTree.gen.ts
 
+# Playwright BDD / E2E artifacts
+**/.features-gen/**/*.spec.js
+playwright-report/
+test-results/
+cucumber-report/
+
 # Local agent/codex workspace artifacts
 .codex_tmp/
 .agents/
