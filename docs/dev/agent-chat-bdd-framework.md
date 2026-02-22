@@ -30,11 +30,15 @@ tests/bdd/
     error-recovery.feature
     generation-tasks.feature
     chat-core-flow.feature
+    multi-session-parity.feature
+    resource-context.feature
   steps/
     fixtures.ts
     workspace.steps.ts
     project-generation.steps.ts
     chat-core-flow.steps.ts
+    multi-session-parity.steps.ts
+    resource-context.steps.ts
 playwright-bdd.config.ts
 ```
 
@@ -58,7 +62,7 @@ pnpm bdd:report   # 查看报告
 4. 人工评审场景后，再进入编码。
 5. PR 必须附带新/改场景与执行结果。
 
-## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3）
+## 6. 当前已落地场景（Phase 1 + Phase 2 + Phase 3 + Phase 4）
 
 ### Chat 工作台（UI）
 
@@ -82,6 +86,18 @@ pnpm bdd:report   # 查看报告
   - 运行中 follow-up 入队并应用
   - 运行中 steer 入队并应用
   - 运行中 abort 后状态保持 `aborted`
+
+### 并发隔离（Runtime + API）
+
+- `multi-session-parity.feature`
+  - 双会话并发 turn 不串线
+  - 中断会话 A 不影响会话 B 完成
+
+### 资源上下文（资源检索 + mention）
+
+- `resource-context.feature`
+  - 检索 project / scene / model 资源
+  - turn 中同时验证 mention 成功解析与失效降级（drop）
 
 ## 7. 维护约束
 

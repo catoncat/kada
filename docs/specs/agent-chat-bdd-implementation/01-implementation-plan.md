@@ -30,7 +30,9 @@
 
 - `9eed1cc`：接入 Playwright-BDD 框架（Phase 1）
 - `33fd558`：补充生成任务编排场景（Phase 2）
-- `（Phase 3）`：补充 Chat Core Flow 场景与 deterministic runtime（本轮提交）
+- `f49d1fb`：deterministic runtime 测试模式（Phase 3 支撑）
+- `56ee297`：Chat Core Flow 场景（Phase 3）
+- `（Phase 4）`：并发隔离 + 资源上下文场景（本轮提交）
 
 ### 2.2 已落地文件
 
@@ -42,10 +44,14 @@
   - `tests/bdd/features/chat-workbench/error-recovery.feature`
   - `tests/bdd/features/chat-workbench/generation-tasks.feature`
   - `tests/bdd/features/chat-workbench/chat-core-flow.feature`
+  - `tests/bdd/features/chat-workbench/multi-session-parity.feature`
+  - `tests/bdd/features/chat-workbench/resource-context.feature`
   - `tests/bdd/steps/fixtures.ts`
   - `tests/bdd/steps/workspace.steps.ts`
   - `tests/bdd/steps/project-generation.steps.ts`
   - `tests/bdd/steps/chat-core-flow.steps.ts`
+  - `tests/bdd/steps/multi-session-parity.steps.ts`
+  - `tests/bdd/steps/resource-context.steps.ts`
 - Runtime 测试支撑
   - `sidecar/src/agent/runtime/deterministic-runtime.ts`
   - `sidecar/src/agent/runtime/runtime-router.ts`
@@ -120,28 +126,32 @@ pnpm bdd:report
 - `@northstar` 标签场景新增 4 条并稳定通过。
 - `pnpm bdd:test` 全量通过，`pnpm bdd:smoke` 保持稳定。
 
-## Phase 4（P1）资源与上下文注入
+## Phase 4（进行中，P1）资源与上下文注入
 
 ### 目标
 
 验证 Chat 输入中的资源语义（含 mention）真实进入运行链路。
 
-### 计划任务
+### 已完成任务
 
-1. 新增场景：`resource-context.feature`
-   - 不使用 `@` 的自然语言查询资源
-   - 使用 `@mention` 引用资源与图片
-   - 失效资源降级不阻断执行
-2. 新增 steps：`resource-context.steps.ts`
-3. 校验点
-   - `mentions` 解析与降级行为
-   - tool 调用命中 `resource_*`
-   - 结果回放可追踪
+1. 新增场景：`multi-session-parity.feature`
+   - 双会话并发 turn 不串线
+   - 中断会话 A 不影响会话 B 完成
+2. 新增场景：`resource-context.feature`
+   - 资源检索覆盖 `project/scene/model`
+   - turn 中 mention 成功解析 + 失效降级（drop）
+3. 新增步骤实现
+   - `multi-session-parity.steps.ts`
+   - `resource-context.steps.ts`
 
-### DoD
+### 剩余任务
 
-- mention 正常/降级路径都可自动化验证。
-- 场景覆盖 `project/scene/model/image` 四类资源。
+- 补充 `image` kind 的 mention 成功路径（当前已覆盖 project/scene/model + drop）。
+
+### 阶段判定
+
+- 并发隔离（BDD-005）已达成。
+- 资源上下文（BDD-006）已达成核心路径，image 成功路径待补齐。
 
 ## Phase 5（P1）任务恢复与可恢复反馈
 
@@ -199,8 +209,8 @@ pnpm bdd:report
 | BDD-002 | error-recovery.feature | 关键依赖缺失反馈 | P0 | ✅ |
 | BDD-003 | generation-tasks.feature | 生成任务编排 | P0 | ✅ |
 | BDD-004 | chat-core-flow.feature | turn/steer/follow-up/abort | P0 | ✅ |
-| BDD-005 | multi-session-parity.feature | 多会话并发隔离 | P0 | ⏳ |
-| BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | ⏳ |
+| BDD-005 | multi-session-parity.feature | 多会话并发隔离 | P0 | ✅ |
+| BDD-006 | resource-context.feature | 自然语言资源调用 + mention | P1 | 🟡 |
 | BDD-007 | task-recovery.feature | 失败恢复路径 | P1 | ⏳ |
 | BDD-008 | output-rail-consistency.feature | 产物链路一致性 | P1 | ⏳ |
 
@@ -231,9 +241,9 @@ pnpm bdd:report
 
 ## 7. 执行顺序（下一轮）
 
-1. 新增 `multi-session-parity.feature`（并发会话隔离）。
-2. 新增 `resource-context.feature`（自然语言资源检索 + mention 注入）。
-3. 新增 `task-recovery.feature`（失败恢复动作可执行）。
+1. 补齐 `resource-context.feature` 的 image kind 成功路径。
+2. 新增 `task-recovery.feature`（失败恢复动作可执行）。
+3. 新增 `output-rail-consistency.feature`（产物栏一致性）。
 4. 跑通 `bdd:test` 并将失败报告归档。
 
 ---
@@ -250,8 +260,8 @@ pnpm bdd:report
 ## 9. 新对话启动指令（复制即可）
 
 ```text
-请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 4）：
-1) 新增 multi-session-parity.feature（并发会话隔离）；
-2) 新增 resource-context.feature（自然语言资源检索 + mention）；
+请按 docs/specs/agent-chat-bdd-implementation/01-implementation-plan.md 执行下一阶段（Phase 5）：
+1) 补齐 resource-context 的 image kind 成功路径；
+2) 新增 task-recovery.feature（失败恢复动作可执行）；
 3) 跑 pnpm bdd:test 并提交。
 ```
