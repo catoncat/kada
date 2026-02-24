@@ -62,7 +62,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: BDD PR gate (phase1-6)
+      - name: BDD PR gate (all non-wip)
         run: pnpm bdd:pr-gate
 
       - name: Sidecar tests
