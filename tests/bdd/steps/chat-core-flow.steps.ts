@@ -18,6 +18,11 @@ interface TurnStreamHandle {
   clientMessageId: string;
 }
 
+type QueuedClientMessage = {
+  clientMessageId: string;
+  text: string;
+};
+
 type BddState = Record<string, unknown> & {
   agentSessionId?: string;
   turnStream?: TurnStreamHandle;
@@ -25,6 +30,7 @@ type BddState = Record<string, unknown> & {
   turnResponseStatus?: number;
   turnErrorBody?: string;
   followUpClientMessageId?: string;
+  followUpMessages?: QueuedClientMessage[];
   steerClientMessageId?: string;
 };
 
@@ -184,6 +190,7 @@ Given('我准备了用于 Chat Core 验证的 Deterministic 会话', async ({
   state.turnResponseStatus = undefined;
   state.turnErrorBody = undefined;
   state.followUpClientMessageId = undefined;
+  state.followUpMessages = [];
   state.steerClientMessageId = undefined;
 });
 
@@ -247,6 +254,13 @@ When('我在 turn 运行中发送 follow-up {string}', async ({ request, bddStat
   }
 
   state.followUpClientMessageId = clientMessageId;
+  if (!Array.isArray(state.followUpMessages)) {
+    state.followUpMessages = [];
+  }
+  state.followUpMessages.push({
+    clientMessageId,
+    text,
+  });
 });
 
 When('我在 turn 运行中发送 steer {string}', async ({ request, bddState }, text) => {
@@ -419,36 +433,76 @@ Then('follow-up 应按发送顺序被应用为 {string}', async ({ bddState }, r
   const state = getState(bddState);
   const events = await resolveTurnEvents(state);
 
-  const expected = rawExpected
+  const expectedTexts = rawExpected
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-  expect(expected.length).toBeGreaterThan(0);
+  expect(expectedTexts.length).toBeGreaterThan(0);
 
-  const appliedTexts = events
+  const sentFollowUps = Array.isArray(state.followUpMessages)
+    ? state.followUpMessages
+    : [];
+  expect(sentFollowUps.length).toBeGreaterThanOrEqual(expectedTexts.length);
+
+  const expectedClientMessageIds: string[] = [];
+  let sendCursor = -1;
+  for (const text of expectedTexts) {
+    const nextIndex = sentFollowUps.findIndex(
+      (item, index) => index > sendCursor && item.text === text,
+    );
+    expect(nextIndex).toBeGreaterThan(-1);
+    expectedClientMessageIds.push(sentFollowUps[nextIndex].clientMessageId);
+    sendCursor = nextIndex;
+  }
+
+  const expectedIdSet = new Set(expectedClientMessageIds);
+  const applied = events
     .filter((event) => event.type === 'followup.applied')
     .map((event) => {
       const payload = toPayloadRecord(event.payload);
-      return typeof payload.text === 'string' ? payload.text : '';
+      return {
+        clientMessageId:
+          typeof payload.clientMessageId === 'string'
+            ? payload.clientMessageId
+            : '',
+        text: typeof payload.text === 'string' ? payload.text : '',
+      };
     })
-    .filter(Boolean);
+    .filter((item) => expectedIdSet.has(item.clientMessageId));
 
-  let cursor = -1;
-  for (const text of expected) {
-    const next = appliedTexts.indexOf(text, cursor + 1);
-    expect(next).toBeGreaterThan(-1);
-    cursor = next;
-  }
+  expect(applied.map((item) => item.clientMessageId)).toEqual(
+    expectedClientMessageIds,
+  );
+  expect(applied.map((item) => item.text)).toEqual(expectedTexts);
 });
 
 Then('steer 应在 follow-up 之前被应用', async ({ bddState }) => {
   const state = getState(bddState);
   const events = await resolveTurnEvents(state);
 
-  const steerIndex = events.findIndex((event) => event.type === 'steer.applied');
-  const followUpIndex = events.findIndex(
-    (event) => event.type === 'followup.applied',
-  );
+  expect(typeof state.steerClientMessageId).toBe('string');
+  const steerClientMessageId = state.steerClientMessageId as string;
+
+  const sentFollowUps = Array.isArray(state.followUpMessages)
+    ? state.followUpMessages
+    : [];
+  expect(sentFollowUps.length).toBeGreaterThan(0);
+  const followUpClientMessageId = sentFollowUps[0]?.clientMessageId;
+  if (typeof followUpClientMessageId !== 'string') {
+    throw new Error('缺少 follow-up clientMessageId，无法校验优先级');
+  }
+
+  const steerIndex = events.findIndex((event) => {
+    if (event.type !== 'steer.applied') return false;
+    const payload = toPayloadRecord(event.payload);
+    return payload.clientMessageId === steerClientMessageId;
+  });
+
+  const followUpIndex = events.findIndex((event) => {
+    if (event.type !== 'followup.applied') return false;
+    const payload = toPayloadRecord(event.payload);
+    return payload.clientMessageId === followUpClientMessageId;
+  });
 
   expect(steerIndex).toBeGreaterThan(-1);
   expect(followUpIndex).toBeGreaterThan(-1);

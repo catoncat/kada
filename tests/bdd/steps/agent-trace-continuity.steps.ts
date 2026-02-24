@@ -311,12 +311,11 @@ Then('重复拉取得到的 seq 集合应与第二页一致', async ({ bddState 
   expect(Boolean(secondPage)).toBeTruthy();
   expect(Boolean(repeatPage)).toBeTruthy();
 
-  const secondSeqSet = new Set((secondPage?.data || []).map((row) => row.seq));
-  const repeatSeqSet = new Set((repeatPage?.data || []).map((row) => row.seq));
+  const secondSeq = (secondPage?.data || []).map((row) => row.seq);
+  const repeatSeq = (repeatPage?.data || []).map((row) => row.seq);
 
-  expect(Array.from(repeatSeqSet).sort((a, b) => a - b)).toEqual(
-    Array.from(secondSeqSet).sort((a, b) => a - b),
-  );
+  expect(repeatSeq).toEqual(secondSeq);
+  expect(repeatPage?.cursor).toBe(secondPage?.cursor);
 });
 
 Then('trace 拉取响应状态码应为 {int}', async ({ bddState }, expectedStatus) => {

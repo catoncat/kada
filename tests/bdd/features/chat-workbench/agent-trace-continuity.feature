@@ -1,9 +1,10 @@
-@northstar @trace @phase6
+@northstar @trace @reconnect
 Feature: Agent Trace 连续性
   作为 Chat-Only 工作台用户
   我希望 trace 日志支持游标连续拉取
   以便排查问题时不会漏事件
 
+  @phase6 @phase7
   Scenario: trace 日志可按 cursor 连续分页
     Given 我写入一组同 traceId 的客户端追踪事件
     When 我按 cursor 分页拉取该 trace 日志
@@ -13,14 +14,24 @@ Feature: Agent Trace 连续性
     And 分页结果应绑定到同一 traceId 且包含写入事件
     And 该 trace timeline 的 totalEvents 应不少于 2
 
+  @phase6
   Scenario: 非法 cursor 拉取应降级为首屏数据
     Given 我写入一组同 traceId 的客户端追踪事件
     When 我以非法 cursor 拉取该 trace 日志
     Then trace 拉取响应状态码应为 200
     And trace 返回数据应为 1 条
 
-  Scenario: 超大 cursor 拉取应返回空页
+  @phase6 @phase7
+  Scenario: 超大 cursor 拉取应返回空页且不报错
     Given 我写入一组同 traceId 的客户端追踪事件
     When 我以超大 cursor 拉取该 trace 日志
     Then trace 拉取响应状态码应为 200
     And trace 返回数据应为 0 条
+
+  @phase7
+  Scenario: 使用同一 cursor 重复拉取应返回确定性一致结果
+    Given 我写入一组同 traceId 的客户端追踪事件
+    When 我按 cursor 分页拉取该 trace 日志
+    And 我重复使用第一页 cursor 拉取该 trace 日志
+    Then 重复拉取得到的 seq 集合应与第二页一致
+    And 该 trace timeline 的 totalEvents 应不少于 2
