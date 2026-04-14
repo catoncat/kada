@@ -2,6 +2,18 @@
 
 Kada 咔哒是一款基于 Tauri 2.0 + Sidecar Node.js 的桌面应用，定位为可控的分镜执行系统。
 
+## 界面预览
+
+<p align="center">
+  <img src="docs/readme/showcase-workspace.webp" alt="工作台预览" width="32%" />
+  <img src="docs/readme/showcase-projects.webp" alt="项目页预览" width="32%" />
+  <img src="docs/readme/showcase-settings.webp" alt="设置页预览" width="32%" />
+</p>
+
+<p align="center">
+  工作台 Agent 协作、项目执行总览、服务商与模型配置
+</p>
+
 ## 技术栈
 
 | 层 | 技术 |
